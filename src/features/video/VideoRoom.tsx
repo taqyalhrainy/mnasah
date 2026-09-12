@@ -22,6 +22,8 @@ export function VideoRoom() {
   const startCall = async () => {
     try {
       connectionRef.current?.close();
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+
       const connection = new VideoConnection(roomId.trim(), role, {
         onRemoteStream: (stream) => {
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
@@ -40,6 +42,7 @@ export function VideoRoom() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'تعذر بدء المكالمة';
       setStatus(message);
+      setIsConnected(false);
     }
   };
 
@@ -70,7 +73,7 @@ export function VideoRoom() {
         <div>
           <span className="eyebrow">WebRTC Live Session</span>
           <h2>غرفة مكالمة الأستاذ والطالب</h2>
-          <p>اتصال مباشر P2P بجودة 1080p عند توفر الكاميرا والإنترنت، مع سيرفر signaling محلي للتجربة.</p>
+          <p>افتح الرابط على جهازين. ابدأ كأستاذ أولاً، ثم افتح الجهاز الثاني كطالب بنفس رقم الغرفة.</p>
         </div>
         <div className="status-pill">
           <RadioTower size={17} />
