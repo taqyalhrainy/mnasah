@@ -101,7 +101,7 @@ export function VideoRoom() {
 
       <div className="video-grid">
         <article className="video-panel remote">
-          <video ref={remoteVideoRef} autoPlay playsInline />
+          <video ref={remoteVideoRef} autoPlay playsInline className="mirrored-video" />
           <div className="video-label">الطرف الآخر</div>
         </article>
         <article className="video-panel local">
