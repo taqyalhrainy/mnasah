@@ -2,6 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, Mic, MicOff, PhoneOff, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
+type WakeLockSentinelLike = {
+  release: () => Promise<void>;
+  addEventListener: (type: 'release', listener: () => void) => void;
+};
+
+type WakeLockNavigator = Navigator & {
+  wakeLock?: {
+    request: (type: 'screen') => Promise<WakeLockSentinelLike>;
+  };
+};
+
+declare global {
+  interface Window {
+    mansahCallActive?: boolean;
+  }
+}
+
 export function VideoRoom() {
   const [role, setRole] = useState<VideoRole>('teacher');
   const [roomId, setRoomId] = useState('mansah-demo-room');
@@ -14,12 +31,63 @@ export function VideoRoom() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
 
   useEffect(() => {
     return () => {
+      window.mansahCallActive = false;
+      void wakeLockRef.current?.release();
       connectionRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    window.mansahCallActive = isConnected;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isConnected) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isConnected]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      void wakeLockRef.current?.release();
+      wakeLockRef.current = null;
+      return;
+    }
+
+    const requestWakeLock = async () => {
+      try {
+        const wakeLock = (navigator as WakeLockNavigator).wakeLock;
+        if (!wakeLock || document.visibilityState !== 'visible') return;
+
+        wakeLockRef.current = await wakeLock.request('screen');
+        wakeLockRef.current.addEventListener('release', () => {
+          wakeLockRef.current = null;
+        });
+      } catch {
+        wakeLockRef.current = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void requestWakeLock();
+    };
+
+    void requestWakeLock();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      void wakeLockRef.current?.release();
+      wakeLockRef.current = null;
+    };
+  }, [isConnected]);
 
   const startCall = async () => {
     try {
@@ -64,6 +132,7 @@ export function VideoRoom() {
     setIsScreenSharing(false);
     setRemoteVideoSource('camera');
     setStatus('تم إنهاء الجلسة');
+    window.mansahCallActive = false;
   };
 
   const handleAudioToggle = () => {

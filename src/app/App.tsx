@@ -54,6 +54,11 @@ export function App() {
   }, []);
 
   const navigateTo = (href: string) => {
+    if (window.mansahCallActive && activeSection === 'video' && href !== '/video') {
+      const shouldLeave = window.confirm('الخروج من صفحة المكالمة سيوقف الاتصال ومشاركة الشاشة. هل تريد المتابعة؟');
+      if (!shouldLeave) return;
+    }
+
     window.history.pushState({}, '', href);
     setActiveSection(getSectionFromPath(href));
   };
