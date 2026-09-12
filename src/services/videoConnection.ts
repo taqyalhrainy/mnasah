@@ -25,6 +25,8 @@ export class VideoConnection {
   private peer?: Peer;
   private activeCall?: MediaConnection;
   private localStream?: MediaStream;
+  private retryTimer?: number;
+  private hasRemoteStream = false;
 
   constructor(
     private readonly roomId: string,
@@ -80,6 +82,7 @@ export class VideoConnection {
   }
 
   close() {
+    if (this.retryTimer) window.clearInterval(this.retryTimer);
     this.activeCall?.close();
     this.peer?.destroy();
     this.localStream?.getTracks().forEach((track) => track.stop());
@@ -89,19 +92,19 @@ export class VideoConnection {
     if (!this.peer || !this.localStream) return;
 
     this.peer.on('open', () => {
-      if (this.role === 'teacher') {
-        this.callbacks.onStatus('الأستاذ جاهز، افتح الطالب بنفس كود الغرفة');
-        return;
-      }
-
-      this.callbacks.onStatus('جاري الاتصال بالأستاذ');
-      const call = this.peer?.call(getPeerId(cleanRoomId, 'teacher'), this.localStream!);
-      if (call) this.bindCallEvents(call);
+      this.callbacks.onStatus('بانتظار دخول الطرف الثاني بنفس كود الغرفة');
+      this.startPeerSearch(cleanRoomId);
     });
 
     this.peer.on('call', (call) => {
-      this.callbacks.onStatus('جاري قبول اتصال الطالب');
-      call.answer(this.localStream);
+      if (this.hasRemoteStream) {
+        call.close();
+        return;
+      }
+
+      this.activeCall?.close();
+      this.callbacks.onStatus('جاري قبول الاتصال');
+      call.answer(this.localStream!);
       this.bindCallEvents(call);
     });
 
@@ -112,7 +115,7 @@ export class VideoConnection {
       }
 
       if (error.type === 'peer-unavailable') {
-        this.callbacks.onStatus('افتح الأستاذ أولاً ثم افتح الطالب بنفس كود الغرفة');
+        this.callbacks.onStatus('بانتظار دخول الطرف الثاني بنفس كود الغرفة');
         return;
       }
 
@@ -124,21 +127,41 @@ export class VideoConnection {
     });
   }
 
+  private startPeerSearch(cleanRoomId: string) {
+    const callOtherPeer = () => {
+      if (!this.peer || !this.localStream || this.activeCall || this.hasRemoteStream) return;
+
+      const otherRole: VideoRole = this.role === 'teacher' ? 'student' : 'teacher';
+      const call = this.peer.call(getPeerId(cleanRoomId, otherRole), this.localStream);
+      this.callbacks.onStatus('جاري البحث عن الطرف الثاني');
+      this.bindCallEvents(call);
+    };
+
+    callOtherPeer();
+    this.retryTimer = window.setInterval(callOtherPeer, 2500);
+  }
+
   private bindCallEvents(call: MediaConnection) {
     this.activeCall?.close();
     this.activeCall = call;
 
     call.on('stream', (remoteStream) => {
+      this.hasRemoteStream = true;
+      if (this.retryTimer) window.clearInterval(this.retryTimer);
       this.callbacks.onRemoteStream(remoteStream);
       this.callbacks.onStatus('الاتصال مباشر');
     });
 
     call.on('close', () => {
+      this.hasRemoteStream = false;
+      if (this.activeCall === call) this.activeCall = undefined;
       this.callbacks.onPeerLeft();
       this.callbacks.onStatus('غادر الطرف الآخر الجلسة');
     });
 
     call.on('error', (error) => {
+      if (this.activeCall === call) this.activeCall = undefined;
+
       this.callbacks.onStatus(error.message || 'تعذر إكمال المكالمة');
     });
   }

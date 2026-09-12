@@ -409,6 +409,10 @@ h1 {
   object-fit: cover;
 }
 
+.mirrored-video {
+  transform: scaleX(-1);
+}
+
 .video-panel.local {
   min-height: 220px;
 }

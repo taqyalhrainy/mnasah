@@ -73,7 +73,7 @@ export function VideoRoom() {
         <div>
           <span className="eyebrow">WebRTC Live Session</span>
           <h2>غرفة مكالمة الأستاذ والطالب</h2>
-          <p>افتح الرابط على جهازين. ابدأ كأستاذ أولاً، ثم افتح الجهاز الثاني كطالب بنفس رقم الغرفة.</p>
+          <p>افتح الرابط على جهازين بنفس رقم الغرفة. لا يهم من يبدأ أولاً، الاتصال يكتمل عندما يدخل الطرفان.</p>
         </div>
         <div className="status-pill">
           <RadioTower size={17} />
@@ -105,7 +105,7 @@ export function VideoRoom() {
           <div className="video-label">الطرف الآخر</div>
         </article>
         <article className="video-panel local">
-          <video ref={localVideoRef} autoPlay muted playsInline />
+          <video ref={localVideoRef} autoPlay muted playsInline className="mirrored-video" />
           <div className="video-label">{role === 'teacher' ? 'الأستاذ' : 'الطالب'}</div>
         </article>
       </div>
