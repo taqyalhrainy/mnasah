@@ -1,14 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { CalendarPlus, Check, Download, RefreshCw, Search, Send, Video, X, Save, Ban } from 'lucide-react';
+import { CalendarPlus, Check, Download, RefreshCw, Search, Send, Video, X, Save, Ban, Bell, BellOff } from 'lucide-react';
 import { request, date, money, statusNames, type Booking, type Slot, type Portal, type User, type Message } from '../../services/platformApi';
 import { VideoRoom } from '../video/VideoRoom';
+import { useLessonReminders, reminderPhase } from './useLessonReminders';
 
 type EventRow = { id: string; name: string; action: string; target: string; created: number };
 type Room = { id: string; room: string; role: 'teacher' | 'student' };
 const actionNames: Record<string, string> = { 'user:active': 'تفعيل حساب', 'user:suspended': 'إيقاف حساب', 'booking:cancel': 'إلغاء حصة', 'payment:received': 'تسجيل دفعة', 'payment:reversed': 'عكس دفعة' };
 const formData = (form: HTMLFormElement) => Object.fromEntries(new FormData(form));
 
-export function PortalWorkspace({ portal, user, view, onUser }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void }) {
+export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -23,8 +24,24 @@ export function PortalWorkspace({ portal, user, view, onUser }: { portal: Portal
   const [selected, setSelected] = useState<string | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const reminders = useLessonReminders(portal, user.id, revision, room?.id);
   const refresh = () => setRevision(v => v + 1);
   useEffect(() => { setQuery(''); setFilter('all'); setSelected(null); setSuccess(''); }, [view]);
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('lesson');
+    if (view === 'bookings' && id && bookings.some(b => b.id === id)) {
+      setSelected(id); history.replaceState({}, '', location.pathname);
+    }
+  }, [view, bookings]);
+  useEffect(() => {
+    const open = (event: MessageEvent) => {
+      if (event.data?.type !== 'lesson-reminder' || typeof event.data.id !== 'string') return;
+      history.replaceState({}, '', `/${portal}?lesson=${encodeURIComponent(event.data.id)}`);
+      onView('bookings'); setRevision(value => value + 1);
+    };
+    navigator.serviceWorker?.addEventListener('message', open);
+    return () => navigator.serviceWorker?.removeEventListener('message', open);
+  }, [portal, onView]);
   useEffect(() => {
     let alive = true;
     setLoading(true); setError('');
@@ -76,6 +93,8 @@ export function PortalWorkspace({ portal, user, view, onUser }: { portal: Portal
   }
   const cancel = (b: Booking) => { if (window.confirm(`إلغاء حصة ${b.subject} بتاريخ ${date(b.start)}؟`)) void act(() => post(`bookings/${b.id}/cancel`), 'تم إلغاء الحصة.'); };
   return <div className="portal-content">
+    {portal !== 'admin' && <div className="reminder-settings"><button className="secondary-button" aria-pressed={reminders.enabled} onClick={reminders.toggle} title={reminders.enabled ? 'إيقاف الصوت وإشعارات الجهاز' : 'تفعيل الصوت وإشعارات الجهاز'}>{reminders.enabled ? <Bell size={18} /> : <BellOff size={18} />}{reminders.enabled ? 'التنبيهات مفعّلة' : 'تفعيل تنبيهات الحصص'}</button>{reminders.hint && <small role="status">{reminders.hint}</small>}</div>}
+    {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} aria-hidden="true" /><div><strong>{b.subject}</strong><p role="status">{b.start > reminders.now ? `تبدأ خلال ${Math.ceil((b.start - reminders.now) / 60000)} دقيقة` : 'حان موعد الحصة'}</p></div><button className="primary-button" disabled={busy} onClick={() => { onView('bookings'); void join(b); }}><Video size={17} />دخول الحصة</button></div>)}
     {error && <p className="notice error" role="alert">{error}</p>}
     {success && <p className="notice success" role="status">{success}</p>}
     {room && <div hidden={view !== 'bookings'} className="lesson-call"><div className="section-heading"><h2>الحصة المباشرة</h2><button title="إغلاق الغرفة" className="icon-button" onClick={() => { if (!window.mansahCallActive || window.confirm('إنهاء المكالمة وإغلاق الغرفة؟')) setRoom(null); }}><X size={20} /></button></div><VideoRoom key={room.id} assignedRole={room.role} assignedRoom={room.room} authorize={() => request(`${portal}/bookings/${room.id}/room`)} /></div>}
@@ -88,7 +107,7 @@ export function PortalWorkspace({ portal, user, view, onUser }: { portal: Portal
       {view === 'bookings' && <>
         <div className="metric-band"><div><span>الحصص المؤكدة</span><strong>{bookings.filter(b => b.status === 'confirmed').length}</strong></div><div><span>الحصص المكتملة</span><strong>{bookings.filter(b => b.status === 'completed').length}</strong></div><div><span>{portal === 'students' ? 'دفعاتي المسجلة' : 'الدفعات المسجلة'}</span><strong>{money(bookings.filter(b => b.paid).reduce((sum, b) => sum + b.price, 0))}</strong></div></div>
         {!shownBookings.length && <Empty text={query || filter !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا توجد حجوزات حتى الآن.'} />}
-        <div className="booking-list">{shownBookings.map(b => <article className="booking-row" key={b.id}><div><h2>{b.subject}</h2><p>{portal === 'teachers' ? b.student_name : b.teacher_name}{portal === 'admin' ? ` · ${b.student_name}` : ''}</p><time>{date(b.start)} · {b.minutes} دقيقة</time></div><div className="booking-state"><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><strong>{money(b.price)}</strong><small>{b.paid ? 'دفعة مسجلة' : 'غير مدفوع'}</small>{b.status === 'cancelled' && b.paid === 1 && <small className="refund-note">يلزم مراجعة الاسترداد</small>}</div><div className="row-actions"><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل</button>{b.status === 'confirmed' && portal !== 'admin' && <button className="primary-button" disabled={busy} onClick={() => join(b)}><Video size={17} />دخول الحصة</button>}</div></article>)}</div>
+        <div className="booking-list">{shownBookings.map(b => <article className={portal !== 'admin' && b.id !== room?.id && reminders.upcoming.some(upcoming => upcoming.id === b.id) && reminderPhase(b, reminders.now) ? 'booking-row lesson-pulse' : 'booking-row'} key={b.id}><div><h2>{b.subject}</h2><p>{portal === 'teachers' ? b.student_name : b.teacher_name}{portal === 'admin' ? ` · ${b.student_name}` : ''}</p><time>{date(b.start)} · {b.minutes} دقيقة</time></div><div className="booking-state"><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><strong>{money(b.price)}</strong><small>{b.paid ? 'دفعة مسجلة' : 'غير مدفوع'}</small>{b.status === 'cancelled' && b.paid === 1 && <small className="refund-note">يلزم مراجعة الاسترداد</small>}</div><div className="row-actions"><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل</button>{b.status === 'confirmed' && portal !== 'admin' && <button className="primary-button" disabled={busy} onClick={() => join(b)}><Video size={17} />دخول الحصة</button>}</div></article>)}</div>
       </>}
       {view === 'slots' && <>
         {portal === 'teachers' && <form className="work-form slot-form" onSubmit={async e => {

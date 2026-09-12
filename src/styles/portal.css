@@ -16,6 +16,19 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .business-shell .topbar { border-bottom: 1px solid #dce2e5; padding-bottom: 24px; }
 .account-name { overflow-wrap: anywhere; max-width: 250px; }
 .portal-content { display: grid; gap: 20px; }
+.reminder-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.reminder-settings small { color: #58666c; line-height: 1.7; }
+.lesson-reminder { display: flex; align-items: center; gap: 16px; padding: 16px; border: 2px solid #bb850b; border-radius: 6px; background: #fff4cc; color: #5d430b; }
+.lesson-reminder > div { flex: 1; min-width: 0; }
+.lesson-reminder strong { overflow-wrap: anywhere; }
+.lesson-reminder p { margin: 6px 0 0; }
+.lesson-reminder > svg { flex-shrink: 0; }
+.lesson-pulse { animation: lesson-pulse 2.4s ease-in-out infinite; }
+@keyframes lesson-pulse { 0%, 100% { background-color: #fff4cc; box-shadow: inset 0 0 0 2px #d8a727; } 50% { background-color: #fffdf4; box-shadow: inset 0 0 0 2px transparent; } }
+.booking-row.lesson-pulse { padding-inline: 14px; border-radius: 6px; }
+.booking-row.lesson-pulse .primary-button { outline: 2px solid #c38b13; outline-offset: 3px; }
+@media(prefers-reduced-motion: reduce) { .lesson-pulse { animation: none; background: #fff4cc; border-inline-start: 4px solid #bb850b; } }
+@media(max-width: 520px) { .lesson-reminder { flex-wrap: wrap; } .lesson-reminder > button { width: 100%; } }
 .loading-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 20px; text-align: center; }
 .auth-page { min-height: 100vh; padding: 48px 24px; background: #f4f6f8; }
 .auth-brand { display: flex; gap: 12px; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 48px; }

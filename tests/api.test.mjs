@@ -49,6 +49,9 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('other', `students/slots/${slot.id}`, {}, 409);
   assert.equal((await call('other', 'students/overview')).bookings.length, 0);
   assert.equal((await call('teacher', 'teachers/overview')).bookings.length, 1);
+  assert.equal((await call('teacher', 'teachers/reminders')).bookings.length, 1);
+  assert.equal((await call('other', 'students/reminders')).bookings.length, 0);
+  await call('owner', 'admin/reminders', undefined, 404);
   assert.ok(!(await call('student', 'students/overview')).bookings[0].room);
   await call('other', `students/bookings/${reservation.id}/room`, undefined, 404);
   await call('owner', `admin/bookings/${reservation.id}/room`, undefined, 403);
@@ -64,6 +67,7 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
   await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);
   await call('student', `students/bookings/${reservation.id}/cancel`, {});
+  assert.equal((await call('student', 'students/reminders')).bookings.length, 0);
   await call('student', `students/bookings/${reservation.id}/room`, undefined, 403);
   const second = await call('other', `students/slots/${slot.id}`, {});
   assert.notEqual((await call('other', `students/bookings/${second.id}/room`)).room, studentRoom.room);

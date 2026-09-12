@@ -25,6 +25,10 @@ export async function api(request, env, portal, path, body) {
     return { ok: true };
   }
   if (user.status !== 'active') fail(403, 'طلب انضمامك بانتظار موافقة الإدارة.');
+  if (path === 'reminders' && !write && user.role !== 'admin') {
+    const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
+    return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND s.start>=? AND s.start<=? ORDER BY s.start LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
+  }
   if (path === 'overview' && !write) {
     const where = user.role === 'admin' ? '' : user.role === 'teachers' ? ' WHERE s.teacher_id=?' : ' WHERE b.student_id=?';
     return { bookings: await all(env, `${bookingSelect}${where} ORDER BY s.start DESC LIMIT 500`, ...(where ? [user.id] : [])) };

@@ -9,6 +9,7 @@ Arabic tutoring platform with separate `/admin`, `/teachers`, and `/students` po
 - The owner approves or suspends accounts, views reservations, records or reverses manually received payments with a receipt reference, exports CSV, and reviews the operation log.
 - Every API request checks the session, role and record ownership. No public admin registration. Sessions use hashed random tokens in HttpOnly cookies and are revoked on suspension or password change.
 - Video rooms are limited to the booked student and teacher, from 15 minutes before a lesson to 30 minutes after it ends. Room identifiers rotate on cancellation. Existing PeerJS camera, microphone and desktop screen sharing behavior is preserved.
+- Confirmed lessons glow gently starting 15 minutes before their start, with a countdown across the teacher/student portal. Users can opt into audio and browser notifications, delivered once during the reminder window and once at the start. Reduced-motion preferences disable animation. Reminder polling stops on logout and ignores cancelled lessons; delivery history is device-local and deduplicated across tabs when Web Locks is available. These are open-site reminders, not server push: a closed or OS-suspended browser cannot reliably deliver them.
 
 ## Local Development
 
@@ -30,6 +31,7 @@ For frontend hot reload, keep `npm run dev:worker` on 8787 and run `npm run dev:
 npm run build
 npm test
 node tests/browser.mjs
+node tests/reminders-browser.mjs
 ```
 
 The browser check uses installed Chrome and the running local Worker. It creates local test accounts only. API tests exercise the built Worker against a fresh SQLite database, including unauthorized access, booking conflicts, payment permissions, room isolation, messages, cancellation, and session revocation.
