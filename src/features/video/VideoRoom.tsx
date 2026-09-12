@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, Mic, MicOff, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
+import { Camera, CameraOff, Download, Mic, MicOff, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 type WakeLockSentinelLike = {
@@ -11,6 +11,11 @@ type WakeLockNavigator = Navigator & {
   wakeLock?: {
     request: (type: 'screen') => Promise<WakeLockSentinelLike>;
   };
+};
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
 declare global {
@@ -28,6 +33,7 @@ export function VideoRoom() {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -40,6 +46,16 @@ export function VideoRoom() {
       void wakeLockRef.current?.release();
       connectionRef.current?.close();
     };
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
   useEffect(() => {
@@ -97,7 +113,9 @@ export function VideoRoom() {
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void requestWakeLock();
+      if (document.visibilityState !== 'visible') return;
+      void requestWakeLock();
+      connectionRef.current?.resumeAfterBackground();
     };
 
     void requestWakeLock();
@@ -220,6 +238,17 @@ export function VideoRoom() {
     }
   };
 
+  const handleInstallApp = async () => {
+    if (!installPrompt) return;
+
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === 'accepted') {
+      setInstallPrompt(null);
+      setStatus('تم تثبيت المنصة كتطبيق');
+    }
+  };
+
   return (
     <section className="video-room">
       <div className="video-header">
@@ -300,6 +329,11 @@ export function VideoRoom() {
         >
           <PictureInPicture2 size={20} />
         </button>
+        {installPrompt && (
+          <button className="tool-button" onClick={handleInstallApp} title="تثبيت كتطبيق" type="button">
+            <Download size={20} />
+          </button>
+        )}
         <button className="tool-button danger" disabled={!isConnected} onClick={endCall} title="إنهاء المكالمة" type="button">
           <PhoneOff size={20} />
         </button>

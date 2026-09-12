@@ -32,6 +32,7 @@ export class VideoConnection {
   private cameraTrack?: MediaStreamTrack;
   private screenTrack?: MediaStreamTrack;
   private videoSource: VideoSource = 'camera';
+  private cleanRoomId?: string;
   private retryTimer?: number;
   private hasRemoteStream = false;
 
@@ -46,6 +47,7 @@ export class VideoConnection {
     if (!cleanRoomId) {
       throw new Error('اكتب رقم غرفة صحيح');
     }
+    this.cleanRoomId = cleanRoomId;
 
     this.callbacks.onStatus('جاري تشغيل الكاميرا والمايك');
     this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -207,10 +209,32 @@ export class VideoConnection {
 
     this.peer.on('disconnected', () => {
       this.callbacks.onStatus('انقطع اتصال الإشارة، حاول بدء الجلسة مرة أخرى');
+      this.reconnectSignaling();
     });
   }
 
+  reconnectSignaling() {
+    if (!this.peer || this.peer.destroyed || !this.peer.disconnected) return;
+
+    try {
+      this.peer.reconnect();
+      this.callbacks.onStatus(this.hasRemoteStream ? 'الاتصال مباشر' : 'جاري إعادة الاتصال');
+    } catch {
+      this.callbacks.onStatus('تعذر إعادة الاتصال تلقائياً');
+    }
+  }
+
+  resumeAfterBackground() {
+    this.reconnectSignaling();
+
+    if (!this.hasRemoteStream && this.cleanRoomId) {
+      this.startPeerSearch(this.cleanRoomId);
+    }
+  }
+
   private startPeerSearch(cleanRoomId: string) {
+    if (this.retryTimer) window.clearInterval(this.retryTimer);
+
     const callOtherPeer = () => {
       if (!this.peer || !this.localStream || this.activeCall || this.hasRemoteStream) return;
 
