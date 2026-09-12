@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, Download, Mic, MicOff, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
-const ANDROID_APP_DOWNLOAD_URL = '';
+const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
 
 type WakeLockSentinelLike = {
   release: () => Promise<void>;
