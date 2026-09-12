@@ -452,6 +452,12 @@ h1 {
   background: #edf5ef;
 }
 
+.tool-button.active-share {
+  color: #ffffff;
+  border-color: #24745a;
+  background: #24745a;
+}
+
 .tool-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;

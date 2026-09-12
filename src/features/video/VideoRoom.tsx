@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, Mic, MicOff, PhoneOff, RadioTower } from 'lucide-react';
-import { VideoConnection, VideoRole } from '../../services/videoConnection';
+import { Camera, CameraOff, Mic, MicOff, PhoneOff, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
+import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 export function VideoRoom() {
   const [role, setRole] = useState<VideoRole>('teacher');
@@ -9,6 +9,8 @@ export function VideoRoom() {
   const [isConnected, setIsConnected] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
@@ -23,14 +25,21 @@ export function VideoRoom() {
     try {
       connectionRef.current?.close();
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      setIsScreenSharing(false);
+      setRemoteVideoSource('camera');
 
       const connection = new VideoConnection(roomId.trim(), role, {
         onRemoteStream: (stream) => {
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
           setStatus('الاتصال مباشر');
         },
+        onRemoteVideoSource: setRemoteVideoSource,
+        onLocalVideoSource: (source) => {
+          setIsScreenSharing(source === 'screen');
+        },
         onPeerLeft: () => {
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+          setRemoteVideoSource('camera');
         },
         onStatus: setStatus,
       });
@@ -52,6 +61,8 @@ export function VideoRoom() {
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setIsConnected(false);
+    setIsScreenSharing(false);
+    setRemoteVideoSource('camera');
     setStatus('تم إنهاء الجلسة');
   };
 
@@ -65,6 +76,27 @@ export function VideoRoom() {
     const nextValue = !videoEnabled;
     setVideoEnabled(nextValue);
     connectionRef.current?.toggleVideo(nextValue);
+  };
+
+  const handleScreenShareToggle = async () => {
+    try {
+      if (!connectionRef.current) return;
+
+      if (isScreenSharing) {
+        const cameraStream = await connectionRef.current.stopScreenShare();
+        if (localVideoRef.current && cameraStream) localVideoRef.current.srcObject = cameraStream;
+        setIsScreenSharing(false);
+        return;
+      }
+
+      const screenStream = await connectionRef.current.startScreenShare();
+      if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
+      setIsScreenSharing(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر مشاركة الشاشة';
+      setStatus(message);
+      setIsScreenSharing(false);
+    }
   };
 
   return (
@@ -101,11 +133,11 @@ export function VideoRoom() {
 
       <div className="video-grid">
         <article className="video-panel remote">
-          <video ref={remoteVideoRef} autoPlay playsInline className="mirrored-video" />
+          <video ref={remoteVideoRef} autoPlay playsInline className={remoteVideoSource === 'camera' ? 'mirrored-video' : undefined} />
           <div className="video-label">الطرف الآخر</div>
         </article>
         <article className="video-panel local">
-          <video ref={localVideoRef} autoPlay muted playsInline className="mirrored-video" />
+          <video ref={localVideoRef} autoPlay muted playsInline className={isScreenSharing ? undefined : 'mirrored-video'} />
           <div className="video-label">{role === 'teacher' ? 'الأستاذ' : 'الطالب'}</div>
         </article>
       </div>
@@ -128,6 +160,15 @@ export function VideoRoom() {
           type="button"
         >
           {videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}
+        </button>
+        <button
+          className={isScreenSharing ? 'tool-button active-share' : 'tool-button'}
+          disabled={!isConnected}
+          onClick={handleScreenShareToggle}
+          title={isScreenSharing ? 'إيقاف مشاركة الشاشة' : 'مشاركة الشاشة'}
+          type="button"
+        >
+          {isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}
         </button>
         <button className="tool-button danger" disabled={!isConnected} onClick={endCall} title="إنهاء المكالمة" type="button">
           <PhoneOff size={20} />
