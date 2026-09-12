@@ -1,59 +1,62 @@
 # Mansah
 
-منصة تعليم خصوصي كبداية حقيقية قابلة للتوسع، فيها ثلاث روابط رئيسية منفصلة:
+Arabic tutoring platform with separate `/admin`, `/teachers`, and `/students` portals. React runs in the browser; a Cloudflare Worker enforces account permissions and stores shared data in D1. The public `/video` shortcut redirects into the signed-in portal; rooms are opened from reservations.
 
-- `/admin` قسم الأونر والأدمن
-- `/teachers` قسم الأساتذة
-- `/students` قسم الطلاب
+## Workflows
 
-وتوجد غرفة فيديو داخلية للحصص المباشرة:
+- Students register, browse available appointments, reserve a lesson, cancel future reservations, read materials, and message their teacher.
+- Teachers register for approval, maintain their profile, publish non-overlapping appointments, enter booked lessons, share lesson notes and HTTPS resource links, and complete past lessons.
+- The owner approves or suspends accounts, views reservations, records or reverses manually received payments with a receipt reference, exports CSV, and reviews the operation log.
+- Every API request checks the session, role and record ownership. No public admin registration. Sessions use hashed random tokens in HttpOnly cookies and are revoked on suspension or password change.
+- Video rooms are limited to the booked student and teacher, from 15 minutes before a lesson to 30 minutes after it ends. Room identifiers rotate on cancellation. Existing PeerJS camera, microphone and desktop screen sharing behavior is preserved.
 
-- `/video` مكالمة فيديو بين الأستاذ والطالب باستخدام WebRTC وSocket.IO
+## Local Development
 
-## التشغيل المحلي
+Requires Node.js 24 and npm.
 
-```bash
-npm install
+```sh
+npm ci
+npm run db:local
 npm run dev
 ```
 
-الواجهة تعمل على:
+Open `http://127.0.0.1:8787/students`, `/teachers`, or `/admin`. Configure a local-only `OWNER_SETUP_TOKEN` in ignored `.dev.vars`. Open `/admin#setup=YOUR_LOCAL_TOKEN` to create the owner once. Never commit this token or use the local testing value in production.
 
-```text
-http://localhost:5173
+For frontend hot reload, keep `npm run dev:worker` on 8787 and run `npm run dev:client` on 5173.
+
+## Checks
+
+```sh
+npm run build
+npm test
+node tests/browser.mjs
 ```
 
-الروابط:
+The browser check uses installed Chrome and the running local Worker. It creates local test accounts only. API tests exercise the built Worker against a fresh SQLite database, including unauthorized access, booking conflicts, payment permissions, room isolation, messages, cancellation, and session revocation.
 
-```text
-http://localhost:5173/admin
-http://localhost:5173/teachers
-http://localhost:5173/students
-```
+## Source Layout
 
-وسيرفر الإشارات الخاص بالفيديو يعمل على:
+| Directory | Responsibility |
+| --- | --- |
+| `src/app` | Portal shell and navigation |
+| `src/features/auth` | Login and registration |
+| `src/features/portal` | Accounts, appointments and reservations |
+| `src/features/video` | Lesson call UI |
+| `src/services` | API client and PeerJS connection |
+| `worker` | Authentication, authorization and server API |
+| `db`, `drizzle` | Schema and generated migrations |
+| `scripts` | Worker build and packaging support |
+| `tests` | API and browser workflow checks |
+| `android` | Existing Android wrapper |
 
-```text
-http://localhost:4000
-```
+## Publishing and Operations
 
-## تجربة مكالمة الفيديو
+Reuse the Sites project in `.openai/hosting.json`. `npm run build` emits `dist/client`, `dist/server/index.js` and `dist/.openai`, including schema migrations. Configure a unique secret `OWNER_SETUP_TOKEN` through Sites runtime settings before the first deployment. It permits exactly one owner account, then becomes unusable. Keep its setup link private.
 
-افتح:
+Generate future migrations with `npm run db:generate`; do not rewrite already deployed migrations. Prices are stored as integer hundredths of JOD. Times are stored as UTC milliseconds and displayed in the visitor's device timezone. Lists currently return up to 500 reservations/appointments and 1,000 accounts; extend pagination before those limits are reached.
 
-```text
-http://localhost:5173/video
-```
+Payment records represent manual receipt confirmation, not card processing or automatic refunds. Cancelled paid lessons are flagged for refund review. Email verification, automated password recovery, notifications and a payment processor are not connected. Arrange D1 backups and retention procedures before collecting substantial business data.
 
-من نافذتين أو جهازين. في النافذة الأولى اختر أستاذ، وفي الثانية اختر طالب، واستخدم نفس رقم الغرفة في الطرفين.
+PeerJS currently uses hosted public signaling and STUN. A managed TURN service is still required for reliable connectivity on restrictive networks. The room gate revokes access on the next client check (30 seconds); existing direct media is not centrally terminable without a managed media/signaling service. No recording is performed.
 
-## ملاحظات مهمة للإنتاج
-
-هذه نسخة بداية منظمة. حتى تصبح منصة إنتاج كاملة ستحتاج لاحقا إلى:
-
-- تسجيل دخول وصلاحيات حقيقية للأدمن، الأستاذ، والطالب
-- قاعدة بيانات للحجوزات والمدفوعات والمواد
-- TURN server لضمان عمل الفيديو خلف الشبكات الصعبة
-- بوابة دفع
-- نظام إشعارات ورسائل
-- لوحة مراجعة وتوثيق للأساتذة
+The downloadable APK is the existing debug-signed WebView wrapper. It receives website updates live. Native Android screen capture and a release-signed application are not implemented; native changes require an APK update.

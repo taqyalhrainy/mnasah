@@ -5,3 +5,8 @@ dist
 npm-debug.log*
 *.tsbuildinfo
 *.tar.gz
+.wrangler
+.dev.vars
+playwright-report
+test-results
+.private

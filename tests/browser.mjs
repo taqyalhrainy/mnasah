@@ -1,0 +1,73 @@
+import { chromium } from '@playwright/test';
+import assert from 'node:assert/strict';
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const base = 'http://127.0.0.1:8787';
+const errors = [];
+const suffix = Date.now();
+async function context(viewport) {
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage();
+  page.on('pageerror', e => errors.push(e.message));
+  return { context, page };
+}
+async function post(context, path, data) {
+  const res = await context.request.post(`${base}/api/${path}`, { headers: { Origin: base }, data });
+  const body = await res.json();
+  assert.equal(res.status(), 200, JSON.stringify(body));
+  return body;
+}
+try {
+  const owner = await context({ width: 1440, height: 1000 });
+  const setup = await owner.context.request.post(`${base}/api/auth/setup`, { headers: { Origin: base }, data: { token: 'local-testing-owner-token', role: 'admin', name: 'Local Owner', email: 'owner@local.test', password: 'Local-password-12345' } });
+  if (setup.status() === 409) await post(owner.context, 'auth/login', { role: 'admin', email: 'owner@local.test', password: 'Local-password-12345' });
+  else assert.equal(setup.status(), 200, await setup.text());
+  const teacher = await context({ width: 1440, height: 1000 });
+  const student = await context({ width: 390, height: 844 });
+  const teacherUser = (await post(teacher.context, 'auth/register', { role: 'teachers', name: 'أستاذ الرياضيات', email: `teacher-${suffix}@local.test`, password: 'Local-password-12345' })).user;
+  await owner.page.goto(`${base}/admin`);
+  await owner.page.getByRole('button', { name: 'الحسابات وطلبات الانضمام', exact: true }).click();
+  const row = owner.page.locator('.user-row').filter({ hasText: teacherUser.email });
+  owner.page.on('dialog', d => d.accept());
+  await row.getByRole('button', { name: 'قبول وتفعيل' }).click();
+  await owner.page.getByRole('status').filter({ hasText: 'تم حفظ' }).waitFor();
+  await post(teacher.context, 'auth/login', { role: 'teachers', email: teacherUser.email, password: 'Local-password-12345' });
+  await teacher.page.goto(`${base}/teachers`);
+  await teacher.page.getByRole('button', { name: 'مواعيدي المتاحة' }).click();
+  await teacher.page.getByLabel('المادة', { exact: true }).fill(`الجبر ${suffix}`);
+  const start = new Date(Date.now() + 300000); start.setMinutes(start.getMinutes() - start.getTimezoneOffset());
+  await teacher.page.getByLabel('التاريخ والوقت').fill(start.toISOString().slice(0, 16));
+  await teacher.page.getByLabel('السعر بالدينار الأردني').fill('15');
+  await teacher.page.getByRole('button', { name: 'نشر الموعد' }).click();
+  await teacher.page.getByRole('status').filter({ hasText: 'تم نشر' }).waitFor();
+  await student.page.goto(`${base}/students`);
+  await student.page.getByRole('button', { name: 'إنشاء حساب جديد' }).click();
+  await student.page.getByLabel('الاسم الكامل').fill('طالب المنصة');
+  await student.page.getByLabel('البريد الإلكتروني').fill(`student-${suffix}@local.test`);
+  await student.page.getByLabel('كلمة المرور', { exact: true }).fill('Local-password-12345');
+  await student.page.getByRole('button', { name: 'إنشاء الحساب', exact: true }).click();
+  await student.page.getByRole('button', { name: 'حجز حصة', exact: true }).click();
+  student.page.on('dialog', d => d.accept());
+  await student.page.locator('.slot-item').filter({ hasText: `الجبر ${suffix}` }).getByRole('button', { name: 'حجز الحصة', exact: true }).click();
+  await student.page.getByRole('status').filter({ hasText: 'تم تأكيد' }).waitFor();
+  await student.page.getByRole('button', { name: 'الحصص والحجوزات', exact: true }).click();
+  await student.page.getByRole('button', { name: 'التفاصيل', exact: true }).click();
+  await student.page.getByLabel('رسالة جديدة').fill('مرحبا أستاذ، جاهز للحصة.');
+  await student.page.getByRole('button', { name: 'إرسال', exact: true }).click();
+  await student.page.locator('.lesson-messages article').filter({ hasText: 'جاهز للحصة' }).waitFor();
+  await student.page.screenshot({ path: '.private/mobile-detail.png', fullPage: true });
+  await student.page.getByTitle('إغلاق التفاصيل').click();
+  await student.page.screenshot({ path: '.private/mobile-students.png', fullPage: true });
+  await teacher.page.getByRole('button', { name: 'الحصص والحجوزات', exact: true }).click();
+  await teacher.page.locator('.booking-row').filter({ hasText: `الجبر ${suffix}` }).waitFor();
+  await teacher.page.screenshot({ path: '.private/desktop-teachers.png', fullPage: true });
+  await owner.page.screenshot({ path: '.private/desktop-admin.png', fullPage: true });
+  for (const item of [owner, teacher, student]) {
+    const overflow = await item.page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    assert.equal(overflow, false, 'horizontal overflow');
+  }
+  await student.page.goto(`${base}/admin`);
+  await student.page.getByRole('heading', { name: 'هذا القسم غير متاح لحسابك' }).waitFor();
+  assert.equal(await student.page.evaluate(async () => (await fetch('/api/admin/users')).status), 403);
+  assert.deepEqual(errors, []);
+  console.log('Browser checks passed: approvals, publishing slots, registration, booking, messages, role isolation, mobile and desktop layout.');
+} finally { await browser.close(); }

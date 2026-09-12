@@ -1,0 +1,80 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import worker from '../dist/server/index.js';
+
+function database() {
+  const db = new DatabaseSync(':memory:');
+  db.exec(readFileSync(new URL('../drizzle/0000_rainy_yellow_claw.sql', import.meta.url), 'utf8'));
+  const prepare = sql => ({ bind(...args) {
+    const statement = db.prepare(sql);
+    return { first: () => statement.get(...args) || null, all: () => ({ results: statement.all(...args) }), run: () => ({ meta: { changes: Number(statement.run(...args).changes) } }) };
+  } });
+  return { prepare, batch: async statements => { db.exec('BEGIN'); try { const results = statements.map(s => s.run()); db.exec('COMMIT'); return results; } catch(e) { db.exec('ROLLBACK'); throw e; } }, db };
+}
+test('authorization and the full reservation lifecycle', async () => {
+  const DB = database(), env = { DB, OWNER_SETUP_TOKEN: 'private-owner-setup-token', ASSETS: { fetch: () => new Response('asset') } };
+  const clients = {};
+  async function call(who, path, data, expected = 200, headers = {}) {
+    const request = new Request(`https://mansah.test/api/${path}`, { method: data === undefined ? 'GET' : 'POST', headers: { cookie: clients[who] || '', ...(data === undefined ? {} : { origin: 'https://mansah.test', 'content-type': 'application/json' }), ...headers }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
+    const response = await worker.fetch(request, env);
+    const body = await response.json();
+    assert.equal(response.status, expected, `${path}: ${JSON.stringify(body)}`);
+    if (response.headers.has('set-cookie')) clients[who] = response.headers.get('set-cookie').split(';')[0];
+    return body;
+  }
+  const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role });
+  await call('guest', 'admin/users', undefined, 401);
+  await call('guest', 'auth/register', credentials('evil@test.com', 'admin'), 403);
+  await call('guest', 'auth/setup', { ...credentials('owner@test.com', 'admin'), token: 'wrong' }, 403);
+  await call('owner', 'auth/setup', { ...credentials('owner@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN });
+  await call('guest', 'auth/setup', { ...credentials('owner2@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN }, 409);
+  const teacher = (await call('teacher', 'auth/register', credentials('teacher@test.com', 'teachers'))).user;
+  const student = (await call('student', 'auth/register', credentials('student@test.com', 'students'))).user;
+  await call('other', 'auth/register', credentials('other@test.com', 'students'));
+  await call('teacher', 'teachers/slots', undefined, 403);
+  await call('teacher', 'teachers/profile', { name: 'Teacher', subject: 'Math', bio: 'Algebra tutor' });
+  await call('student', 'admin/users', undefined, 403);
+  await call('student', 'teachers/slots', undefined, 403);
+  await call('owner', `admin/users/${teacher.id}`, { status: 'active' });
+  await call('teacher', 'auth/login', credentials('teacher@test.com', 'teachers'));
+  await call('student', 'auth/login', credentials('student@test.com', 'admin'), 401);
+  await call('teacher', 'teachers/slots', { start: Date.now() - 1000, minutes: 60, price: 1500, subject: 'Math' }, 400);
+  const start = Date.now() + 300000;
+  await call('teacher', 'teachers/slots', { start, minutes: 60, price: 1500, subject: 'Math' });
+  await call('teacher', 'teachers/slots', { start: start + 60000, minutes: 60, price: 1500, subject: 'Math' }, 409);
+  const slot = (await call('student', 'students/slots')).slots[0];
+  const reservation = await call('student', `students/slots/${slot.id}`, {});
+  await call('other', `students/slots/${slot.id}`, {}, 409);
+  assert.equal((await call('other', 'students/overview')).bookings.length, 0);
+  assert.equal((await call('teacher', 'teachers/overview')).bookings.length, 1);
+  assert.ok(!(await call('student', 'students/overview')).bookings[0].room);
+  await call('other', `students/bookings/${reservation.id}/room`, undefined, 404);
+  await call('owner', `admin/bookings/${reservation.id}/room`, undefined, 403);
+  const studentRoom = await call('student', `students/bookings/${reservation.id}/room`);
+  assert.equal(studentRoom.room, (await call('teacher', `teachers/bookings/${reservation.id}/room`)).room);
+  await call('student', `students/bookings/${reservation.id}/payment`, { paid: 1, reference: 'fake' }, 404);
+  await call('teacher', `teachers/bookings/${reservation.id}/notes`, { notes: 'Homework', resource: 'javascript:alert(1)' }, 400);
+  await call('teacher', `teachers/bookings/${reservation.id}/notes`, { notes: 'Homework', resource: 'https://example.com/material' });
+  assert.equal((await call('student', 'students/overview')).bookings[0].notes, 'Homework');
+  await call('student', `students/bookings/${reservation.id}/messages`, { body: 'Hello teacher' });
+  assert.equal((await call('teacher', `teachers/bookings/${reservation.id}/messages`)).messages[0].body, 'Hello teacher');
+  await call('other', `students/bookings/${reservation.id}/messages`, undefined, 404);
+  await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
+  await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);
+  await call('student', `students/bookings/${reservation.id}/cancel`, {});
+  await call('student', `students/bookings/${reservation.id}/room`, undefined, 403);
+  const second = await call('other', `students/slots/${slot.id}`, {});
+  assert.notEqual((await call('other', `students/bookings/${second.id}/room`)).room, studentRoom.room);
+  await call('student', `students/bookings/${reservation.id}/cancel`, {}, 409);
+  assert.equal((await call('student', 'students/slots')).slots.length, 0);
+  await call('owner', `admin/users/${student.id}`, { status: 'suspended' });
+  await call('student', 'students/overview', undefined, 401);
+  await call('student', 'auth/login', credentials('student@test.com', 'students'), 403);
+  await call('other', 'students/profile', { name: 'Evil', subject: '', bio: '' }, 403, { origin: 'https://evil.test' });
+  await call('other', 'auth/logout', {});
+  await call('other', 'students/overview', undefined, 401);
+  assert.ok((await call('owner', 'admin/audit')).events.length >= 4);
+  DB.db.close();
+});

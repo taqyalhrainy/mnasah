@@ -26,9 +26,7 @@ declare global {
   }
 }
 
-export function VideoRoom() {
-  const [role, setRole] = useState<VideoRole>('teacher');
-  const [roomId, setRoomId] = useState('mansah-demo-room');
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize }: { assignedRole: VideoRole; assignedRoom: string; authorize: () => Promise<unknown> }) {
   const [status, setStatus] = useState('جاهز لبدء الجلسة');
   const [isConnected, setIsConnected] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -133,6 +131,7 @@ export function VideoRoom() {
 
   const startCall = async () => {
     try {
+      await authorize();
       connectionRef.current?.close();
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setIsScreenSharing(false);
@@ -264,9 +263,7 @@ export function VideoRoom() {
     <section className="video-room">
       <div className="video-header">
         <div>
-          <span className="eyebrow">WebRTC Live Session</span>
-          <h2>غرفة مكالمة الأستاذ والطالب</h2>
-          <p>افتح الرابط على جهازين بنفس رقم الغرفة. لا يهم من يبدأ أولاً، الاتصال يكتمل عندما يدخل الطرفان.</p>
+          <h2>غرفة الحصة</h2>
         </div>
         <div className="status-pill">
           <RadioTower size={17} />
@@ -275,18 +272,7 @@ export function VideoRoom() {
       </div>
 
       <div className="session-controls">
-        <label>
-          نوع الدخول
-          <select value={role} onChange={(event) => setRole(event.target.value as VideoRole)}>
-            <option value="teacher">أستاذ</option>
-            <option value="student">طالب</option>
-          </select>
-        </label>
-        <label>
-          رقم الغرفة
-          <input value={roomId} onChange={(event) => setRoomId(event.target.value)} />
-        </label>
-        <button className="primary-button" type="button" onClick={startCall}>
+        <button className="primary-button" type="button" disabled={isConnected} onClick={startCall}>
           <Camera size={18} />
           بدء الجلسة
         </button>
@@ -296,7 +282,7 @@ export function VideoRoom() {
         <div className="unsupported-share-panel" role="status">
           <div>
             <strong>مشاركة الشاشة غير مدعومة من متصفح الهاتف</strong>
-            <p>على أندرويد، مشاركة شاشة الجهاز تحتاج تطبيق Mansah Android حتى نستخدم صلاحية النظام الخاصة بالشاشة.</p>
+            <p>استخدم متصفح الكمبيوتر لمشاركة الشاشة. مشاركة شاشة أندرويد غير متاحة في نسخة التطبيق الحالية.</p>
           </div>
           {ANDROID_APP_DOWNLOAD_URL ? (
             <a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL}>

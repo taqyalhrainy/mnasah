@@ -1,0 +1,16 @@
+export type Portal = 'admin' | 'teachers' | 'students';
+export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string };
+export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?: string; start: number; minutes: number; price: number; subject: string; status: string };
+export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string };
+export type Message = { id: string; body: string; created: number; name: string };
+export async function request<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`/api/${path}`, { credentials: 'same-origin', cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
+  let data;
+  try { data = await response.json(); } catch { throw new Error('تعذر الاتصال بالخدمة. حاول مجددًا.'); }
+  if (!response.ok) throw new Error(data.error || 'تعذر تنفيذ الطلب.');
+  return data;
+}
+export const portalNames: Record<Portal, string> = { admin: 'الإدارة والأونر', teachers: 'بوابة الأساتذة', students: 'بوابة الطلاب' };
+export const statusNames: Record<string, string> = { active: 'نشط', pending: 'بانتظار الموافقة', suspended: 'موقوف', confirmed: 'مؤكدة', completed: 'مكتملة', cancelled: 'ملغاة', open: 'متاح', booked: 'محجوز' };
+export const date = (value: number) => new Intl.DateTimeFormat('ar-JO', { dateStyle: 'medium', timeStyle: 'short' }).format(value);
+export const money = (value: number) => new Intl.NumberFormat('ar-JO', { style: 'currency', currency: 'JOD' }).format(value / 100);

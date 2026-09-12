@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789226777799,
+      "tag": "0000_rainy_yellow_claw",
+      "breakpoints": true
+    }
+  ]
+}
