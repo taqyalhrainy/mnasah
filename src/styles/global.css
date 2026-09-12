@@ -391,6 +391,50 @@ h1 {
   background: #f9faf7;
 }
 
+.unsupported-share-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid #f0d28a;
+  border-radius: 8px;
+  background: #fff8e7;
+}
+
+.unsupported-share-panel strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.unsupported-share-panel p {
+  margin-bottom: 0;
+  color: #6b5b35;
+  line-height: 1.7;
+}
+
+.download-app-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #24745a;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.download-app-button.disabled {
+  cursor: not-allowed;
+  background: #8b948c;
+}
+
 .video-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -521,8 +565,14 @@ h1 {
   .nav-list,
   .stats-grid,
   .action-grid,
-  .session-controls {
+  .session-controls,
+  .unsupported-share-panel {
     grid-template-columns: 1fr;
+  }
+
+  .unsupported-share-panel {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .nav-button {

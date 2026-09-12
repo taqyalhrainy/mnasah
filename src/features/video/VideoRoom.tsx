@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, Download, Mic, MicOff, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
+const ANDROID_APP_DOWNLOAD_URL = '';
+
 type WakeLockSentinelLike = {
   release: () => Promise<void>;
   addEventListener: (type: 'release', listener: () => void) => void;
@@ -34,6 +36,7 @@ export function VideoRoom() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showAndroidAppPrompt, setShowAndroidAppPrompt] = useState(false);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -133,6 +136,7 @@ export function VideoRoom() {
       connectionRef.current?.close();
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setIsScreenSharing(false);
+      setShowAndroidAppPrompt(false);
       setRemoteVideoSource('camera');
 
       const connection = new VideoConnection(roomId.trim(), role, {
@@ -170,6 +174,7 @@ export function VideoRoom() {
     setIsConnected(false);
     setIsScreenSharing(false);
     setIsPictureInPicture(false);
+    setShowAndroidAppPrompt(false);
     setRemoteVideoSource('camera');
     setStatus('تم إنهاء الجلسة');
     window.mansahCallActive = false;
@@ -201,9 +206,15 @@ export function VideoRoom() {
       const screenStream = await connectionRef.current.startScreenShare();
       if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
       setIsScreenSharing(true);
+      setShowAndroidAppPrompt(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'تعذر مشاركة الشاشة';
-      setStatus(message);
+      if (message.includes('غير مدعومة')) {
+        setShowAndroidAppPrompt(true);
+        setStatus('مشاركة شاشة الهاتف تحتاج تطبيق أندرويد');
+      } else {
+        setStatus(message);
+      }
       setIsScreenSharing(false);
     }
   };
@@ -280,6 +291,26 @@ export function VideoRoom() {
           بدء الجلسة
         </button>
       </div>
+
+      {showAndroidAppPrompt && (
+        <div className="unsupported-share-panel" role="status">
+          <div>
+            <strong>مشاركة الشاشة غير مدعومة من متصفح الهاتف</strong>
+            <p>على أندرويد، مشاركة شاشة الجهاز تحتاج تطبيق Mansah Android حتى نستخدم صلاحية النظام الخاصة بالشاشة.</p>
+          </div>
+          {ANDROID_APP_DOWNLOAD_URL ? (
+            <a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL}>
+              <Download size={18} />
+              تنزيل التطبيق
+            </a>
+          ) : (
+            <button className="download-app-button disabled" disabled type="button">
+              <Download size={18} />
+              التطبيق غير مرفوع بعد
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="video-grid">
         <article className="video-panel remote">
