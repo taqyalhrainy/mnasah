@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, Mic, MicOff, PhoneOff, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 type WakeLockSentinelLike = {
@@ -27,6 +27,7 @@ export function VideoRoom() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -52,6 +53,26 @@ export function VideoRoom() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isConnected]);
+
+  useEffect(() => {
+    const handleEnterPictureInPicture = () => setIsPictureInPicture(true);
+    const handleLeavePictureInPicture = () => setIsPictureInPicture(false);
+
+    const localVideo = localVideoRef.current;
+    const remoteVideo = remoteVideoRef.current;
+
+    localVideo?.addEventListener('enterpictureinpicture', handleEnterPictureInPicture);
+    localVideo?.addEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+    remoteVideo?.addEventListener('enterpictureinpicture', handleEnterPictureInPicture);
+    remoteVideo?.addEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+
+    return () => {
+      localVideo?.removeEventListener('enterpictureinpicture', handleEnterPictureInPicture);
+      localVideo?.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+      remoteVideo?.removeEventListener('enterpictureinpicture', handleEnterPictureInPicture);
+      remoteVideo?.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+    };
   }, [isConnected]);
 
   useEffect(() => {
@@ -130,6 +151,7 @@ export function VideoRoom() {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setIsConnected(false);
     setIsScreenSharing(false);
+    setIsPictureInPicture(false);
     setRemoteVideoSource('camera');
     setStatus('تم إنهاء الجلسة');
     window.mansahCallActive = false;
@@ -165,6 +187,36 @@ export function VideoRoom() {
       const message = error instanceof Error ? error.message : 'تعذر مشاركة الشاشة';
       setStatus(message);
       setIsScreenSharing(false);
+    }
+  };
+
+  const handlePictureInPictureToggle = async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        setIsPictureInPicture(false);
+        return;
+      }
+
+      const targetVideo = remoteVideoRef.current?.srcObject ? remoteVideoRef.current : localVideoRef.current;
+      if (!targetVideo || !targetVideo.srcObject) {
+        setStatus('ابدأ الجلسة قبل فتح النافذة العائمة');
+        return;
+      }
+
+      if (!document.pictureInPictureEnabled || !targetVideo.requestPictureInPicture) {
+        setStatus('النافذة العائمة غير مدعومة على هذا المتصفح');
+        return;
+      }
+
+      await targetVideo.play();
+      await targetVideo.requestPictureInPicture();
+      setIsPictureInPicture(true);
+      setStatus('النافذة العائمة تعمل الآن');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر فتح النافذة العائمة';
+      setStatus(message);
+      setIsPictureInPicture(false);
     }
   };
 
@@ -238,6 +290,15 @@ export function VideoRoom() {
           type="button"
         >
           {isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}
+        </button>
+        <button
+          className={isPictureInPicture ? 'tool-button active-share' : 'tool-button'}
+          disabled={!isConnected}
+          onClick={handlePictureInPictureToggle}
+          title={isPictureInPicture ? 'إغلاق النافذة العائمة' : 'فتح نافذة عائمة'}
+          type="button"
+        >
+          <PictureInPicture2 size={20} />
         </button>
         <button className="tool-button danger" disabled={!isConnected} onClick={endCall} title="إنهاء المكالمة" type="button">
           <PhoneOff size={20} />
