@@ -341,6 +341,10 @@ h1 {
   padding: 22px;
 }
 
+.persistent-video-room.hidden {
+  display: none;
+}
+
 .video-header {
   display: flex;
   justify-content: space-between;
