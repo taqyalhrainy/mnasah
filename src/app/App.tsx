@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
+import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { PortalWorkspace } from '../features/portal/PortalWorkspace';
 import { request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
@@ -33,9 +34,10 @@ export function App() {
   if (loading) return <main className="loading-page" role="status">جارٍ تحميل حسابك…</main>;
   if (error && !user) return <main className="loading-page"><p role="alert">{error}</p><button onClick={() => setRetry(retry + 1)}>إعادة المحاولة</button></main>;
   if (!user) return <AuthForm key={portal} portal={portal} onLogin={setUser} />;
+  if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir="rtl"><h1>هذا القسم غير متاح لحسابك</h1><a className="primary-button" href={`/${user.role}`}>العودة إلى قسمك</a><button className="text-button" onClick={logout}>تسجيل الخروج</button></main>;
   const nav = [{ id: 'bookings', label: 'الحصص والحجوزات', icon: CalendarDays },
-    ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات وطلبات الانضمام', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: portal === 'teachers' ? 'مواعيدي المتاحة' : 'حجز حصة', icon: Search }]),
+    ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: portal === 'teachers' ? 'مواعيدي المتاحة' : 'حجز حصة', icon: Search }]),
     { id: 'profile', label: 'حسابي', icon: Settings }];
   return <main className="app-shell business-shell" dir="rtl">
     <aside className="sidebar"><div className="brand"><img src="/icon.svg" width="40" height="40" alt="" /><div><strong>Mansah</strong><span>{portalNames[portal]}</span></div></div>

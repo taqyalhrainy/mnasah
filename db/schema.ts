@@ -3,6 +3,8 @@ import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(), email: text('email').notNull().unique(), name: text('name').notNull(),
   password: text('password').notNull(), role: text('role').notNull(), status: text('status').notNull(),
+  mustChangePassword: integer('must_change_password').notNull().default(0),
+  temporaryPasswordExpires: integer('temporary_password_expires'),
   subject: text('subject').notNull().default(''), bio: text('bio').notNull().default(''),
   created: integer('created').notNull(),
 });

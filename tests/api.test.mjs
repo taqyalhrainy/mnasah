@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import worker from '../dist/server/index.js';
 
 function database() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../drizzle/0000_rainy_yellow_claw.sql', import.meta.url), 'utf8'));
+  for (const file of readdirSync(new URL('../drizzle/', import.meta.url)).filter(f => f.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(`../drizzle/${file}`, import.meta.url), 'utf8'));
   const prepare = sql => ({ bind(...args) {
     const statement = db.prepare(sql);
     return { first: () => statement.get(...args) || null, all: () => ({ results: statement.all(...args) }), run: () => ({ meta: { changes: Number(statement.run(...args).changes) } }) };
@@ -80,5 +80,30 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('other', 'auth/logout', {});
   await call('other', 'students/overview', undefined, 401);
   assert.ok((await call('owner', 'admin/audit')).events.length >= 4);
+  const accountList = await call('owner', 'admin/users');
+  assert.ok(accountList.users.every(u => !('password' in u) && !('temporaryPassword' in u)));
+  const otherId = accountList.users.find(u => u.email === 'other@test.com').id;
+  await call('other', 'auth/login', credentials('other@test.com', 'students'));
+  await call('other', `admin/users/${teacher.id}/reset-password`, { adminPassword: 'Long-test-password-123' }, 403);
+  await call('owner', `admin/users/${otherId}/reset-password`, { adminPassword: 'Wrong-password-123' }, 403);
+  await call('owner', 'admin/users/platform-owner/reset-password', { adminPassword: 'Long-test-password-123' }, 404);
+  const reset = await call('owner', `admin/users/${otherId}/reset-password`, { adminPassword: 'Long-test-password-123' });
+  assert.ok(reset.temporaryPassword.length >= 24 && reset.expires > Date.now());
+  await call('other', 'students/overview', undefined, 401);
+  await call('other', 'auth/login', credentials('other@test.com', 'students'), 401);
+  const temporaryLogin = await call('other', 'auth/login', { ...credentials('other@test.com', 'students'), password: reset.temporaryPassword });
+  assert.equal(temporaryLogin.user.mustChangePassword, true);
+  await call('other', 'students/overview', undefined, 403);
+  await call('other', 'students/profile', undefined, 403);
+  await call('other', 'students/reminders', undefined, 403);
+  await call('other', 'students/password', { current: reset.temporaryPassword, password: reset.temporaryPassword }, 400);
+  await call('other', 'students/password', { current: reset.temporaryPassword, password: 'My-new-password-456' });
+  await call('other', 'auth/login', { ...credentials('other@test.com', 'students'), password: reset.temporaryPassword }, 401);
+  assert.equal((await call('other', 'auth/login', { ...credentials('other@test.com', 'students'), password: 'My-new-password-456' })).user.mustChangePassword, false);
+  await call('other', 'students/overview');
+  assert.ok(!(await call('owner', 'admin/users')).users.some(u => JSON.stringify(u).includes(reset.temporaryPassword)));
+  const expired = await call('owner', `admin/users/${teacher.id}/reset-password`, { adminPassword: 'Long-test-password-123' });
+  DB.db.prepare('UPDATE users SET temporary_password_expires=? WHERE id=?').run(Date.now() - 1, teacher.id);
+  await call('teacher', 'auth/login', { ...credentials('teacher@test.com', 'teachers'), password: expired.temporaryPassword }, 401);
   DB.db.close();
 });

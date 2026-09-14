@@ -16,6 +16,16 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .business-shell .topbar { border-bottom: 1px solid #dce2e5; padding-bottom: 24px; }
 .account-name { overflow-wrap: anywhere; max-width: 250px; }
 .portal-content { display: grid; gap: 20px; }
+.accounts-panel { min-width: 0; }
+.account-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #c5d0d5; padding-bottom: 12px; margin-bottom: 8px; }
+.account-tabs button { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 16px; border: 1px solid #b7c3c9; border-radius: 6px; background: white; color: #334a50; }
+.account-tabs button.selected { background: #176c59; color: white; border-color: #176c59; }
+.account-tabs button span { font-variant-numeric: tabular-nums; }
+.account-email { overflow-wrap: anywhere; text-align: start; }
+.account-row .row-actions { max-width: 235px; }
+.temporary-credential { display: grid; gap: 16px; }
+.temporary-credential label { display: grid; gap: 8px; }
+.temporary-credential input { font: 18px monospace; width: 100%; min-width: 0; padding: 12px; border: 1px solid #b7c3c9; border-radius: 6px; }
 .reminder-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .reminder-settings small { color: #58666c; line-height: 1.7; }
 .lesson-reminder { display: flex; align-items: center; gap: 16px; padding: 16px; border: 2px solid #bb850b; border-radius: 6px; background: #fff4cc; color: #5d430b; }

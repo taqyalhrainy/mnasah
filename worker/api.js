@@ -14,6 +14,8 @@ export async function api(request, env, portal, path, body) {
   if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
   const write = request.method !== 'GET';
   if (write) await limit(env, `write:${user.id}`, 100, 60000);
+  if (user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'انتهت صلاحية كلمة المرور المؤقتة. راجع الإدارة.');
+  if (user.must_change_password && path !== 'password') fail(403, 'يجب تغيير كلمة المرور المؤقتة أولًا.');
   if (path === 'profile') {
     if (write) await run(env, 'UPDATE users SET name=?,subject=?,bio=? WHERE id=?', field(body.name, 100), field(body.subject, 100, 0), field(body.bio, 2000, 0), user.id);
     return { user: publicUser(await one(env, 'SELECT * FROM users WHERE id=?', user.id)) };
@@ -21,7 +23,9 @@ export async function api(request, env, portal, path, body) {
   if (path === 'password' && write) {
     const old = field(body.current, 128, 12), next = field(body.password, 128, 12);
     if (!equal(await passwordHash(old, user.password.split(':')[0]), user.password)) fail(400, 'كلمة المرور الحالية غير صحيحة.');
-    await env.DB.batch([statement(env, 'UPDATE users SET password=? WHERE id=?', await passwordHash(next), user.id), statement(env, 'DELETE FROM sessions WHERE user_id=?', user.id)]);
+    if (old === next) fail(400, 'اختر كلمة مرور مختلفة عن الحالية.');
+    const result = await env.DB.batch([statement(env, 'UPDATE users SET password=?,must_change_password=0,temporary_password_expires=NULL WHERE id=? AND password=?', await passwordHash(next), user.id, user.password), statement(env, 'DELETE FROM sessions WHERE user_id=?', user.id)]);
+    if (!result[0].meta.changes) fail(409, 'تغيرت بيانات الحساب. سجّل الدخول مجددًا.');
     return { ok: true };
   }
   if (user.status !== 'active') fail(403, 'طلب انضمامك بانتظار موافقة الإدارة.');
@@ -34,7 +38,23 @@ export async function api(request, env, portal, path, body) {
     return { bookings: await all(env, `${bookingSelect}${where} ORDER BY s.start DESC LIMIT 500`, ...(where ? [user.id] : [])) };
   }
   if (path === 'users' && user.role === 'admin' && !write) return { users: (await all(env, 'SELECT * FROM users ORDER BY created DESC LIMIT 1000')).map(publicUser) };
-  if (path.startsWith('users/') && user.role === 'admin' && write) {
+  if (/^users\/[^/]+\/reset-password$/.test(path) && user.role === 'admin' && write) {
+    await limit(env, `reset:${user.id}`, 10, 3600000);
+    const adminPassword = field(body.adminPassword, 128, 12);
+    if (!equal(await passwordHash(adminPassword, user.password.split(':')[0]), user.password)) fail(403, 'كلمة مرور الأدمن غير صحيحة.');
+    const id = path.split('/')[1];
+    const target = await one(env, "SELECT id FROM users WHERE id=? AND role IN ('teachers','students')", id);
+    if (!target) fail(404, 'الحساب غير موجود.');
+    const temporaryPassword = random().slice(0, 24);
+    const expires = Date.now() + 86400000;
+    await env.DB.batch([
+      statement(env, 'UPDATE users SET password=?,must_change_password=1,temporary_password_expires=? WHERE id=?', await passwordHash(temporaryPassword), expires, id),
+      statement(env, 'DELETE FROM sessions WHERE user_id=?', id),
+      auditEntry(env, user.id, 'user:password-reset', id),
+    ]);
+    return { temporaryPassword, expires };
+  }
+  if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
     const id = path.split('/')[1];
     if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صحيحة.');
     const target = await one(env, "SELECT * FROM users WHERE id=? AND role!='admin'", id);
