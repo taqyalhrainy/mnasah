@@ -19,11 +19,6 @@ export async function getUser(request, env) {
   if (!token) return null;
   return one(env, 'SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?', await digest(token), Date.now());
 }
-export async function limit(env, key, max, windowMs) {
-  const now = Date.now();
-  const row = await statement(env, `INSERT INTO limits (key,count,expires) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires<=? THEN 1 ELSE count+1 END, expires=CASE WHEN expires<=? THEN excluded.expires ELSE expires END RETURNING count`, key, now + windowMs, now, now).first();
-  if (row.count > max) fail(429, 'محاولات كثيرة. حاول مجددًا بعد قليل.');
-}
 export async function auth(request, env, action, body) {
   if (action === 'me') return { user: (await getUser(request, env)) ? publicUser(await getUser(request, env)) : null };
   if (action === 'logout') {
@@ -34,8 +29,6 @@ export async function auth(request, env, action, body) {
   if (!['login', 'register', 'setup'].includes(action)) fail(404, 'الطلب غير موجود.');
   const email = field(body.email, 254).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'البريد الإلكتروني غير صحيح.');
-  await limit(env, `auth:${await digest(request.headers.get('cf-connecting-ip') || 'local')}`, 40, 900000);
-  await limit(env, `email:${await digest(email)}`, 15, 900000);
   const password = field(body.password, 128, 12);
   const role = body.role;
   if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');

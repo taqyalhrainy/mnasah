@@ -1,5 +1,5 @@
 import { all, one, run, statement, field, fail, auditEntry } from './db.js';
-import { getUser, publicUser, passwordHash, equal, limit, random } from './auth.js';
+import { getUser, publicUser, passwordHash, equal, random } from './auth.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,s.teacher_id,s.start,s.minutes,s.price,s.subject,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 async function booking(env, id, user) {
@@ -13,7 +13,6 @@ export async function api(request, env, portal, path, body) {
   if (portal !== user.role) fail(403, 'هذا القسم غير متاح لحسابك.');
   if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
   const write = request.method !== 'GET';
-  if (write) await limit(env, `write:${user.id}`, 100, 60000);
   if (user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'انتهت صلاحية كلمة المرور المؤقتة. راجع الإدارة.');
   if (user.must_change_password && path !== 'password') fail(403, 'يجب تغيير كلمة المرور المؤقتة أولًا.');
   if (path === 'profile') {
@@ -39,7 +38,6 @@ export async function api(request, env, portal, path, body) {
   }
   if (path === 'users' && user.role === 'admin' && !write) return { users: (await all(env, 'SELECT * FROM users ORDER BY created DESC LIMIT 1000')).map(publicUser) };
   if (/^users\/[^/]+\/reset-password$/.test(path) && user.role === 'admin' && write) {
-    await limit(env, `reset:${user.id}`, 10, 3600000);
     const adminPassword = field(body.adminPassword, 128, 12);
     if (!equal(await passwordHash(adminPassword, user.password.split(':')[0]), user.password)) fail(403, 'كلمة مرور الأدمن غير صحيحة.');
     const id = path.split('/')[1];

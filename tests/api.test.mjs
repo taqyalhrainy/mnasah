@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import worker from '../dist/server/index.js';
+import { digest } from '../worker/auth.js';
 
 function database() {
   const db = new DatabaseSync(':memory:');
@@ -15,6 +16,10 @@ function database() {
 }
 test('authorization and the full reservation lifecycle', async () => {
   const DB = database(), env = { DB, OWNER_SETUP_TOKEN: 'private-owner-setup-token', ASSETS: { fetch: () => new Response('asset') } };
+  // Previously blocked accounts and IPs must remain usable after removing the caps.
+  for (const key of [`auth:${await digest('local')}`, `email:${await digest('student@test.com')}`, 'write:platform-owner', 'reset:platform-owner']) {
+    DB.db.prepare('INSERT INTO limits (key,count,expires) VALUES (?,?,?)').run(key, 9999, Date.now() + 86400000);
+  }
   const clients = {};
   async function call(who, path, data, expected = 200, headers = {}) {
     const request = new Request(`https://mansah.test/api/${path}`, { method: data === undefined ? 'GET' : 'POST', headers: { cookie: clients[who] || '', ...(data === undefined ? {} : { origin: 'https://mansah.test', 'content-type': 'application/json' }), ...headers }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
