@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `development_key` text;

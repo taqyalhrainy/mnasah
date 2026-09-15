@@ -10,6 +10,7 @@ export const users = sqliteTable('users', {
 });
 export const sessions = sqliteTable('sessions', {
   token: text('token').primaryKey(), userId: text('user_id').notNull().references(() => users.id), expires: integer('expires').notNull(),
+  developmentKey: text('development_key'),
 });
 export const slots = sqliteTable('slots', {
   id: text('id').primaryKey(), teacherId: text('teacher_id').notNull().references(() => users.id),

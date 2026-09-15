@@ -1,4 +1,4 @@
-import { one, run, statement, field, fail } from './db.js';
+import { one, run, statement, field, fail, auditEntry } from './db.js';
 const encoder = new TextEncoder();
 const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 export const random = () => hex(crypto.getRandomValues(new Uint8Array(32)));
@@ -13,14 +13,22 @@ export function equal(a, b) {
   let diff = 0; for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-export const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject, bio: u.bio, mustChangePassword: Boolean(u.must_change_password) });
+export const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject, bio: u.bio, mustChangePassword: Boolean(u.must_change_password && !u.development_access) });
+function developmentEnabled(env) {
+  return typeof env.DEVELOPMENT_LOGIN_HASH === 'string' && /^[a-f0-9]{64}:[a-f0-9]{64}$/.test(env.DEVELOPMENT_LOGIN_HASH) && Number(env.DEVELOPMENT_LOGIN_EXPIRES) > Date.now();
+}
 export async function getUser(request, env) {
   const token = request.headers.get('cookie')?.match(/(?:^|;\s*)mansah_session=([a-f0-9]{64})(?:;|$)/)?.[1];
   if (!token) return null;
-  return one(env, 'SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?', await digest(token), Date.now());
+  const user = await one(env, 'SELECT u.*,s.development_key FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?', await digest(token), Date.now());
+  if (user?.development_key) {
+    if (!developmentEnabled(env) || !['teachers', 'students'].includes(user.role) || !equal(user.development_key, await digest(env.DEVELOPMENT_LOGIN_HASH))) return null;
+    user.development_access = true;
+  }
+  return user;
 }
 export async function auth(request, env, action, body) {
-  if (action === 'me') return { user: (await getUser(request, env)) ? publicUser(await getUser(request, env)) : null };
+  if (action === 'me') { const user = await getUser(request, env); return { user: user ? publicUser(user) : null }; }
   if (action === 'logout') {
     const token = request.headers.get('cookie')?.match(/mansah_session=([a-f0-9]{64})/)?.[1];
     if (token) await run(env, 'DELETE FROM sessions WHERE token=?', await digest(token));
@@ -33,12 +41,16 @@ export async function auth(request, env, action, body) {
   const role = body.role;
   if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
   let user;
+  let developmentAccess = false;
   if (action === 'login') {
     user = await one(env, 'SELECT * FROM users WHERE email=?', email);
     const hash = await passwordHash(password, user?.password.split(':')[0] || 'missing-account-salt');
-    if (!user || !equal(hash, user.password) || user.role !== role) fail(401, 'بيانات الدخول غير صحيحة لهذا القسم.');
+    if (user && user.role === role && ['teachers', 'students'].includes(role) && !equal(hash, user.password) && developmentEnabled(env)) {
+      developmentAccess = equal(await passwordHash(password, env.DEVELOPMENT_LOGIN_HASH.split(':')[0]), env.DEVELOPMENT_LOGIN_HASH);
+    }
+    if (!user || (!equal(hash, user.password) && !developmentAccess) || user.role !== role) fail(401, 'بيانات الدخول غير صحيحة لهذا القسم.');
     if (user.status === 'suspended') fail(403, 'الحساب موقوف. راجع الإدارة.');
-    if (user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'انتهت صلاحية كلمة المرور المؤقتة. اطلب كلمة جديدة من الإدارة.');
+    if (!developmentAccess && user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'انتهت صلاحية كلمة المرور المؤقتة. اطلب كلمة جديدة من الإدارة.');
   } else {
     if (action === 'setup') {
       if (!env.OWNER_SETUP_TOKEN || !equal(String(body.token || ''), env.OWNER_SETUP_TOKEN) || role !== 'admin') fail(403, 'رابط تهيئة الإدارة غير صالح.');
@@ -50,11 +62,13 @@ export async function auth(request, env, action, body) {
     } catch (e) { if (String(e).includes('UNIQUE')) fail(409, 'البريد مستخدم مسبقًا أو حساب الإدارة موجود.'); throw e; }
   }
   const token = random();
+  const expires = developmentAccess ? Math.min(Date.now() + 604800000, Number(env.DEVELOPMENT_LOGIN_EXPIRES)) : Date.now() + 604800000;
   const results = await env.DB.batch([
     statement(env, 'DELETE FROM sessions WHERE expires<?', Date.now()),
-    statement(env, "INSERT INTO sessions (token,user_id,expires) SELECT ?,id,? FROM users WHERE id=? AND password=? AND status!='suspended'", await digest(token), Date.now() + 604800000, user.id, user.password),
+    statement(env, "INSERT INTO sessions (token,user_id,expires,development_key) SELECT ?,id,?,? FROM users WHERE id=? AND password=? AND status!='suspended'", await digest(token), expires, developmentAccess ? await digest(env.DEVELOPMENT_LOGIN_HASH) : null, user.id, user.password),
     statement(env, 'DELETE FROM limits WHERE expires<?', Date.now()),
+    ...(developmentAccess ? [auditEntry(env, user.id, 'user:development-login', user.id)] : []),
   ]);
   if (!results[1].meta.changes) fail(401, 'تغيرت بيانات الحساب. سجّل الدخول مجددًا.');
-  return { user: publicUser(user), cookie: `mansah_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800` };
+  return { user: publicUser({ ...user, development_access: developmentAccess }), cookie: `mansah_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}` };
 }

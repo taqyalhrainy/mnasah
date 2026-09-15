@@ -54,6 +54,10 @@ The browser check uses installed Chrome and the running local Worker. It creates
 
 ## Publishing and Operations
 
+### Temporary Development Login
+
+Server secrets `DEVELOPMENT_LOGIN_HASH` (salted PBKDF2 hash) and `DEVELOPMENT_LOGIN_EXPIRES` (UTC epoch milliseconds) enable an expiring shared login password for existing teacher/student accounts only. The account email and matching portal are still required. Owner login, suspended-account blocking, pending-teacher approval, and record ownership checks remain enforced. Original passwords are unchanged. Development sessions skip the temporary-password-change screen, are audited, expire with the configured deadline, and become invalid when the shared secret is removed or rotated. Never put the plaintext shared password in source, client assets, or database records. Remove the environment keys and redeploy to disable this development access.
+
 Reuse the Sites project in `.openai/hosting.json`. `npm run build` emits `dist/client`, `dist/server/index.js` and `dist/.openai`, including schema migrations. Configure a unique secret `OWNER_SETUP_TOKEN` through Sites runtime settings before the first deployment. It permits exactly one owner account, then becomes unusable. Keep its setup link private.
 
 Generate future migrations with `npm run db:generate`; do not rewrite already deployed migrations. Prices are stored as integer hundredths of JOD. Times are stored as UTC milliseconds and displayed in the visitor's device timezone. Lists currently return up to 500 reservations/appointments and 1,000 accounts; extend pagination before those limits are reached.
