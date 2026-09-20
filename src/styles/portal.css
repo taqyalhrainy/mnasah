@@ -325,17 +325,17 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .whiteboard-stage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 152px;
+  grid-template-columns: minmax(0, 1fr) 124px;
   grid-template-rows: minmax(0, 1fr);
-  gap: 8px;
+  gap: 10px;
   min-height: 0;
   height: 100%;
 }
 .call-video-strip {
   display: grid;
   grid-auto-flow: row;
-  grid-auto-rows: 96px;
-  gap: 8px;
+  grid-auto-rows: 82px;
+  gap: 7px;
   min-width: 0;
   overflow-y: auto;
   padding-inline-start: 2px;
@@ -348,14 +348,14 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   grid-row: 1;
   justify-self: center;
   height: 100%;
-  width: min(100%, calc((100dvh - 190px) * 1.18));
-  max-width: 980px;
+  width: min(100%, calc((100dvh - 174px) * 1.42));
+  max-width: 1180px;
   min-height: 0;
   padding: 0;
 }
 .whiteboard-stage .whiteboard-canvas {
   min-height: 0;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1 / 1.08;
 }
 .call-experience .call-toolbar {
   position: relative;
