@@ -440,7 +440,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (
           <div className="whiteboard-stage">
-            <div className="call-video-strip">{renderTile('local', 'pip')}{renderTile('remote', 'pip')}</div>
+            <div className="call-video-strip whiteboard-dock">{renderTile('local', 'pip')}{renderTile('remote', 'pip')}</div>
             {renderWhiteboard()}
           </div>
         ) : (
