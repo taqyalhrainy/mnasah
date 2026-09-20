@@ -459,6 +459,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
 
   const handleWhiteboardWheel = (event: WheelEvent<SVGSVGElement>) => {
     event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation();
     updateWhiteboardAspect(event.currentTarget);
     zoomWhiteboard(event.deltaY > 0 ? 0.9 : 1.1);
   };
