@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent } from 'react';
+import type { CSSProperties, PointerEvent, WheelEvent } from 'react';
 import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
@@ -36,6 +36,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [activeStroke, setActiveStroke] = useState<WhiteboardStroke | null>(null);
   const [whiteboardColor, setWhiteboardColor] = useState('#d8f264');
   const [whiteboardSize, setWhiteboardSize] = useState(4);
+  const [whiteboardViewport, setWhiteboardViewport] = useState({ x: 0, y: 0, zoom: 1 });
+  const [whiteboardTool, setWhiteboardTool] = useState<'draw' | 'pan'>('draw');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -44,6 +46,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const autoJoinStartedRef = useRef(false);
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
+  const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
 
@@ -314,21 +317,37 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   };
 
   const whiteboardPoint = (event: PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) };
+    const svg = event.currentTarget;
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const transformed = point.matrixTransform(svg.getScreenCTM()?.inverse());
+    return { x: transformed.x / 1000, y: transformed.y / 1000 };
   };
 
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
+    if (whiteboardTool === 'pan') {
+      panStartRef.current = { clientX: event.clientX, clientY: event.clientY, x: whiteboardViewport.x, y: whiteboardViewport.y };
+      return;
+    }
     setActiveStroke({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] });
   };
 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    if (whiteboardTool === 'pan' && panStartRef.current) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const scaleX = 1000 / whiteboardViewport.zoom / rect.width;
+      const scaleY = 1000 / whiteboardViewport.zoom / rect.height;
+      setWhiteboardViewport({ ...whiteboardViewport, x: panStartRef.current.x - (event.clientX - panStartRef.current.clientX) * scaleX, y: panStartRef.current.y - (event.clientY - panStartRef.current.clientY) * scaleY });
+      return;
+    }
     if (!activeStroke) return;
     setActiveStroke({ ...activeStroke, points: [...activeStroke.points, whiteboardPoint(event)] });
   };
 
   const finishWhiteboardStroke = () => {
+    panStartRef.current = null;
     if (!activeStroke) return;
     if (activeStroke.points.length > 1) {
       setSyncedWhiteboardStrokes((current) => [...current, activeStroke]);
@@ -344,14 +363,32 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
 
   const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x * 1000} ${point.y * 1000}`).join(' ');
 
+  const zoomWhiteboard = (factor: number) => {
+    setWhiteboardViewport((current) => {
+      const nextZoom = Math.max(0.5, Math.min(5, current.zoom * factor));
+      const currentSize = 1000 / current.zoom;
+      const nextSize = 1000 / nextZoom;
+      return { zoom: nextZoom, x: current.x + (currentSize - nextSize) / 2, y: current.y + (currentSize - nextSize) / 2 };
+    });
+  };
+
+  const handleWhiteboardWheel = (event: WheelEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    zoomWhiteboard(event.deltaY > 0 ? 0.9 : 1.1);
+  };
+
   const renderWhiteboard = () => (
     <div className="whiteboard-panel">
       <div className="whiteboard-tools">
+        <button className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'pan' ? 'draw' : 'pan')} aria-label="تحريك اللوح">✋</button>
+        <button className="tool-mode" type="button" onClick={() => zoomWhiteboard(1.2)} aria-label="تكبير">+</button>
+        <button className="tool-mode" type="button" onClick={() => zoomWhiteboard(0.84)} aria-label="تصغير">-</button>
+        <button className="tool-mode" type="button" onClick={() => setWhiteboardViewport({ x: 0, y: 0, zoom: 1 })} aria-label="إعادة ضبط">1:1</button>
         {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label="لون القلم" />)}
         <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
         <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>
       </div>
-      <svg className="whiteboard-canvas" viewBox="0 0 1000 1000" preserveAspectRatio="none" onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+      <svg className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${1000 / whiteboardViewport.zoom} ${1000 / whiteboardViewport.zoom}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <path key={stroke.id} d={pathForStroke(stroke)} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />)}
       </svg>
     </div>
