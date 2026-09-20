@@ -111,10 +111,11 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   --call-muted: #b6c0bd;
   position: relative;
   display: grid;
-  grid-template-rows: auto auto minmax(420px, calc(100dvh - 285px)) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
-  min-height: min(760px, calc(100dvh - 110px));
-  padding: 14px;
+  height: calc(100dvh - 110px);
+  min-height: 560px;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
   overflow: hidden;
   border: 0;
   border-radius: 8px;
@@ -131,7 +132,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .call-experience .status-pill { color: #dff7eb; background: #1f3d34; border: 1px solid #2d6955; }
 .call-experience .call-start { display: flex; justify-content: center; margin: 0; }
 .call-experience .call-start .primary-button { min-height: 38px; }
-.call-stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; }
+.call-stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; overflow: hidden; }
 .call-experience.panel-open .call-stage { grid-template-columns: minmax(0, 1fr) 310px; }
 .call-experience .video-grid {
   display: grid;
@@ -139,6 +140,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   gap: 12px;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 .participant-tile {
   position: relative;
@@ -161,10 +163,12 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  background: #0d0f11;
+  object-fit: contain;
+  object-position: center;
+  background: #000;
 }
-.participant-tile.screen video { object-fit: contain; background: #050607; }
+.participant-tile.fill-frame:not(.screen) video { object-fit: cover; }
+.participant-tile.screen video { object-fit: contain; background: #000; }
 .camera-placeholder {
   position: absolute;
   inset: 0;
@@ -211,7 +215,12 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   bottom: 18px;
   z-index: 3;
   width: min(260px, 30%);
-  aspect-ratio: 16 / 10;
+  height: auto;
+  max-height: min(34%, 240px);
+  aspect-ratio: var(--video-ratio, 16 / 9);
+}
+.floating-preview .participant-tile {
+  aspect-ratio: var(--video-ratio, 16 / 9);
 }
 .call-side-panel {
   min-height: 0;
@@ -259,8 +268,8 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .lesson-call { margin-inline: -16px; }
   .lesson-call > .section-heading { padding-inline: 16px; }
   .lesson-call .call-experience {
-    grid-template-rows: auto auto minmax(390px, calc(100dvh - 245px)) auto;
-    min-height: calc(100dvh - 112px);
+    height: calc(100dvh - 92px);
+    min-height: 520px;
     border-radius: 0;
   }
   .call-experience.panel-open .call-stage { grid-template-columns: 1fr; }
@@ -279,7 +288,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .call-experience .status-pill { min-height: 32px; padding-inline: 9px; font-size: 12px; white-space: normal; }
   .call-experience .video-grid { grid-template-columns: 1fr; gap: 8px; }
   .focus-mode .video-grid { grid-template-columns: 1fr; }
-  .floating-preview { left: 10px; bottom: 10px; width: min(42vw, 180px); }
+  .floating-preview { left: 10px; bottom: 10px; width: min(42vw, 180px); max-height: min(32%, 210px); }
   .call-experience .call-toolbar { gap: 7px; padding: 7px; }
   .call-experience .tool-button { width: 44px; height: 44px; }
   .participant-meta { font-size: 12px; }
@@ -287,8 +296,9 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 
 @media(max-width: 760px) and (orientation: landscape) {
   .lesson-call .call-experience {
-    grid-template-rows: auto minmax(260px, calc(100dvh - 135px)) auto;
-    min-height: calc(100dvh - 40px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: calc(100dvh - 36px);
+    min-height: 320px;
   }
   .call-experience .call-start { display: none; }
   .call-experience .video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
@@ -27,6 +28,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
   const [sidePanel, setSidePanel] = useState<'participants' | 'chat' | null>(null);
+  const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
+  const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -112,6 +115,19 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       wakeLockRef.current = null;
     };
   }, [isConnected]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      updateVideoRatio('local', localVideoRef.current);
+      updateVideoRatio('remote', remoteVideoRef.current);
+    };
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
 
   const startCall = async () => {
     try {
@@ -220,12 +236,25 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
 
   const bindLocalVideo = (element: HTMLVideoElement | null) => {
     localVideoRef.current = element;
-    if (element && localStreamRef.current) element.srcObject = localStreamRef.current;
+    if (element && localStreamRef.current) {
+      element.srcObject = localStreamRef.current;
+      updateVideoRatio('local', element);
+    }
   };
 
   const bindRemoteVideo = (element: HTMLVideoElement | null) => {
     remoteVideoRef.current = element;
-    if (element && remoteStreamRef.current) element.srcObject = remoteStreamRef.current;
+    if (element && remoteStreamRef.current) {
+      element.srcObject = remoteStreamRef.current;
+      updateVideoRatio('remote', element);
+    }
+  };
+
+  const updateVideoRatio = (id: 'local' | 'remote', video: HTMLVideoElement | null) => {
+    if (!video?.videoWidth || !video.videoHeight) return;
+    const ratio = video.videoWidth / video.videoHeight;
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    setVideoRatios((current) => Math.abs(current[id] - ratio) < 0.01 ? current : { ...current, [id]: ratio });
   };
 
   const handlePictureInPictureToggle = async () => {
@@ -270,9 +299,24 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     const source: VideoSource = isLocal ? (isScreenSharing ? 'screen' : 'camera') : remoteVideoSource;
     const hasStream = isLocal ? isConnected : hasRemoteStream;
     const showVideo = hasStream && (isLocal ? videoEnabled || isScreenSharing : true);
+    const ratio = videoRatios[id];
     return (
-      <button className={`participant-tile ${variant} ${source === 'screen' ? 'screen' : ''} ${focusedParticipant === id ? 'selected' : ''}`} type="button" onClick={() => setFocusedParticipant(id)} aria-label={`تكبير ${name}`}>
-        <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted={isLocal} playsInline className={source === 'camera' ? 'mirrored-video' : undefined} />
+      <button
+        className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''}`}
+        type="button"
+        onClick={() => setFocusedParticipant(id)}
+        aria-label={`تكبير ${name}`}
+        style={{ '--video-ratio': String(ratio) } as CSSProperties}
+      >
+        <video
+          ref={isLocal ? bindLocalVideo : bindRemoteVideo}
+          autoPlay
+          muted={isLocal}
+          playsInline
+          onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)}
+          onResize={(event) => updateVideoRatio(id, event.currentTarget)}
+          className={source === 'camera' ? 'mirrored-video' : undefined}
+        />
         {!showVideo && (
           <div className="camera-placeholder" aria-hidden="true">
             <span>{name.slice(0, 1)}</span>
@@ -316,7 +360,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
           {focusedParticipant ? (
             <>
               {renderTile(focusedParticipant, 'focus')}
-              <div className="floating-preview">{renderTile(focusedParticipant === 'local' ? 'remote' : 'local', 'pip')}</div>
+              <div className="floating-preview" style={{ '--video-ratio': String(videoRatios[focusedParticipant === 'local' ? 'remote' : 'local']) } as CSSProperties}>{renderTile(focusedParticipant === 'local' ? 'remote' : 'local', 'pip')}</div>
             </>
           ) : (
             <>
@@ -342,7 +386,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'chat' ? null : 'chat')} title="المحادثة" type="button"><MessageSquare size={20} /></button>
         <button className={isPictureInPicture ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handlePictureInPictureToggle} title={isPictureInPicture ? 'إغلاق النافذة العائمة' : 'فتح نافذة عائمة'} type="button"><PictureInPicture2 size={20} /></button>
         {installPrompt && <button className="tool-button" onClick={handleInstallApp} title="تثبيت كتطبيق" type="button"><Download size={20} /></button>}
-        <button className="tool-button" title="خيارات أكثر" type="button"><MoreHorizontal size={20} /></button>
+        <button className={fitMode === 'fill' ? 'tool-button active-share' : 'tool-button'} onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')} title={fitMode === 'fit' ? 'Fill frame' : 'Fit video'} type="button"><MoreHorizontal size={20} /></button>
         <button className="tool-button danger" disabled={!isConnected} onClick={endCall} title="إنهاء المكالمة" type="button"><PhoneOff size={20} /></button>
       </div>
     </section>
