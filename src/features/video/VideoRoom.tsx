@@ -313,9 +313,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     if (message.kind === 'mode') return setStageMode(message.mode);
     if (message.kind === 'sync') {
       if (message.mode) setStageMode(message.mode);
+      ensureWhiteboardContentVisible(message.strokes);
       return setSyncedWhiteboardStrokes(message.strokes);
     }
-    setSyncedWhiteboardStrokes((current) => current.some((stroke) => stroke.id === message.stroke.id) ? current : [...current, message.stroke]);
+    setSyncedWhiteboardStrokes((current) => {
+      if (current.some((stroke) => stroke.id === message.stroke.id)) return current;
+      const next = [...current, message.stroke];
+      ensureWhiteboardContentVisible(next);
+      return next;
+    });
   };
 
   const sendWhiteboard = (message: WhiteboardMessage) => {
@@ -391,9 +397,58 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
 
   const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 
+  const fitWhiteboardToStrokes = (strokes: WhiteboardStroke[]) => {
+    const points = strokes.flatMap((stroke) => stroke.points);
+    if (!points.length) {
+      setWhiteboardViewport({ x: 0, y: 0, zoom: 1 });
+      return;
+    }
+    const minX = Math.min(...points.map((point) => point.x));
+    const maxX = Math.max(...points.map((point) => point.x));
+    const minY = Math.min(...points.map((point) => point.y));
+    const maxY = Math.max(...points.map((point) => point.y));
+    const padding = 110;
+    const contentWidth = Math.max(240, maxX - minX + padding * 2);
+    const contentHeight = Math.max(180, maxY - minY + padding * 2);
+    const fittedWidth = Math.max(contentWidth, contentHeight * whiteboardAspect);
+    const fittedHeight = fittedWidth / whiteboardAspect;
+    const zoom = Math.max(0.08, Math.min(5, 1000 / fittedWidth));
+    setWhiteboardViewport({
+      x: minX - (fittedWidth - (maxX - minX)) / 2,
+      y: minY - (fittedHeight - (maxY - minY)) / 2,
+      zoom,
+    });
+  };
+
+  const ensureWhiteboardContentVisible = (strokes: WhiteboardStroke[]) => {
+    const points = strokes.flatMap((stroke) => stroke.points);
+    if (!points.length) return;
+    setWhiteboardViewport((current) => {
+      const minX = Math.min(...points.map((point) => point.x));
+      const maxX = Math.max(...points.map((point) => point.x));
+      const minY = Math.min(...points.map((point) => point.y));
+      const maxY = Math.max(...points.map((point) => point.y));
+      const viewWidth = 1000 / current.zoom;
+      const viewHeight = viewWidth / whiteboardAspect;
+      const padding = 70 / current.zoom;
+      const inside = minX >= current.x + padding && maxX <= current.x + viewWidth - padding && minY >= current.y + padding && maxY <= current.y + viewHeight - padding;
+      if (inside) return current;
+      const contentWidth = Math.max(viewWidth, maxX - minX + padding * 2);
+      const contentHeight = Math.max(viewHeight, maxY - minY + padding * 2);
+      const fittedWidth = Math.max(contentWidth, contentHeight * whiteboardAspect);
+      const fittedHeight = fittedWidth / whiteboardAspect;
+      const zoom = Math.max(0.08, Math.min(5, 1000 / fittedWidth));
+      return {
+        x: minX - (fittedWidth - (maxX - minX)) / 2,
+        y: minY - (fittedHeight - (maxY - minY)) / 2,
+        zoom,
+      };
+    });
+  };
+
   const zoomWhiteboard = (factor: number) => {
     setWhiteboardViewport((current) => {
-      const nextZoom = Math.max(0.5, Math.min(5, current.zoom * factor));
+      const nextZoom = Math.max(0.08, Math.min(5, current.zoom * factor));
       const currentWidth = 1000 / current.zoom;
       const nextWidth = 1000 / nextZoom;
       const currentHeight = currentWidth / whiteboardAspect;
@@ -418,7 +473,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         {role === 'teacher' && <button className={whiteboardTool === 'erase' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'erase' ? 'draw' : 'erase')} aria-label="ممحاة">مسح</button>}
         <button className="tool-mode" type="button" onClick={() => zoomWhiteboard(1.2)} aria-label="تكبير">+</button>
         <button className="tool-mode" type="button" onClick={() => zoomWhiteboard(0.84)} aria-label="تصغير">-</button>
-        <button className="tool-mode" type="button" onClick={() => setWhiteboardViewport({ x: 0, y: 0, zoom: 1 })} aria-label="إعادة ضبط">1:1</button>
+        <button className="tool-mode" type="button" onClick={() => fitWhiteboardToStrokes(whiteboardStrokesRef.current)} aria-label="إظهار كامل الرسم">Fit</button>
         {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label="لون القلم" />)}
         <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>}
