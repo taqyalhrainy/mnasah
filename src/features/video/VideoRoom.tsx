@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
-import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Users } from 'lucide-react';
+import type { CSSProperties, PointerEvent } from 'react';
+import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
@@ -8,6 +8,8 @@ const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: 'release', listener: () => void) => void };
 type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> } };
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }> };
+type WhiteboardStroke = { id: string; color: string; size: number; points: Array<{ x: number; y: number }> };
+type WhiteboardMessage = { kind: 'stroke'; stroke: WhiteboardStroke } | { kind: 'clear' } | { kind: 'sync'; strokes: WhiteboardStroke[] };
 
 declare global {
   interface Window {
@@ -16,7 +18,7 @@ declare global {
 }
 
 export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize }: { assignedRole: VideoRole; assignedRoom: string; authorize: () => Promise<unknown> }) {
-  const [status, setStatus] = useState('جاهز لبدء الجلسة');
+  const [status, setStatus] = useState('جاهز للانضمام');
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -28,9 +30,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
-  const [sidePanel, setSidePanel] = useState<'participants' | 'chat' | null>(null);
+  const [sidePanel, setSidePanel] = useState<'participants' | 'chat' | 'whiteboard' | null>(null);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
+  const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
+  const [activeStroke, setActiveStroke] = useState<WhiteboardStroke | null>(null);
+  const [whiteboardColor, setWhiteboardColor] = useState('#d8f264');
+  const [whiteboardSize, setWhiteboardSize] = useState(4);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -38,15 +44,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const connectionRef = useRef<VideoConnection | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const autoJoinStartedRef = useRef(false);
+  const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
 
-  useEffect(() => {
-    return () => {
-      window.mansahCallActive = false;
-      void wakeLockRef.current?.release();
-      connectionRef.current?.close();
-    };
+  useEffect(() => () => {
+    window.mansahCallActive = false;
+    void wakeLockRef.current?.release();
+    connectionRef.current?.close();
   }, []);
 
   useEffect(() => {
@@ -156,6 +161,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
           setRemoteVideoSource(source);
           if (source === 'screen') setFocusedParticipant('remote');
         },
+        onWhiteboardMessage: handleWhiteboardMessage,
+        onDataOpen: () => sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current }),
         onLocalVideoSource: (source) => {
           setIsScreenSharing(source === 'screen');
           if (source === 'screen') setFocusedParticipant('local');
@@ -307,6 +314,84 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     }
   };
 
+  const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
+    if (!message || typeof message !== 'object') return false;
+    const kind = (message as { kind?: unknown }).kind;
+    return kind === 'clear' || kind === 'stroke' || kind === 'sync';
+  };
+
+  const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
+    setWhiteboardStrokes((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      whiteboardStrokesRef.current = value;
+      return value;
+    });
+  };
+
+  const handleWhiteboardMessage = (message: unknown) => {
+    if (!isWhiteboardMessage(message)) return;
+    if (message.kind === 'clear') {
+      setSyncedWhiteboardStrokes([]);
+      return;
+    }
+    if (message.kind === 'sync') {
+      setSyncedWhiteboardStrokes(message.strokes);
+      return;
+    }
+    setSyncedWhiteboardStrokes((current) => current.some((stroke) => stroke.id === message.stroke.id) ? current : [...current, message.stroke]);
+  };
+
+  const sendWhiteboard = (message: WhiteboardMessage) => {
+    connectionRef.current?.sendWhiteboard(message);
+  };
+
+  const whiteboardPoint = (event: PointerEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    };
+  };
+
+  const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setActiveStroke({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] });
+  };
+
+  const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    if (!activeStroke) return;
+    setActiveStroke({ ...activeStroke, points: [...activeStroke.points, whiteboardPoint(event)] });
+  };
+
+  const finishWhiteboardStroke = () => {
+    if (!activeStroke) return;
+    if (activeStroke.points.length > 1) {
+      setSyncedWhiteboardStrokes((current) => [...current, activeStroke]);
+      sendWhiteboard({ kind: 'stroke', stroke: activeStroke });
+    }
+    setActiveStroke(null);
+  };
+
+  const clearWhiteboard = () => {
+    setSyncedWhiteboardStrokes([]);
+    sendWhiteboard({ kind: 'clear' });
+  };
+
+  const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x * 1000} ${point.y * 1000}`).join(' ');
+
+  const renderWhiteboard = () => (
+    <div className="whiteboard-panel">
+      <div className="whiteboard-tools">
+        {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label="لون القلم" />)}
+        <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
+        <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>
+      </div>
+      <svg className="whiteboard-canvas" viewBox="0 0 1000 1000" preserveAspectRatio="none" onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+        {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <path key={stroke.id} d={pathForStroke(stroke)} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />)}
+      </svg>
+    </div>
+  );
+
   const renderTile = (id: 'local' | 'remote', variant: 'grid' | 'focus' | 'pip' = 'grid') => {
     const isLocal = id === 'local';
     const name = isLocal ? localName : remoteName;
@@ -385,9 +470,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
           )}
         </div>
         {sidePanel && (
-          <aside className="call-side-panel" aria-label={sidePanel === 'chat' ? 'المحادثة' : 'المشاركون'}>
-            <div className="panel-title"><strong>{sidePanel === 'chat' ? 'المحادثة' : 'المشاركون'}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق">×</button></div>
-            {sidePanel === 'participants' ? <div className="participant-list"><span>{localName} - أنت</span><span>{hasRemoteStream ? remoteName : `${remoteName} بانتظار الدخول`}</span></div> : <p className="panel-empty">رسائل الحصة تبقى في تفاصيل الحصة، وهذه اللوحة جاهزة للمحادثة أثناء الاتصال.</p>}
+          <aside className={`call-side-panel ${sidePanel === 'whiteboard' ? 'whiteboard-side-panel' : ''}`} aria-label={sidePanel === 'chat' ? 'المحادثة' : sidePanel === 'whiteboard' ? 'اللوح المشترك' : 'المشاركون'}>
+            <div className="panel-title"><strong>{sidePanel === 'chat' ? 'المحادثة' : sidePanel === 'whiteboard' ? 'اللوح المشترك' : 'المشاركون'}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق">×</button></div>
+            {sidePanel === 'participants' ? <div className="participant-list"><span>{localName} - أنت</span><span>{hasRemoteStream ? remoteName : `${remoteName} بانتظار الدخول`}</span></div> : sidePanel === 'whiteboard' ? renderWhiteboard() : <p className="panel-empty">رسائل الحصة تبقى في تفاصيل الحصة، وهذه اللوحة جاهزة للمحادثة أثناء الاتصال.</p>}
           </aside>
         )}
       </div>
@@ -399,6 +484,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         <button className="tool-button" disabled={!isConnected} onClick={() => setFocusedParticipant(null)} title="عرض الشبكة" type="button"><Grid2X2 size={20} /></button>
         <button className={sidePanel === 'participants' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'participants' ? null : 'participants')} title="المشاركون" type="button"><Users size={20} /></button>
         <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'chat' ? null : 'chat')} title="المحادثة" type="button"><MessageSquare size={20} /></button>
+        <button className={sidePanel === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'whiteboard' ? null : 'whiteboard')} title="اللوح المشترك" type="button"><Grid2X2 size={20} /></button>
         <button className={isPictureInPicture ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handlePictureInPictureToggle} title={isPictureInPicture ? 'إغلاق النافذة العائمة' : 'فتح نافذة عائمة'} type="button"><PictureInPicture2 size={20} /></button>
         {installPrompt && <button className="tool-button" onClick={handleInstallApp} title="تثبيت كتطبيق" type="button"><Download size={20} /></button>}
         <button className={fitMode === 'fill' ? 'tool-button active-share' : 'tool-button'} onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')} title={fitMode === 'fit' ? 'Fill frame' : 'Fit video'} type="button"><MoreHorizontal size={20} /></button>

@@ -3,6 +3,8 @@ import Peer, { DataConnection, MediaConnection } from 'peerjs';
 type PeerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
   onRemoteVideoSource: (source: VideoSource) => void;
+  onWhiteboardMessage?: (message: unknown) => void;
+  onDataOpen?: () => void;
   onLocalVideoSource: (source: VideoSource) => void;
   onPeerLeft: () => void;
   onStatus: (status: string) => void;
@@ -232,6 +234,12 @@ export class VideoConnection {
     }
   }
 
+  sendWhiteboard(message: unknown) {
+    if (!this.activeDataConnection?.open) return false;
+    this.activeDataConnection.send({ type: 'whiteboard', message });
+    return true;
+  }
+
   private startPeerSearch(cleanRoomId: string) {
     if (this.retryTimer) window.clearInterval(this.retryTimer);
 
@@ -284,11 +292,15 @@ export class VideoConnection {
 
     connection.on('open', () => {
       this.sendVideoSource();
+      this.callbacks.onDataOpen?.();
     });
 
     connection.on('data', (message) => {
-      if (!isVideoSourceMessage(message)) return;
-      this.callbacks.onRemoteVideoSource(message.source);
+      if (isVideoSourceMessage(message)) {
+        this.callbacks.onRemoteVideoSource(message.source);
+        return;
+      }
+      if (isWhiteboardMessage(message)) this.callbacks.onWhiteboardMessage?.(message.message);
     });
 
     connection.on('close', () => {
@@ -300,6 +312,11 @@ export class VideoConnection {
     if (!this.activeDataConnection?.open) return;
     this.activeDataConnection.send({ type: 'video-source', source: this.videoSource });
   }
+}
+
+function isWhiteboardMessage(message: unknown): message is { type: 'whiteboard'; message: unknown } {
+  if (!message || typeof message !== 'object') return false;
+  return (message as { type?: unknown }).type === 'whiteboard';
 }
 
 function isVideoSourceMessage(message: unknown): message is { type: 'video-source'; source: VideoSource } {
