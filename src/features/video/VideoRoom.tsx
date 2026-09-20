@@ -225,6 +225,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     connectionRef.current?.toggleVideo(nextValue);
   };
 
+  const needsNativeAppForScreenShare = () => {
+    const userAgent = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/i.test(userAgent);
+    return isIOS || isAndroid;
+  };
+
   const handleScreenShareToggle = async () => {
     try {
       if (!connectionRef.current) return;
@@ -233,6 +240,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         localStreamRef.current = cameraStream ?? localStreamRef.current;
         if (localVideoRef.current && cameraStream) localVideoRef.current.srcObject = cameraStream;
         setIsScreenSharing(false);
+        return;
+      }
+      if (needsNativeAppForScreenShare()) {
+        setShowAndroidAppPrompt(true);
+        setStatus('مشاركة شاشة الهاتف تحتاج تنزيل التطبيق');
         return;
       }
       const screenStream = await connectionRef.current.startScreenShare();
@@ -573,7 +585,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />إعادة المحاولة</button>}
       </div>
 
-      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة الشاشة غير مدعومة من متصفح الهاتف</strong><p>استخدم متصفح الكمبيوتر لمشاركة الشاشة. مشاركة شاشة أندرويد غير متاحة في نسخة التطبيق الحالية.</p></div><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL}><Download size={18} />تنزيل التطبيق</a></div>}
+      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة شاشة الهاتف تحتاج التطبيق</strong><p>متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. نزّل التطبيق حتى تقدر تشارك شاشة الجهاز.</p></div><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />تنزيل التطبيق</a></div>}
 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (
