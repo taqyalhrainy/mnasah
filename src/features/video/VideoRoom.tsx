@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Users } from 'lucide-react';
+import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
@@ -38,7 +38,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [whiteboardSize, setWhiteboardSize] = useState(4);
   const [whiteboardViewport, setWhiteboardViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [whiteboardAspect, setWhiteboardAspect] = useState(1.55);
-  const [whiteboardTool, setWhiteboardTool] = useState<'draw' | 'pan' | 'erase'>('draw');
+  const [whiteboardTool, setWhiteboardTool] = useState<'draw' | 'pan'>('draw');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -362,7 +362,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       panStartRef.current = { clientX: event.clientX, clientY: event.clientY, x: whiteboardViewport.x, y: whiteboardViewport.y };
       return;
     }
-    if (whiteboardTool === 'erase') return eraseAtPoint(whiteboardPoint(event));
     const next = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] };
     activeStrokeRef.current = next;
     setActiveStroke(next);
@@ -378,7 +377,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       setWhiteboardViewport({ ...whiteboardViewport, x: panStartRef.current.x - (event.clientX - panStartRef.current.clientX) * scaleX, y: panStartRef.current.y - (event.clientY - panStartRef.current.clientY) * scaleY });
       return;
     }
-    if (whiteboardTool === 'erase') return eraseAtPoint(whiteboardPoint(event));
     if (!activeStrokeRef.current) return;
     activeStrokeRef.current = { ...activeStrokeRef.current, points: [...activeStrokeRef.current.points, whiteboardPoint(event)] };
     scheduleActiveStrokePaint();
@@ -406,13 +404,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     sendWhiteboard({ kind: 'clear' });
   };
 
-  const eraseAtPoint = (point: { x: number; y: number }) => {
+  const undoWhiteboardStroke = () => {
     if (role !== 'teacher') return;
-    const radius = 22 / whiteboardViewport.zoom;
-    const ids = whiteboardStrokesRef.current.filter((stroke) => stroke.points.some((candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) <= radius)).map((stroke) => stroke.id);
-    if (!ids.length) return;
-    setSyncedWhiteboardStrokes((current) => current.filter((stroke) => !ids.includes(stroke.id)));
-    sendWhiteboard({ kind: 'erase', ids });
+    const lastStroke = whiteboardStrokesRef.current.at(-1);
+    if (!lastStroke) return;
+    setSyncedWhiteboardStrokes((current) => current.slice(0, -1));
+    sendWhiteboard({ kind: 'erase', ids: [lastStroke.id] });
   };
 
   const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
@@ -502,7 +499,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     <div className="whiteboard-panel">
       <div className="whiteboard-tools">
         <button className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'pan' ? 'draw' : 'pan')} aria-label="تحريك اللوح">✋</button>
-        {role === 'teacher' && <button className={whiteboardTool === 'erase' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'erase' ? 'draw' : 'erase')} aria-label="ممحاة">مسح</button>}
+        {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardStroke} aria-label="تراجع خطوة" title="تراجع خطوة"><Undo2 size={17} /></button>}
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label="تكبير">+</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label="تصغير">-</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToStrokes(whiteboardStrokesRef.current); }} aria-label="إظهار كامل الرسم">Fit</button>
