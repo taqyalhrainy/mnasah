@@ -272,14 +272,17 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
-  height: calc(100% - 61px);
-  min-height: 420px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   padding: 12px;
 }
 .whiteboard-tools {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  flex-shrink: 0;
   gap: 10px;
   padding: 8px;
   border-radius: 12px;
@@ -305,9 +308,11 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .whiteboard-tools input { flex: 1; min-width: 72px; accent-color: #d8f264; }
 .whiteboard-clear { background: #3a3d46 !important; }
 .whiteboard-canvas {
+  display: block;
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: 0;
+  min-width: 0;
   border: 1px solid #30343d;
   border-radius: 14px;
   background:
@@ -321,14 +326,16 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .whiteboard-canvas.panning { cursor: grab; }
 .whiteboard-mode .call-stage {
   grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
 }
 .whiteboard-stage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 124px;
+  grid-template-columns: minmax(0, 1fr) 116px;
   grid-template-rows: minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
+  min-width: 0;
   height: 100%;
 }
 .call-video-strip {
@@ -346,11 +353,11 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .whiteboard-stage .whiteboard-panel {
   grid-column: 1;
   grid-row: 1;
-  justify-self: center;
   height: 100%;
   width: 100%;
   max-width: none;
   min-height: 0;
+  min-width: 0;
   padding: 0;
 }
 .whiteboard-stage .whiteboard-canvas {
