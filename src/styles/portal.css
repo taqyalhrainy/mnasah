@@ -102,7 +102,11 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 @media(max-width:760px) { .business-shell { display: block; } .business-shell .sidebar { gap: 20px; padding: 18px; } .business-shell .nav-list { display: flex; flex-wrap: wrap; gap: 6px; } .business-shell .nav-button { width: auto; } .sidebar-footer { display: flex; flex-wrap: wrap; gap: 12px; } .business-shell .workspace { padding: 22px 16px; } .business-shell .topbar { align-items: start; gap: 12px; } .business-shell h1 { font-size: 22px; } .account-name { font-size: 14px; max-width: 120px; } .metric-band { gap: 12px; } .metric-band strong { font-size: 21px; } .profile-layout, .slot-form { grid-template-columns: 1fr; gap: 20px; } .user-row { grid-template-columns: minmax(0,1fr); gap: 12px; } .detail-dialog { padding: 18px; } .booking-row { gap: 12px; } .auth-page { padding-top: 32px; } .list-toolbar select { flex: 1; } }
 
 .lesson-call { margin-inline: -12px; padding-bottom: 0; border-bottom: 0; }
-.lesson-call > .section-heading { padding-inline: 12px; margin-bottom: 12px; }
+.portal-content:has(.lesson-call:not([hidden])) > .list-toolbar,
+.portal-content:has(.lesson-call:not([hidden])) > .metric-band,
+.portal-content:has(.lesson-call:not([hidden])) > .booking-list,
+.portal-content:has(.lesson-call:not([hidden])) > .empty-state { display: none; }
+.lesson-call > .section-heading { display: none; }
 .lesson-call .call-experience {
   --call-bg: #0f1014;
   --call-panel: #1b1d22;
@@ -112,8 +116,8 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   position: relative;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 12px;
-  height: calc(100dvh - 110px);
+  gap: 8px;
+  height: calc(100dvh - 74px);
   min-height: 560px;
   padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
   overflow: hidden;
@@ -123,15 +127,12 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   background:
     linear-gradient(180deg, #1f2128 0%, #111216 48%, #0b0c10 100%);
 }
-.call-experience .call-header {
-  align-items: center;
-  margin: 0;
-  padding: 4px 8px;
-}
+.call-experience .call-header { align-items: center; margin: 0; padding: 2px 8px; }
 .call-experience .call-header h2 { margin: 0 0 4px; font-size: 16px; color: var(--call-text); }
 .call-experience .call-header p { margin: 0; color: var(--call-muted); font-size: 13px; }
 .call-experience .status-pill { min-height: 34px; color: #dff7eb; background: #20252b; border: 1px solid #343a44; border-radius: 999px; }
-.call-experience .call-start { display: flex; justify-content: center; margin: 0; }
+.call-experience .call-start { display: flex; justify-content: center; margin: 0; min-height: 0; }
+.call-experience .call-start:empty { display: none; }
 .call-experience .call-start .primary-button { min-height: 38px; border-radius: 999px; background: #248160; }
 .call-joining {
   display: inline-flex;
@@ -312,26 +313,21 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
   height: 100%;
 }
-.whiteboard-stage-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 4px;
+.call-video-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(112px, 160px);
+  gap: 8px;
+  min-height: 76px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
-.whiteboard-stage-header button {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  color: #101713;
-  background: #d8f264;
-  font-weight: 800;
-}
+.call-video-strip .participant-tile { min-height: 76px; box-shadow: none; }
+.call-video-strip .participant-meta { right: 6px; bottom: 6px; max-width: calc(100% - 12px); padding: 5px 7px; font-size: 11px; }
 .whiteboard-stage .whiteboard-panel {
   height: 100%;
   min-height: 0;
@@ -340,23 +336,13 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .whiteboard-stage .whiteboard-canvas {
   min-height: 0;
 }
-.whiteboard-video-preview {
-  right: 18px;
-  left: auto;
-  bottom: 18px;
-}
-.whiteboard-remote-preview {
-  right: 18px;
-  left: auto;
-  bottom: min(190px, 34%);
-}
 .call-experience .call-toolbar {
-  position: sticky;
+  position: relative;
   bottom: max(10px, env(safe-area-inset-bottom));
   z-index: 4;
   justify-self: center;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
   max-width: min(100%, 720px);
   margin: 0;
@@ -366,6 +352,31 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   background: #22242be8;
   backdrop-filter: blur(18px);
   box-shadow: 0 20px 54px #000a;
+}
+.call-more-menu {
+  position: absolute;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  display: grid;
+  gap: 6px;
+  min-width: 188px;
+  padding: 8px;
+  border: 1px solid #343740;
+  border-radius: 14px;
+  background: #22242bf5;
+  box-shadow: 0 18px 52px #000a;
+}
+.call-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  color: #eef3f0;
+  background: #31343c;
+  padding: 0 10px;
+  text-align: start;
 }
 .call-experience .tool-button { width: 48px; height: 48px; border: 0; border-radius: 999px; color: #eef3f0; background: #31343c; }
 .call-experience .tool-button:hover:not(:disabled) { background: #40434d; }
@@ -381,8 +392,8 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .lesson-call { margin-inline: -16px; }
   .lesson-call > .section-heading { padding-inline: 16px; }
   .lesson-call .call-experience {
-    height: calc(100dvh - 82px);
-    min-height: 520px;
+    height: 100dvh;
+    min-height: 0;
     border-radius: 0;
   }
   .call-experience.panel-open .call-stage { grid-template-columns: 1fr; }
@@ -396,8 +407,8 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
     box-shadow: 0 -18px 50px #0009;
   }
   .whiteboard-side-panel { min-width: 0; }
-  .whiteboard-panel { min-height: min(54dvh, 380px); }
-  .whiteboard-canvas { min-height: 260px; }
+  .whiteboard-panel { min-height: 0; }
+  .whiteboard-canvas { min-height: 0; }
   .whiteboard-stage .whiteboard-panel { min-height: 0; }
   .whiteboard-stage .whiteboard-canvas { min-height: 0; }
 }
@@ -408,14 +419,12 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .call-experience .video-grid { grid-template-columns: 1fr; gap: 8px; }
   .focus-mode .video-grid { grid-template-columns: 1fr; }
   .floating-preview { left: 10px; bottom: 10px; width: min(42vw, 180px); max-height: min(32%, 210px); }
-  .whiteboard-video-preview { right: 10px; left: auto; bottom: 10px; width: min(34vw, 150px); }
-  .whiteboard-remote-preview { right: 10px; left: auto; bottom: min(145px, 31%); width: min(34vw, 150px); }
-  .whiteboard-stage-header { font-size: 13px; }
   .whiteboard-tools { gap: 7px; padding: 8px; }
   .whiteboard-tools button { width: 30px; height: 30px; }
-  .call-experience .call-toolbar { gap: 6px; padding: 8px; border-radius: 22px; }
-  .call-experience .tool-button { width: 43px; height: 43px; }
-  .call-experience .tool-button.danger { width: 50px; }
+  .call-experience .call-toolbar { gap: 5px; padding: 7px; border-radius: 22px; max-width: calc(100vw - 16px); }
+  .call-experience .tool-button { width: 40px; height: 40px; }
+  .call-experience .tool-button.danger { width: 46px; }
+  .call-more-menu { right: 4px; left: 4px; bottom: calc(100% + 8px); }
   .participant-meta { font-size: 12px; }
 }
 
