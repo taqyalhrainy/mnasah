@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, ScreenShare, ScreenShareOff, Users } from 'lucide-react';
+import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
@@ -18,6 +18,7 @@ declare global {
 export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize }: { assignedRole: VideoRole; assignedRoom: string; authorize: () => Promise<unknown> }) {
   const [status, setStatus] = useState('جاهز لبدء الجلسة');
   const [isConnected, setIsConnected] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -36,6 +37,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+  const autoJoinStartedRef = useRef(false);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
 
@@ -130,6 +132,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   }, []);
 
   const startCall = async () => {
+    if (isJoining) return;
+    setIsJoining(true);
+    setStatus('جار الانضمام للغرفة');
     try {
       await authorize();
       connectionRef.current?.close();
@@ -172,8 +177,16 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'تعذر بدء المكالمة');
       setIsConnected(false);
+    } finally {
+      setIsJoining(false);
     }
   };
+
+  useEffect(() => {
+    if (autoJoinStartedRef.current) return;
+    autoJoinStartedRef.current = true;
+    void startCall();
+  }, []);
 
   const endCall = () => {
     connectionRef.current?.close();
@@ -183,6 +196,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setIsConnected(false);
+    setIsJoining(false);
     setIsScreenSharing(false);
     setIsPictureInPicture(false);
     setShowAndroidAppPrompt(false);
@@ -345,7 +359,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       </div>
 
       <div className="session-controls call-start">
-        <button className="primary-button" type="button" disabled={isConnected} onClick={startCall}><Camera size={18} />بدء الجلسة</button>
+        {isJoining && <span className="call-joining"><RefreshCw size={16} />جار الانضمام</span>}
+        {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />إعادة المحاولة</button>}
       </div>
 
       {showAndroidAppPrompt && (

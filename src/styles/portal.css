@@ -133,6 +133,21 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .call-experience .status-pill { min-height: 34px; color: #dff7eb; background: #20252b; border: 1px solid #343a44; border-radius: 999px; }
 .call-experience .call-start { display: flex; justify-content: center; margin: 0; }
 .call-experience .call-start .primary-button { min-height: 38px; border-radius: 999px; background: #248160; }
+.call-joining {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid #343a44;
+  border-radius: 999px;
+  color: #d7dce3;
+  background: #20242b;
+  font-size: 13px;
+  font-weight: 800;
+}
+.call-joining svg { animation: call-spin 1s linear infinite; }
+@keyframes call-spin { to { transform: rotate(360deg); } }
 .call-stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; overflow: hidden; }
 .call-experience.panel-open .call-stage { grid-template-columns: minmax(0, 1fr) 310px; }
 .call-experience .video-grid {
