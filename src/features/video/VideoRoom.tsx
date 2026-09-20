@@ -41,6 +41,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [whiteboardTool, setWhiteboardTool] = useState<'draw' | 'pan'>('draw');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const whiteboardSvgRef = useRef<SVGSVGElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
@@ -112,6 +113,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     const handleResize = () => {
       updateVideoRatio('local', localVideoRef.current);
       updateVideoRatio('remote', remoteVideoRef.current);
+      const rect = whiteboardSvgRef.current?.getBoundingClientRect();
+      if (rect?.width && rect.height) setWhiteboardAspect(rect.width / rect.height);
     };
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
@@ -348,6 +351,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     if (Number.isFinite(next) && Math.abs(next - whiteboardAspect) > 0.02) setWhiteboardAspect(next);
   };
 
+  const getLiveWhiteboardAspect = () => {
+    const rect = whiteboardSvgRef.current?.getBoundingClientRect();
+    if (!rect?.width || !rect.height) return whiteboardAspect;
+    const next = rect.width / rect.height;
+    if (!Number.isFinite(next) || next <= 0) return whiteboardAspect;
+    if (Math.abs(next - whiteboardAspect) > 0.02) setWhiteboardAspect(next);
+    return next;
+  };
+
   const scheduleActiveStrokePaint = () => {
     if (activeStrokeFrameRef.current !== null) return;
     activeStrokeFrameRef.current = requestAnimationFrame(() => {
@@ -415,6 +427,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 
   const fitWhiteboardToStrokes = (strokes: WhiteboardStroke[]) => {
+    const aspect = getLiveWhiteboardAspect();
     const points = strokes.flatMap((stroke) => stroke.points);
     if (!points.length) {
       setWhiteboardViewport({ x: 0, y: 0, zoom: 1 });
@@ -427,8 +440,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     const padding = 110;
     const contentWidth = Math.max(240, maxX - minX + padding * 2);
     const contentHeight = Math.max(180, maxY - minY + padding * 2);
-    const fittedWidth = Math.max(contentWidth, contentHeight * whiteboardAspect);
-    const fittedHeight = fittedWidth / whiteboardAspect;
+    const fittedWidth = Math.max(contentWidth, contentHeight * aspect);
+    const fittedHeight = fittedWidth / aspect;
     const zoom = Math.max(0.08, Math.min(5, 1000 / fittedWidth));
     setWhiteboardViewport({
       x: minX - (fittedWidth - (maxX - minX)) / 2,
@@ -438,6 +451,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   };
 
   const ensureWhiteboardContentVisible = (strokes: WhiteboardStroke[]) => {
+    const aspect = getLiveWhiteboardAspect();
     const points = strokes.flatMap((stroke) => stroke.points);
     if (!points.length) return;
     setWhiteboardViewport((current) => {
@@ -446,14 +460,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       const minY = Math.min(...points.map((point) => point.y));
       const maxY = Math.max(...points.map((point) => point.y));
       const viewWidth = 1000 / current.zoom;
-      const viewHeight = viewWidth / whiteboardAspect;
+      const viewHeight = viewWidth / aspect;
       const padding = 70 / current.zoom;
       const inside = minX >= current.x + padding && maxX <= current.x + viewWidth - padding && minY >= current.y + padding && maxY <= current.y + viewHeight - padding;
       if (inside) return current;
       const contentWidth = Math.max(viewWidth, maxX - minX + padding * 2);
       const contentHeight = Math.max(viewHeight, maxY - minY + padding * 2);
-      const fittedWidth = Math.max(contentWidth, contentHeight * whiteboardAspect);
-      const fittedHeight = fittedWidth / whiteboardAspect;
+      const fittedWidth = Math.max(contentWidth, contentHeight * aspect);
+      const fittedHeight = fittedWidth / aspect;
       const zoom = Math.max(0.08, Math.min(5, 1000 / fittedWidth));
       return {
         x: minX - (fittedWidth - (maxX - minX)) / 2,
@@ -507,7 +521,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>}
       </div>
-      <svg className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <path key={stroke.id} d={pathForStroke(stroke)} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />)}
       </svg>
     </div>
