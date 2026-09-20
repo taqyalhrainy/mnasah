@@ -47,12 +47,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const autoJoinStartedRef = useRef(false);
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
+  const activeStrokeRef = useRef<WhiteboardStroke | null>(null);
+  const activeStrokeFrameRef = useRef<number | null>(null);
   const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
 
   useEffect(() => () => {
     window.mansahCallActive = false;
+    if (activeStrokeFrameRef.current !== null) cancelAnimationFrame(activeStrokeFrameRef.current);
     void wakeLockRef.current?.release();
     connectionRef.current?.close();
   }, []);
@@ -345,6 +348,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     if (Number.isFinite(next) && Math.abs(next - whiteboardAspect) > 0.02) setWhiteboardAspect(next);
   };
 
+  const scheduleActiveStrokePaint = () => {
+    if (activeStrokeFrameRef.current !== null) return;
+    activeStrokeFrameRef.current = requestAnimationFrame(() => {
+      activeStrokeFrameRef.current = null;
+      setActiveStroke(activeStrokeRef.current);
+    });
+  };
+
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
     if (whiteboardTool === 'pan') {
@@ -352,7 +363,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       return;
     }
     if (whiteboardTool === 'erase') return eraseAtPoint(whiteboardPoint(event));
-    setActiveStroke({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] });
+    const next = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] };
+    activeStrokeRef.current = next;
+    setActiveStroke(next);
   };
 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
@@ -366,16 +379,23 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       return;
     }
     if (whiteboardTool === 'erase') return eraseAtPoint(whiteboardPoint(event));
-    if (!activeStroke) return;
-    setActiveStroke({ ...activeStroke, points: [...activeStroke.points, whiteboardPoint(event)] });
+    if (!activeStrokeRef.current) return;
+    activeStrokeRef.current = { ...activeStrokeRef.current, points: [...activeStrokeRef.current.points, whiteboardPoint(event)] };
+    scheduleActiveStrokePaint();
   };
 
   const finishWhiteboardStroke = () => {
     panStartRef.current = null;
-    if (!activeStroke) return;
-    if (activeStroke.points.length > 1) {
-      setSyncedWhiteboardStrokes((current) => [...current, activeStroke]);
-      sendWhiteboard({ kind: 'stroke', stroke: activeStroke });
+    if (activeStrokeFrameRef.current !== null) {
+      cancelAnimationFrame(activeStrokeFrameRef.current);
+      activeStrokeFrameRef.current = null;
+    }
+    const finishedStroke = activeStrokeRef.current;
+    activeStrokeRef.current = null;
+    if (!finishedStroke) return;
+    if (finishedStroke.points.length > 1) {
+      setSyncedWhiteboardStrokes((current) => [...current, finishedStroke]);
+      sendWhiteboard({ kind: 'stroke', stroke: finishedStroke });
     }
     setActiveStroke(null);
   };
