@@ -348,14 +348,13 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   grid-row: 1;
   justify-self: center;
   height: 100%;
-  width: min(100%, calc((100dvh - 174px) * 1.42));
-  max-width: 1180px;
+  width: 100%;
+  max-width: none;
   min-height: 0;
   padding: 0;
 }
 .whiteboard-stage .whiteboard-canvas {
   min-height: 0;
-  aspect-ratio: 1 / 1.08;
 }
 .call-experience .call-toolbar {
   position: relative;
@@ -466,7 +465,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .whiteboard-stage .whiteboard-panel {
     grid-column: 1;
     grid-row: 2;
-    width: min(100%, calc((100dvh - 190px) * 0.82));
+    width: 100%;
   }
 }
 

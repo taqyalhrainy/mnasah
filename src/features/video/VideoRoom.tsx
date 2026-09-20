@@ -37,6 +37,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [whiteboardColor, setWhiteboardColor] = useState('#d8f264');
   const [whiteboardSize, setWhiteboardSize] = useState(4);
   const [whiteboardViewport, setWhiteboardViewport] = useState({ x: 0, y: 0, zoom: 1 });
+  const [whiteboardAspect, setWhiteboardAspect] = useState(1.55);
   const [whiteboardTool, setWhiteboardTool] = useState<'draw' | 'pan'>('draw');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -318,11 +319,19 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
 
   const whiteboardPoint = (event: PointerEvent<SVGSVGElement>) => {
     const svg = event.currentTarget;
+    updateWhiteboardAspect(svg);
     const point = svg.createSVGPoint();
     point.x = event.clientX;
     point.y = event.clientY;
     const transformed = point.matrixTransform(svg.getScreenCTM()?.inverse());
-    return { x: transformed.x / 1000, y: transformed.y / 1000 };
+    return { x: transformed.x, y: transformed.y };
+  };
+
+  const updateWhiteboardAspect = (svg: SVGSVGElement) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const next = rect.width / rect.height;
+    if (Number.isFinite(next) && Math.abs(next - whiteboardAspect) > 0.02) setWhiteboardAspect(next);
   };
 
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
@@ -337,8 +346,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
     if (whiteboardTool === 'pan' && panStartRef.current) {
       const rect = event.currentTarget.getBoundingClientRect();
-      const scaleX = 1000 / whiteboardViewport.zoom / rect.width;
-      const scaleY = 1000 / whiteboardViewport.zoom / rect.height;
+      const viewWidth = 1000 / whiteboardViewport.zoom;
+      const viewHeight = viewWidth / whiteboardAspect;
+      const scaleX = viewWidth / rect.width;
+      const scaleY = viewHeight / rect.height;
       setWhiteboardViewport({ ...whiteboardViewport, x: panStartRef.current.x - (event.clientX - panStartRef.current.clientX) * scaleX, y: panStartRef.current.y - (event.clientY - panStartRef.current.clientY) * scaleY });
       return;
     }
@@ -361,21 +372,27 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     sendWhiteboard({ kind: 'clear' });
   };
 
-  const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x * 1000} ${point.y * 1000}`).join(' ');
+  const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 
   const zoomWhiteboard = (factor: number) => {
     setWhiteboardViewport((current) => {
       const nextZoom = Math.max(0.5, Math.min(5, current.zoom * factor));
-      const currentSize = 1000 / current.zoom;
-      const nextSize = 1000 / nextZoom;
-      return { zoom: nextZoom, x: current.x + (currentSize - nextSize) / 2, y: current.y + (currentSize - nextSize) / 2 };
+      const currentWidth = 1000 / current.zoom;
+      const nextWidth = 1000 / nextZoom;
+      const currentHeight = currentWidth / whiteboardAspect;
+      const nextHeight = nextWidth / whiteboardAspect;
+      return { zoom: nextZoom, x: current.x + (currentWidth - nextWidth) / 2, y: current.y + (currentHeight - nextHeight) / 2 };
     });
   };
 
   const handleWhiteboardWheel = (event: WheelEvent<SVGSVGElement>) => {
     event.preventDefault();
+    updateWhiteboardAspect(event.currentTarget);
     zoomWhiteboard(event.deltaY > 0 ? 0.9 : 1.1);
   };
+
+  const viewWidth = 1000 / whiteboardViewport.zoom;
+  const viewHeight = viewWidth / whiteboardAspect;
 
   const renderWhiteboard = () => (
     <div className="whiteboard-panel">
@@ -388,7 +405,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
         <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>
       </div>
-      <svg className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${1000 / whiteboardViewport.zoom} ${1000 / whiteboardViewport.zoom}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+      <svg className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <path key={stroke.id} d={pathForStroke(stroke)} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />)}
       </svg>
     </div>
