@@ -305,6 +305,51 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   touch-action: none;
   cursor: crosshair;
 }
+.whiteboard-mode .call-stage {
+  grid-template-columns: minmax(0, 1fr);
+}
+.whiteboard-stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+}
+.whiteboard-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+.whiteboard-stage-header button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: #101713;
+  background: #d8f264;
+  font-weight: 800;
+}
+.whiteboard-stage .whiteboard-panel {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+.whiteboard-stage .whiteboard-canvas {
+  min-height: 0;
+}
+.whiteboard-video-preview {
+  right: 18px;
+  left: auto;
+  bottom: 18px;
+}
+.whiteboard-remote-preview {
+  right: 18px;
+  left: auto;
+  bottom: min(190px, 34%);
+}
 .call-experience .call-toolbar {
   position: sticky;
   bottom: max(10px, env(safe-area-inset-bottom));
@@ -353,6 +398,8 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .whiteboard-side-panel { min-width: 0; }
   .whiteboard-panel { min-height: min(54dvh, 380px); }
   .whiteboard-canvas { min-height: 260px; }
+  .whiteboard-stage .whiteboard-panel { min-height: 0; }
+  .whiteboard-stage .whiteboard-canvas { min-height: 0; }
 }
 
 @media(max-width: 620px) {
@@ -361,6 +408,11 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .call-experience .video-grid { grid-template-columns: 1fr; gap: 8px; }
   .focus-mode .video-grid { grid-template-columns: 1fr; }
   .floating-preview { left: 10px; bottom: 10px; width: min(42vw, 180px); max-height: min(32%, 210px); }
+  .whiteboard-video-preview { right: 10px; left: auto; bottom: 10px; width: min(34vw, 150px); }
+  .whiteboard-remote-preview { right: 10px; left: auto; bottom: min(145px, 31%); width: min(34vw, 150px); }
+  .whiteboard-stage-header { font-size: 13px; }
+  .whiteboard-tools { gap: 7px; padding: 8px; }
+  .whiteboard-tools button { width: 30px; height: 30px; }
   .call-experience .call-toolbar { gap: 6px; padding: 8px; border-radius: 22px; }
   .call-experience .tool-button { width: 43px; height: 43px; }
   .call-experience .tool-button.danger { width: 50px; }

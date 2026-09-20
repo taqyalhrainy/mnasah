@@ -30,6 +30,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
+  const [stageMode, setStageMode] = useState<'video' | 'whiteboard'>('video');
   const [sidePanel, setSidePanel] = useState<'participants' | 'chat' | 'whiteboard' | null>(null);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
@@ -210,6 +211,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     setRemoteVideoSource('camera');
     setHasRemoteStream(false);
     setFocusedParticipant(null);
+    setStageMode('video');
     setSidePanel(null);
     setStatus('تم إنهاء الجلسة');
     window.mansahCallActive = false;
@@ -434,7 +436,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   };
 
   return (
-    <section className={`video-room call-experience ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel ? 'panel-open' : ''}`}>
+    <section className={`video-room call-experience ${focusedParticipant || stageMode === 'whiteboard' ? 'focus-mode' : 'grid-mode'} ${sidePanel && sidePanel !== 'whiteboard' ? 'panel-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : ''}`}>
       <div className="video-header call-header">
         <div>
           <h2>الحصة المباشرة</h2>
@@ -456,6 +458,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       )}
 
       <div className="call-stage">
+        {stageMode === 'whiteboard' ? (
+          <div className="whiteboard-stage">
+            <div className="whiteboard-stage-header"><strong>اللوح المشترك</strong><button type="button" onClick={() => setStageMode('video')}>رجوع للفيديو</button></div>
+            {renderWhiteboard()}
+            <div className="floating-preview whiteboard-video-preview">{renderTile('local', 'pip')}</div>
+            {hasRemoteStream && <div className="floating-preview whiteboard-remote-preview">{renderTile('remote', 'pip')}</div>}
+          </div>
+        ) : (
         <div className="video-grid" aria-label="المشاركون">
           {focusedParticipant ? (
             <>
@@ -469,6 +479,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
             </>
           )}
         </div>
+        )}
         {sidePanel && (
           <aside className={`call-side-panel ${sidePanel === 'whiteboard' ? 'whiteboard-side-panel' : ''}`} aria-label={sidePanel === 'chat' ? 'المحادثة' : sidePanel === 'whiteboard' ? 'اللوح المشترك' : 'المشاركون'}>
             <div className="panel-title"><strong>{sidePanel === 'chat' ? 'المحادثة' : sidePanel === 'whiteboard' ? 'اللوح المشترك' : 'المشاركون'}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق">×</button></div>
@@ -481,10 +492,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         <button className={audioEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleAudioToggle} title={audioEnabled ? 'إيقاف المايك' : 'تشغيل المايك'} type="button">{audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button>
         <button className={videoEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleVideoToggle} title={videoEnabled ? 'إيقاف الكاميرا' : 'تشغيل الكاميرا'} type="button">{videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}</button>
         <button className={isScreenSharing ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handleScreenShareToggle} title={isScreenSharing ? 'إيقاف مشاركة الشاشة' : 'مشاركة الشاشة'} type="button">{isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}</button>
-        <button className="tool-button" disabled={!isConnected} onClick={() => setFocusedParticipant(null)} title="عرض الشبكة" type="button"><Grid2X2 size={20} /></button>
+        <button className="tool-button" disabled={!isConnected} onClick={() => { setStageMode('video'); setFocusedParticipant(null); }} title="عرض الشبكة" type="button"><Grid2X2 size={20} /></button>
         <button className={sidePanel === 'participants' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'participants' ? null : 'participants')} title="المشاركون" type="button"><Users size={20} /></button>
         <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'chat' ? null : 'chat')} title="المحادثة" type="button"><MessageSquare size={20} /></button>
-        <button className={sidePanel === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} onClick={() => setSidePanel(sidePanel === 'whiteboard' ? null : 'whiteboard')} title="اللوح المشترك" type="button"><Grid2X2 size={20} /></button>
+        <button className={stageMode === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} onClick={() => { setStageMode(stageMode === 'whiteboard' ? 'video' : 'whiteboard'); setSidePanel(null); }} title="اللوح المشترك" type="button"><Grid2X2 size={20} /></button>
         <button className={isPictureInPicture ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handlePictureInPictureToggle} title={isPictureInPicture ? 'إغلاق النافذة العائمة' : 'فتح نافذة عائمة'} type="button"><PictureInPicture2 size={20} /></button>
         {installPrompt && <button className="tool-button" onClick={handleInstallApp} title="تثبيت كتطبيق" type="button"><Download size={20} /></button>}
         <button className={fitMode === 'fill' ? 'tool-button active-share' : 'tool-button'} onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')} title={fitMode === 'fit' ? 'Fill frame' : 'Fit video'} type="button"><MoreHorizontal size={20} /></button>
