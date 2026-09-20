@@ -4,6 +4,8 @@ import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreH
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
+const MIN_WHITEBOARD_ZOOM = 0.005;
+const MAX_WHITEBOARD_ZOOM = 5;
 
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: 'release', listener: () => void) => void };
 type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> } };
@@ -442,7 +444,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     const contentHeight = Math.max(180, maxY - minY + padding * 2);
     const fittedWidth = Math.max(contentWidth, contentHeight * aspect);
     const fittedHeight = fittedWidth / aspect;
-    const zoom = Math.max(0.08, Math.min(5, 1000 / fittedWidth));
+    const zoom = Math.max(MIN_WHITEBOARD_ZOOM, Math.min(MAX_WHITEBOARD_ZOOM, 1000 / fittedWidth));
     setWhiteboardViewport({
       x: minX - (fittedWidth - (maxX - minX)) / 2,
       y: minY - (fittedHeight - (maxY - minY)) / 2,
@@ -468,7 +470,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       const contentHeight = Math.max(viewHeight, maxY - minY + padding * 2);
       const fittedWidth = Math.max(contentWidth, contentHeight * aspect);
       const fittedHeight = fittedWidth / aspect;
-      const zoom = Math.max(0.08, Math.min(5, 1000 / fittedWidth));
+      const zoom = Math.max(MIN_WHITEBOARD_ZOOM, Math.min(MAX_WHITEBOARD_ZOOM, 1000 / fittedWidth));
       return {
         x: minX - (fittedWidth - (maxX - minX)) / 2,
         y: minY - (fittedHeight - (maxY - minY)) / 2,
@@ -479,7 +481,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
 
   const zoomWhiteboard = (factor: number, anchor?: { x: number; y: number }) => {
     setWhiteboardViewport((current) => {
-      const nextZoom = Math.max(0.08, Math.min(5, current.zoom * factor));
+      const nextZoom = Math.max(MIN_WHITEBOARD_ZOOM, Math.min(MAX_WHITEBOARD_ZOOM, current.zoom * factor));
       const currentWidth = 1000 / current.zoom;
       const nextWidth = 1000 / nextZoom;
       const currentHeight = currentWidth / whiteboardAspect;
