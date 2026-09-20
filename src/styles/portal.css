@@ -325,7 +325,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .whiteboard-stage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 172px;
+  grid-template-columns: minmax(0, 1fr) 152px;
   grid-template-rows: minmax(0, 1fr);
   gap: 8px;
   min-height: 0;
@@ -348,14 +348,14 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   grid-row: 1;
   justify-self: center;
   height: 100%;
-  width: min(100%, calc((100dvh - 210px) * 0.72));
-  max-width: 760px;
+  width: min(100%, calc((100dvh - 190px) * 1.18));
+  max-width: 980px;
   min-height: 0;
   padding: 0;
 }
 .whiteboard-stage .whiteboard-canvas {
   min-height: 0;
-  aspect-ratio: 9 / 16;
+  aspect-ratio: 4 / 5;
 }
 .call-experience .call-toolbar {
   position: relative;
@@ -466,7 +466,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   .whiteboard-stage .whiteboard-panel {
     grid-column: 1;
     grid-row: 2;
-    width: min(100%, calc((100dvh - 190px) * 0.62));
+    width: min(100%, calc((100dvh - 190px) * 0.82));
   }
 }
 
