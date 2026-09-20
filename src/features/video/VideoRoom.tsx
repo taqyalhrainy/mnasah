@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent, WheelEvent } from 'react';
+import type { CSSProperties, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
@@ -331,7 +331,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     connectionRef.current?.sendWhiteboard(message);
   };
 
-  const whiteboardPoint = (event: PointerEvent<SVGSVGElement>) => {
+  const whiteboardPoint = (event: PointerEvent<SVGSVGElement> | WheelEvent<SVGSVGElement>) => {
     const svg = event.currentTarget;
     updateWhiteboardAspect(svg);
     const point = svg.createSVGPoint();
@@ -466,15 +466,25 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     });
   };
 
-  const zoomWhiteboard = (factor: number) => {
+  const zoomWhiteboard = (factor: number, anchor?: { x: number; y: number }) => {
     setWhiteboardViewport((current) => {
       const nextZoom = Math.max(0.08, Math.min(5, current.zoom * factor));
       const currentWidth = 1000 / current.zoom;
       const nextWidth = 1000 / nextZoom;
       const currentHeight = currentWidth / whiteboardAspect;
       const nextHeight = nextWidth / whiteboardAspect;
+      if (anchor) {
+        const ratioX = (anchor.x - current.x) / currentWidth;
+        const ratioY = (anchor.y - current.y) / currentHeight;
+        return { zoom: nextZoom, x: anchor.x - nextWidth * ratioX, y: anchor.y - nextHeight * ratioY };
+      }
       return { zoom: nextZoom, x: current.x + (currentWidth - nextWidth) / 2, y: current.y + (currentHeight - nextHeight) / 2 };
     });
+  };
+
+  const stopWhiteboardZoomEvent = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const handleWhiteboardWheel = (event: WheelEvent<SVGSVGElement>) => {
@@ -482,7 +492,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     event.stopPropagation();
     event.nativeEvent.stopImmediatePropagation();
     updateWhiteboardAspect(event.currentTarget);
-    zoomWhiteboard(event.deltaY > 0 ? 0.9 : 1.1);
+    zoomWhiteboard(event.deltaY > 0 ? 0.9 : 1.1, whiteboardPoint(event));
   };
 
   const viewWidth = 1000 / whiteboardViewport.zoom;
@@ -493,9 +503,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       <div className="whiteboard-tools">
         <button className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'pan' ? 'draw' : 'pan')} aria-label="تحريك اللوح">✋</button>
         {role === 'teacher' && <button className={whiteboardTool === 'erase' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'erase' ? 'draw' : 'erase')} aria-label="ممحاة">مسح</button>}
-        <button className="tool-mode" type="button" onClick={() => zoomWhiteboard(1.2)} aria-label="تكبير">+</button>
-        <button className="tool-mode" type="button" onClick={() => zoomWhiteboard(0.84)} aria-label="تصغير">-</button>
-        <button className="tool-mode" type="button" onClick={() => fitWhiteboardToStrokes(whiteboardStrokesRef.current)} aria-label="إظهار كامل الرسم">Fit</button>
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label="تكبير">+</button>
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label="تصغير">-</button>
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToStrokes(whiteboardStrokesRef.current); }} aria-label="إظهار كامل الرسم">Fit</button>
         {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label="لون القلم" />)}
         <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>}
