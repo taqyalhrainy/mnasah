@@ -44,12 +44,12 @@ export function App() {
       ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: 'مواعيدي المتاحة', icon: Search }]),
       { id: 'catalog', label: 'التصنيفات والمواد', icon: ClipboardList },
       { id: 'profile', label: 'حسابي', icon: Settings }];
-  return <main className="app-shell business-shell" dir="rtl">
+  return <main className={`app-shell business-shell ${portal !== 'admin' ? 'learning-shell' : ''}`} dir="rtl">
     <aside className="sidebar"><div className="brand"><img src="/icon.svg" width="40" height="40" alt="" /><div><strong>Mansah</strong><span>{portalNames[portal]}</span></div></div>
-      <nav className="nav-list">{nav.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={18} />{label}</button>)}</nav>
+      <nav className="nav-list">{nav.map(({ id, label, icon: Icon }) => <button key={id} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={18} />{label}</button>)}</nav>
       <div className="sidebar-footer"><a href="/downloads/mansah.apk" className="nav-button"><Download size={18} />تطبيق أندرويد</a><button className="nav-button" onClick={logout}><LogOut size={18} />تسجيل الخروج</button></div>
     </aside>
-    <section className="workspace"><header className="topbar"><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div><span className="account-name">{user.name}</span></header>
+    <section className="workspace"><header className="topbar"><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div><details className="account-menu"><summary><span className="account-avatar">{user.name.trim().charAt(0)}</span><span className="account-name">{user.name}</span></summary><div><button onClick={() => setView('profile')}><Settings size={16} />حسابي</button><a href="/downloads/mansah.apk"><Download size={16} />تطبيق أندرويد</a><button onClick={logout}><LogOut size={16} />تسجيل الخروج</button></div></details></header>
       {error && <p className="notice error" role="alert">{error}</p>}
       {user.status === 'suspended' ? <p className="notice error">حسابك موقوف. راجع الإدارة.</p> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><h2>طلبك قيد المراجعة</h2><p>ستظهر المواعيد والحصص بعد موافقة الإدارة على حسابك.</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>تحديث حالة الطلب</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} />}
     </section>

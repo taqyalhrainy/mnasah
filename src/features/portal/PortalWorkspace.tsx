@@ -6,6 +6,13 @@ import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
 import type { Category } from '../../services/platformApi';
+import { GraduationCap, Library, Languages, PenLine, Sparkles, Sprout } from 'lucide-react';
+
+function CategoryIcon({ value }: { value: string }) {
+  const icons: Record<string, typeof Library> = { '📚': Library, '☘': Sprout, '✍': PenLine, EN: Languages, '🎓': GraduationCap, '✨': Sparkles };
+  const Icon = icons[value];
+  return Icon ? <Icon size={22} strokeWidth={1.7} /> : <>{value}</>;
+}
 
 type EventRow = { id: string; name: string; action: string; target: string; created: number };
 type Room = { id: string; room: string; role: 'teacher' | 'student' };
@@ -144,7 +151,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
       {view === 'home' && <section className="student-home">
         <div className="student-hero"><div><span>منصة تعليم خصوصي</span><h2>ماذا تريد أن تتعلم؟</h2><p>اختر المجال، ثم المستوى والمادة، وسنوصلك بالأستاذ المناسب بسرعة.</p></div>{studentSearch}</div>
         {nextLesson && <article className="upcoming-card"><CalendarPlus size={22} /><div><span>حصتك القادمة</span><strong>{nextLesson.subject}</strong><p>{nextLesson.teacher_name} · {date(nextLesson.start)}</p></div><button className="primary-button" onClick={() => { onView('history'); setSelected(nextLesson.id); }}>التفاصيل</button></article>}
-        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span>{icon}</span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
+        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span><CategoryIcon value={icon} /></span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
         {studentStep !== 'categories' && <div className="student-flow"><button className="text-button" onClick={() => { setStudentStep('categories'); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}>العودة للتصنيفات</button><h3>{studentCategory}</h3>{studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{level}</button>)}</div>}{studentStep === 'subjects' && <><p>{studentLevel}</p><div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentStep('tutors'); }} key={subject}>{subject}</button>)}</div></>}{studentStep === 'tutors' && <TutorList slots={subjectSlots} busy={busy} bookSlot={bookSlot} />}</div>}
         <section><div className="section-heading"><h3>متاحون الآن</h3><button className="text-button" onClick={() => { setStudentStep('tutors'); setStudentSubject(''); }}>عرض الكل</button></div><TutorList slots={openSlots.slice(0, 3)} busy={busy} bookSlot={bookSlot} compact /></section>
       </section>}
@@ -163,7 +170,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
       {view === 'home' && <section className="tutor-home">
         <div className="student-hero tutor-hero"><div><span>منصة الأساتذة</span><h2>بشو بترغب تعطي؟</h2><p>اختر المجال والمستوى والمادة، ثم افتح مواعيدك للطلاب بسهولة.</p></div><div className="tutor-summary"><span>الحصة القادمة</span>{teacherNextLesson ? <><strong>{teacherNextLesson.subject}</strong><p>{teacherNextLesson.student_name} · {date(teacherNextLesson.start)}</p><button className="primary-button" onClick={() => { onView('booked'); void join(teacherNextLesson); }}>دخول الحصة</button></> : <p>لا توجد حصة قادمة.</p>}</div></div>
         <div className="teacher-metrics"><div><span>حجوزات اليوم</span><strong>{teacherBooked.filter(b => new Date(b.start).toDateString() === new Date().toDateString()).length}</strong></div><div><span>الساعات المتاحة</span><strong>{slots.filter(s => s.status === 'open').length}</strong></div><div><span>مستحقات هذا الأسبوع</span><strong>{money(netEarnings)}</strong></div></div>
-        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span>{icon}</span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
+        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span><CategoryIcon value={icon} /></span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
         {studentStep !== 'categories' && <div className="student-flow">
           <button className="text-button" onClick={() => { setStudentStep('categories'); setCategoryId(''); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}>العودة للتصنيفات</button>
           <h3>{studentCategory}</h3>
