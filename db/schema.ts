@@ -6,6 +6,7 @@ export const users = sqliteTable('users', {
   mustChangePassword: integer('must_change_password').notNull().default(0),
   temporaryPasswordExpires: integer('temporary_password_expires'),
   subject: text('subject').notNull().default(''), bio: text('bio').notNull().default(''),
+  academicLevel: text('academic_level').notNull().default(''), phone: text('phone').notNull().default(''),
   created: integer('created').notNull(),
 });
 export const sessions = sqliteTable('sessions', {
