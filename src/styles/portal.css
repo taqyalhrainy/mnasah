@@ -829,6 +829,17 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 }
 .secondary-button:hover:not(:disabled) { border-color: #7fa2e8; background: #edf4ff; transform: translateY(-1px); }
 .text-button { color: var(--brand); font-weight: 850; }
+.back-to-categories {
+  justify-self: start;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #c9d8ed;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 8px 18px #12284b0d;
+}
+.back-to-categories::before { content: "←"; font-weight: 900; }
+.back-to-categories:hover { background: #f1f6ff; border-color: #93b1ef; transform: translateY(-1px); }
 .icon-button {
   border-color: #c7d4e6;
   border-radius: 12px;
