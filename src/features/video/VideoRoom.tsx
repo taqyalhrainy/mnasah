@@ -26,6 +26,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showAndroidAppPrompt, setShowAndroidAppPrompt] = useState(false);
+  const [screenShareMobileOS, setScreenShareMobileOS] = useState<'android' | 'ios' | null>(null);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
@@ -225,11 +226,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     connectionRef.current?.toggleVideo(nextValue);
   };
 
-  const needsNativeAppForScreenShare = () => {
+  const getMobileScreenShareOS = () => {
     const userAgent = navigator.userAgent;
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isAndroid = /Android/i.test(userAgent);
-    return isIOS || isAndroid;
+    if (isIOS) return 'ios';
+    if (isAndroid) return 'android';
+    return null;
   };
 
   const handleScreenShareToggle = async () => {
@@ -242,7 +245,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         setIsScreenSharing(false);
         return;
       }
-      if (needsNativeAppForScreenShare()) {
+      const mobileOS = getMobileScreenShareOS();
+      if (mobileOS) {
+        setScreenShareMobileOS(mobileOS);
         setShowAndroidAppPrompt(true);
         setStatus('مشاركة شاشة الهاتف تحتاج تنزيل التطبيق');
         return;
@@ -585,7 +590,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />إعادة المحاولة</button>}
       </div>
 
-      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة شاشة الهاتف تحتاج التطبيق</strong><p>متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. نزّل التطبيق حتى تقدر تشارك شاشة الجهاز.</p></div><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />تنزيل التطبيق</a></div>}
+      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة شاشة الهاتف تحتاج التطبيق</strong><p>{screenShareMobileOS === 'ios' ? 'الآيفون لا يثبّت APK. نسخة iOS غير متوفرة حالياً، وسنضيف رابط TestFlight أو App Store عند تجهيزها.' : 'متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. نزّل تطبيق أندرويد حتى تقدر تشارك شاشة الجهاز.'}</p></div>{screenShareMobileOS === 'android' && <a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />تنزيل التطبيق</a>}</div>}
 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (
