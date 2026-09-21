@@ -23,13 +23,13 @@ export function App() {
   }, []);
   useEffect(() => {
     setLoading(true); setError('');
-    request<{ user: User | null }>('auth/me').then(result => {
+    request<{ user: User | null }>(`auth/me?portal=${portal}`).then(result => {
       setUser(result.user);
       if (location.pathname === '/video' && result.user) { history.replaceState({}, '', `/${result.user.role}`); setPortal(result.user.role); }
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
-  }, [retry]);
+  }, [retry, portal]);
   async function logout() {
-    try { await request('auth/logout', {}); setUser(null); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
+    try { await request(`auth/logout?portal=${portal}`, { role: portal }); setUser(null); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
   if (loading) return <main className="loading-page" role="status">جارٍ تحميل حسابك…</main>;
   if (error && !user) return <main className="loading-page"><p role="alert">{error}</p><button onClick={() => setRetry(retry + 1)}>إعادة المحاولة</button></main>;

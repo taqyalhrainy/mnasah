@@ -13,7 +13,7 @@ async function booking(env, id, user) {
   return row;
 }
 export async function api(request, env, portal, path, body) {
-  const user = await getUser(request, env);
+  const user = await getUser(request, env, portal);
   if (!user) fail(401, 'Ø³Ø¬Ù‘Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ù„Ù…ØªØ§Ø¨Ø¹Ø©.');
   if (portal !== user.role) fail(403, 'Ù‡Ø°Ø§ Ø§Ù„Ù‚Ø³Ù… ØºÙŠØ± Ù…ØªØ§Ø­ Ù„Ø­Ø³Ø§Ø¨Ùƒ.');
   if (user.status === 'suspended') fail(403, 'Ø§Ù„Ø­Ø³Ø§Ø¨ Ù…ÙˆÙ‚ÙˆÙ.');

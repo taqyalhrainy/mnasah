@@ -14,11 +14,14 @@ export function equal(a, b) {
   return diff === 0;
 }
 export const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject, bio: u.bio, academic_level: u.academic_level || '', phone: u.phone || '', mustChangePassword: Boolean(u.must_change_password && !u.development_access) });
+const sessionCookie = role => role && ['admin', 'teachers', 'students'].includes(role) ? `mansah_session_${role}` : 'mansah_session';
 function developmentEnabled(env) {
   return typeof env.DEVELOPMENT_LOGIN_HASH === 'string' && /^[a-f0-9]{64}:[a-f0-9]{64}$/.test(env.DEVELOPMENT_LOGIN_HASH) && Number(env.DEVELOPMENT_LOGIN_EXPIRES) > Date.now();
 }
-export async function getUser(request, env) {
-  const token = request.headers.get('cookie')?.match(/(?:^|;\s*)mansah_session=([a-f0-9]{64})(?:;|$)/)?.[1];
+export async function getUser(request, env, role) {
+  const cookies = request.headers.get('cookie') || '';
+  const name = sessionCookie(role);
+  const token = cookies.match(new RegExp(`(?:^|;\\s*)${name}=([a-f0-9]{64})(?:;|$)`))?.[1] || cookies.match(/(?:^|;\s*)mansah_session=([a-f0-9]{64})(?:;|$)/)?.[1];
   if (!token) return null;
   const user = await one(env, 'SELECT u.*,s.development_key FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?', await digest(token), Date.now());
   if (user?.development_key) {
@@ -28,11 +31,13 @@ export async function getUser(request, env) {
   return user;
 }
 export async function auth(request, env, action, body) {
-  if (action === 'me') { const user = await getUser(request, env); return { user: user ? publicUser(user) : null }; }
+  const requestedRole = new URL(request.url).searchParams.get('portal') || body.role;
+  if (action === 'me') { const user = await getUser(request, env, requestedRole); return { user: user ? publicUser(user) : null }; }
   if (action === 'logout') {
-    const token = request.headers.get('cookie')?.match(/mansah_session=([a-f0-9]{64})/)?.[1];
+    const name = sessionCookie(requestedRole);
+    const token = request.headers.get('cookie')?.match(new RegExp(`${name}=([a-f0-9]{64})`))?.[1];
     if (token) await run(env, 'DELETE FROM sessions WHERE token=?', await digest(token));
-    return { cookie: 'mansah_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0', user: null };
+    return { cookie: `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`, user: null };
   }
   if (!['login', 'register', 'setup'].includes(action)) fail(404, 'الطلب غير موجود.');
   const email = field(body.email, 254).toLowerCase();
@@ -70,5 +75,5 @@ export async function auth(request, env, action, body) {
     ...(developmentAccess ? [auditEntry(env, user.id, 'user:development-login', user.id)] : []),
   ]);
   if (!results[1].meta.changes) fail(401, 'تغيرت بيانات الحساب. سجّل الدخول مجددًا.');
-  return { user: publicUser({ ...user, development_access: developmentAccess }), cookie: `mansah_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}` };
+  return { user: publicUser({ ...user, development_access: developmentAccess }), cookie: `${sessionCookie(role)}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}` };
 }
