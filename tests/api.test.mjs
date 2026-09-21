@@ -25,6 +25,7 @@ test('authorization and the full reservation lifecycle', async () => {
     const request = new Request(`https://mansah.test/api/${path}`, { method: data === undefined ? 'GET' : 'POST', headers: { cookie: clients[who] || '', ...(data === undefined ? {} : { origin: 'https://mansah.test', 'content-type': 'application/json' }), ...headers }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
     const response = await worker.fetch(request, env);
     const body = await response.json();
+    if (body.error) assert.doesNotMatch(body.error, /[\u00d8\u00d9\ufffd]/, 'Error messages must contain readable Arabic');
     assert.equal(response.status, expected, `${path}: ${JSON.stringify(body)}`);
     if (response.headers.has('set-cookie')) clients[who] = response.headers.get('set-cookie').split(';')[0];
     return body;
@@ -64,6 +65,10 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('owner', 'admin/catalog', { action: 'reorder', ids: originalCatalog.map(row => row.id) });
   await call('teacher', 'teachers/home');
   await call('teacher', 'teachers/available');
+  await call('teacher', 'teachers/booked');
+  await call('teacher', 'teachers/history');
+  const missing = await call('teacher', 'teachers/missing-page', undefined, 404);
+  assert.equal(missing.error, 'الطلب غير موجود أو غير متاح لحسابك.');
   await call('student', 'auth/login', credentials('student@test.com', 'admin'), 401);
   await call('teacher', 'teachers/slots', { start: Date.now() - 1000, minutes: 60, price: 1500, subject: 'Math' }, 400);
   const start = Date.now() + 300000;
