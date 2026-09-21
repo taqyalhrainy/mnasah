@@ -4,6 +4,8 @@ import { request, date, money, statusNames, type Booking, type Slot, type Portal
 import { VideoRoom } from '../video/VideoRoom';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
+import { CatalogPanel } from './CatalogPanel';
+import type { Category } from '../../services/platformApi';
 
 type EventRow = { id: string; name: string; action: string; target: string; created: number };
 type Room = { id: string; room: string; role: 'teacher' | 'student' };
@@ -24,6 +26,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
   const [filter, setFilter] = useState('all');
   const [studentStep, setStudentStep] = useState<'categories' | 'levels' | 'subjects' | 'tutors'>('categories');
   const [studentCategory, setStudentCategory] = useState('');
+  const [catalog, setCatalog] = useState<Category[]>([]);
+  const [categoryId, setCategoryId] = useState('');
   const [studentLevel, setStudentLevel] = useState('');
   const [studentSubject, setStudentSubject] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -51,8 +55,12 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
     let alive = true;
     setLoading(true); setError('');
     const path = portal === 'students' ? (view === 'home' ? 'slots' : view === 'profile' ? 'profile' : 'overview') : view === 'bookings' ? 'overview' : view;
-    request<{ bookings?: Booking[]; slots?: Slot[]; users?: User[]; events?: EventRow[] }>(`${portal}/${path}`).then(data => {
+    Promise.all([
+      request<{ bookings?: Booking[]; slots?: Slot[]; users?: User[]; events?: EventRow[] }>(`${portal}/${path}`),
+      request<{ categories: Category[] }>(`${portal}/catalog`),
+    ]).then(([data, catalogData]) => {
       if (!alive) return;
+      setCatalog(catalogData.categories);
       if (data.bookings) setBookings(data.bookings);
       if (data.slots) setSlots(data.slots);
       if (data.users) setUsers(data.users);
@@ -111,24 +119,22 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
   const teacherMap = new Map<string, Booking>();
   bookings.forEach(b => { if (!teacherMap.has(b.teacher_id)) teacherMap.set(b.teacher_id, b); });
   const myTutors = [...teacherMap.values()];
-  const categories = [
-    ['jordan', 'المنهاج الأردني', 'توجيهي وجميع الصفوف المدرسية', '📚'],
-    ['quran', 'تحفيظ القرآن الكريم', 'تلاوة، حفظ، وتجويد', '☘'],
-    ['reading', 'تعليم القراءة والكتابة', 'تأسيس عربي للأطفال والكبار', '✍'],
-    ['english', 'اللغة الإنجليزية', 'محادثة، مدرسة، واختبارات', 'EN'],
-    ['university', 'المواد الجامعية', 'مساندة جامعية متخصصة', '🎓'],
-    ['skills', 'مهارات ودورات أخرى', 'مهارات عملية ودورات قصيرة', '✨'],
-  ] as const;
-  const levels = ['توجيهي', 'الصف العاشر', 'الصف التاسع', 'الصف الثامن', 'الصف السابع', 'المرحلة الأساسية'];
-  const subjects = ['رياضيات', 'فيزياء', 'كيمياء', 'عربي', 'إنجليزي', 'أحياء'];
+  const categories = catalog.map(category => [category.id, category.name, category.description, category.icon] as const);
+  const activeCategory = catalog.find(category => category.id === categoryId);
+  const levels = activeCategory?.levels || [];
+  const subjects = activeCategory?.subjects || [];
+  function chooseCategory(id: string, title: string) {
+    const category = catalog.find(item => item.id === id);
+    setCategoryId(id); setStudentCategory(title); setStudentLevel(''); setStudentSubject('');
+    setStudentStep(category?.levels.length ? 'levels' : category?.subjects.length ? 'subjects' : 'tutors');
+  }
   const subjectSlots = openSlots.filter(s => !studentSubject || s.subject.includes(studentSubject) || studentSubject.includes(s.subject));
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label="بحث" placeholder="ابحث عن مادة أو أستاذ" value={query} onChange={e => setQuery(e.target.value)} /></label>;
   const bookSlot = (s: Slot) => { if (window.confirm(`تأكيد حجز الحصة بقيمة ${money(s.price)}؟`)) void act(() => post(`slots/${s.id}`), 'تم تأكيد الحجز. ستجده في السجل.'); };
-  const teacherCategories = categories.map(([id, title, desc, icon]) => [id, title, desc, icon] as const);
   const addSlotForm = <form className="work-form slot-form tutor-slot-form" onSubmit={async e => {
     e.preventDefault(); const form = e.currentTarget; const data = formData(form);
     if (await act(() => post('slots', { ...data, start: new Date(String(data.start)).getTime(), minutes: Number(data.minutes), price: Math.round(Number(data.price) * 100) }), 'تم نشر الموعد.')) form.reset();
-  }}><h3>إضافة موعد متاح</h3><label>المادة<input name="subject" maxLength={100} defaultValue={studentCategory || user.subject} required /></label><label>التاريخ والوقت<input name="start" type="datetime-local" required /></label><label>المدة<select name="minutes" defaultValue="60">{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n} دقيقة</option>)}</select></label><label>السعر بالدينار<input name="price" type="number" min="0" max="1000" step="0.01" required /></label><button className="primary-button" disabled={busy}><CalendarPlus size={17} />نشر الموعد</button></form>;
+  }}><h3>إضافة موعد متاح</h3><label>المادة<input name="subject" maxLength={100} defaultValue={studentSubject || studentCategory || user.subject} required /></label><label>التاريخ والوقت<input name="start" type="datetime-local" required /></label><label>المدة<select name="minutes" defaultValue="60">{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n} دقيقة</option>)}</select></label><label>السعر بالدينار<input name="price" type="number" min="0" max="1000" step="0.01" required /></label><button className="primary-button" disabled={busy}><CalendarPlus size={17} />نشر الموعد</button></form>;
   if (portal === 'students') return <div className="portal-content student-experience">
     <div className="reminder-settings"><button className="secondary-button" aria-pressed={reminders.enabled} onClick={reminders.toggle}>{reminders.enabled ? <Bell size={18} /> : <BellOff size={18} />}{reminders.enabled ? 'التنبيهات مفعّلة' : 'تفعيل تنبيهات الحصص'}</button>{reminders.hint && <small role="status">{reminders.hint}</small>}</div>
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{b.subject}</strong><p>{b.start > reminders.now ? `تبدأ خلال ${Math.ceil((b.start - reminders.now) / 60000)} دقيقة` : 'حان موعد الحصة'}</p></div><button className="primary-button" disabled={busy} onClick={() => { onView('history'); void join(b); }}><Video size={17} />دخول الحصة</button></div>)}
@@ -138,7 +144,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
       {view === 'home' && <section className="student-home">
         <div className="student-hero"><div><span>منصة تعليم خصوصي</span><h2>ماذا تريد أن تتعلم؟</h2><p>اختر المجال، ثم المستوى والمادة، وسنوصلك بالأستاذ المناسب بسرعة.</p></div>{studentSearch}</div>
         {nextLesson && <article className="upcoming-card"><CalendarPlus size={22} /><div><span>حصتك القادمة</span><strong>{nextLesson.subject}</strong><p>{nextLesson.teacher_name} · {date(nextLesson.start)}</p></div><button className="primary-button" onClick={() => { onView('history'); setSelected(nextLesson.id); }}>التفاصيل</button></article>}
-        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => { setStudentCategory(title); setStudentStep(id === 'jordan' ? 'levels' : 'tutors'); }}><span>{icon}</span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
+        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span>{icon}</span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
         {studentStep !== 'categories' && <div className="student-flow"><button className="text-button" onClick={() => { setStudentStep('categories'); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}>العودة للتصنيفات</button><h3>{studentCategory}</h3>{studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{level}</button>)}</div>}{studentStep === 'subjects' && <><p>{studentLevel}</p><div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentStep('tutors'); }} key={subject}>{subject}</button>)}</div></>}{studentStep === 'tutors' && <TutorList slots={subjectSlots} busy={busy} bookSlot={bookSlot} />}</div>}
         <section><div className="section-heading"><h3>متاحون الآن</h3><button className="text-button" onClick={() => { setStudentStep('tutors'); setStudentSubject(''); }}>عرض الكل</button></div><TutorList slots={openSlots.slice(0, 3)} busy={busy} bookSlot={bookSlot} compact /></section>
       </section>}
@@ -157,8 +163,14 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
       {view === 'home' && <section className="tutor-home">
         <div className="student-hero tutor-hero"><div><span>منصة الأساتذة</span><h2>بشو بترغب تعطي؟</h2><p>اختر المجال والمستوى والمادة، ثم افتح مواعيدك للطلاب بسهولة.</p></div><div className="tutor-summary"><span>الحصة القادمة</span>{teacherNextLesson ? <><strong>{teacherNextLesson.subject}</strong><p>{teacherNextLesson.student_name} · {date(teacherNextLesson.start)}</p><button className="primary-button" onClick={() => { onView('booked'); void join(teacherNextLesson); }}>دخول الحصة</button></> : <p>لا توجد حصة قادمة.</p>}</div></div>
         <div className="teacher-metrics"><div><span>حجوزات اليوم</span><strong>{teacherBooked.filter(b => new Date(b.start).toDateString() === new Date().toDateString()).length}</strong></div><div><span>الساعات المتاحة</span><strong>{slots.filter(s => s.status === 'open').length}</strong></div><div><span>مستحقات هذا الأسبوع</span><strong>{money(netEarnings)}</strong></div></div>
-        <div className="category-grid">{teacherCategories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => { setStudentCategory(title); setStudentLevel(''); setStudentSubject(''); }}><span>{icon}</span><strong>{title}</strong><p>{desc}</p><small>عرض المواد والمستويات</small></button>)}</div>
-        {studentCategory && <div className="student-flow"><button className="text-button" onClick={() => { setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}>العودة للتصنيفات</button><h3>{studentCategory}</h3>{studentCategory === 'المنهاج الأردني' && !studentLevel && <div className="choice-grid">{levels.map(level => <button onClick={() => setStudentLevel(level)} key={level}>{level}</button>)}</div>}{(studentCategory !== 'المنهاج الأردني' || studentLevel) && <><p>{studentLevel}</p><div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentCategory(subject); onView('available'); }} key={subject}>{subject}</button>)}</div></>}</div>}
+        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span>{icon}</span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
+        {studentStep !== 'categories' && <div className="student-flow">
+          <button className="text-button" onClick={() => { setStudentStep('categories'); setCategoryId(''); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}>العودة للتصنيفات</button>
+          <h3>{studentCategory}</h3>
+          {studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{level}</button>)}</div>}
+          {studentStep === 'subjects' && <><p>{studentLevel}</p><div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); onView('available'); }} key={subject}>{subject}</button>)}</div></>}
+          {(studentStep === 'tutors' || (studentStep === 'subjects' && !subjects.length)) && <button className="primary-button" onClick={() => onView('available')}>إضافة موعد في هذا التصنيف</button>}
+        </div>}
       </section>}
       {view === 'booked' && <section className="student-page"><div className="section-heading"><h2>المواعيد المحجوزة</h2><div className="history-tabs"><button onClick={() => setFilter('today')}>اليوم</button><button onClick={() => setFilter('tomorrow')}>غداً</button><button onClick={() => setFilter('week')}>الأسبوع</button></div></div>{!teacherBooked.length && <Empty text="لا توجد حصص محجوزة حالياً." />}<div className="history-list">{teacherBooked.map((b, i) => <article className={i === 0 ? 'next-booking' : ''} key={b.id}><BookOpen size={20} /><div><strong>{b.subject}</strong><p>{b.student_name} · {date(b.start)} · {b.minutes} دقيقة</p></div><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل</button><button className="primary-button" onClick={() => join(b)}><Video size={16} />دخول</button></article>)}</div></section>}
       {view === 'available' && <section className="student-page availability-page"><h2>المواعيد المتاحة</h2>{addSlotForm}<div className="week-board">{['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'].map((day, index) => <div key={day}><strong>{day}</strong>{slots.filter((_, i) => i % 7 === index).slice(0, 4).map(s => <span className={s.status === 'booked' ? 'booked' : 'available'} key={s.id}>{date(s.start)} · {s.status === 'booked' ? 'محجوز' : 'متاح'}</span>)}{!slots.filter((_, i) => i % 7 === index).length && <small>غير محدد</small>}</div>)}</div></section>}
@@ -179,6 +191,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
       {view === 'bookings' && <button className="icon-button" onClick={exportBookings} title="تنزيل الحجوزات CSV" disabled={loading || !bookings.length}><Download size={18} /></button>}
     </div>}
     {view === 'users' && <AccountsPanel users={users} query={query} onChanged={refresh} />}
+    {view === 'catalog' && !loading && <CatalogPanel categories={catalog} onChanged={setCatalog} />}
     {loading ? <p role="status">جارٍ تحميل البيانات…</p> : <>
       {view === 'bookings' && <>
         <div className="metric-band"><div><span>الحصص المؤكدة</span><strong>{bookings.filter(b => b.status === 'confirmed').length}</strong></div><div><span>الحصص المكتملة</span><strong>{bookings.filter(b => b.status === 'completed').length}</strong></div><div><span>الدفعات المسجلة</span><strong>{money(bookings.filter(b => b.paid).reduce((sum, b) => sum + b.price, 0))}</strong></div></div>

@@ -29,6 +29,11 @@ export const messages = sqliteTable('messages', {
   authorId: text('author_id').notNull().references(() => users.id), body: text('body').notNull(), created: integer('created').notNull(),
 });
 export const limits = sqliteTable('limits', { key: text('key').primaryKey(), count: integer('count').notNull(), expires: integer('expires').notNull() });
+export const catalog = sqliteTable('catalog', {
+  id: text('id').primaryKey(), kind: text('kind').notNull(), parentId: text('parent_id').notNull().default(''),
+  name: text('name').notNull(), description: text('description').notNull().default(''), icon: text('icon').notNull().default(''),
+  position: integer('position').notNull().default(0), levels: text('levels').notNull().default('[]'), subjects: text('subjects').notNull().default('[]'), created: integer('created').notNull(),
+});
 export const audit = sqliteTable('audit', {
   id: text('id').primaryKey(), actor: text('actor').notNull(), action: text('action').notNull(), target: text('target').notNull(), created: integer('created').notNull(),
 });

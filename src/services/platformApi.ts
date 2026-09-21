@@ -1,4 +1,5 @@
 export type Portal = 'admin' | 'teachers' | 'students';
+export type Category = { id: string; name: string; description: string; icon: string; levels: string[]; subjects: string[] };
 export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string; mustChangePassword?: boolean };
 export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?: string; start: number; minutes: number; price: number; subject: string; status: string };
 export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string };

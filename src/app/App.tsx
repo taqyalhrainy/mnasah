@@ -42,6 +42,7 @@ export function App() {
     ? [{ id: 'home', label: 'الرئيسية', icon: Home }, { id: 'booked', label: 'المحجوزة', icon: CalendarDays }, { id: 'available', label: 'المتاحة', icon: Clock3 }, { id: 'earnings', label: 'المستحقات', icon: Wallet }, { id: 'profile', label: 'حسابي', icon: Settings }]
     : [{ id: 'bookings', label: 'الحصص والحجوزات', icon: CalendarDays },
       ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: 'مواعيدي المتاحة', icon: Search }]),
+      { id: 'catalog', label: 'التصنيفات والمواد', icon: ClipboardList },
       { id: 'profile', label: 'حسابي', icon: Settings }];
   return <main className="app-shell business-shell" dir="rtl">
     <aside className="sidebar"><div className="brand"><img src="/icon.svg" width="40" height="40" alt="" /><div><strong>Mansah</strong><span>{portalNames[portal]}</span></div></div>

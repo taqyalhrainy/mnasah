@@ -1,5 +1,6 @@
 ﻿import { all, one, run, statement, field, fail, auditEntry } from './db.js';
 import { getUser, publicUser, passwordHash, equal, random } from './auth.js';
+import { catalog } from './catalog.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,s.teacher_id,s.start,s.minutes,s.price,s.subject,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
@@ -36,6 +37,10 @@ export async function api(request, env, portal, path, body) {
   if (path === 'reminders' && !write && user.role !== 'admin') {
     const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
     return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND s.start>=? AND s.start<=? ORDER BY s.start LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
+  }
+  if (path === 'catalog') return catalog(env, user, write, body);
+  if (user.role === 'teachers' && !write && ['home', 'booked', 'available', 'history'].includes(path)) {
+    return { bookings: await all(env, `${bookingSelect} WHERE s.teacher_id=? ORDER BY s.start DESC LIMIT 500`, user.id), slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
   }
   if (path === 'overview' && !write) {
     const where = user.role === 'admin' ? '' : user.role === 'teachers' ? ' WHERE s.teacher_id=?' : ' WHERE b.student_id=?';
