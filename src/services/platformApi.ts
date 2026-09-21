@@ -1,10 +1,8 @@
 export type Portal = 'admin' | 'teachers' | 'students';
-export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string; academic_level?: string; phone?: string; mustChangePassword?: boolean };
+export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string; mustChangePassword?: boolean };
 export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?: string; start: number; minutes: number; price: number; subject: string; status: string };
 export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string };
 export type Message = { id: string; body: string; created: number; name: string };
-export type WalletTransaction = { id: string; type: string; amount: number; reference: string; created: number };
-export type Earnings = { commissionPercent: number; gross: number; fee: number; net: number; completed: Booking[]; payouts: Array<{ id: string; amount: number; status: string; paid_at?: number; created: number }> };
 export async function request<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api/${path}`, { credentials: 'same-origin', cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
   let data;

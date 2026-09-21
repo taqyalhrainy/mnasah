@@ -18,8 +18,8 @@ export async function api(request, env, portal, path, body) {
   if (portal !== user.role) fail(403, 'Ù‡Ø°Ø§ Ø§Ù„Ù‚Ø³Ù… ØºÙŠØ± Ù…ØªØ§Ø­ Ù„Ø­Ø³Ø§Ø¨Ùƒ.');
   if (user.status === 'suspended') fail(403, 'Ø§Ù„Ø­Ø³Ø§Ø¨ Ù…ÙˆÙ‚ÙˆÙ.');
   const write = request.method !== 'GET';
-  if (!user.development_access && user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'Ø§Ù†ØªÙ‡Øª ØµÙ„Ø§Ø­ÙŠØ© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ù…Ø¤Ù‚ØªØ©. Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©.');
-  if (!user.development_access && user.must_change_password && path !== 'password') fail(403, 'ÙŠØ¬Ø¨ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ù…Ø¤Ù‚ØªØ© Ø£ÙˆÙ„Ù‹Ø§.');
+  if (!user.development_access && user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'Ø§Ù†ØªÙ‡Øª ØµÙ„Ø§Ø­ÙŠØ© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ù…Ø¤Ù‚ØªØ©. Ø±Ø§Ø¬Ø¹ Ø§Ù„إدارة.');
+  if (!user.development_access && user.must_change_password && path !== 'password') fail(403, 'ÙŠØ¬Ø¨ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ù…Ø¤Ù‚ØªØ© Ø£ÙˆÙ„Ù‹ا.');
   if (path === 'profile') {
     if (write) await run(env, 'UPDATE users SET name=?,subject=?,bio=?,academic_level=?,phone=? WHERE id=?', field(body.name, 100), field(body.subject || '', 100, 0), field(body.bio || '', 2000, 0), field(body.academic_level || '', 100, 0), field(body.phone || '', 40, 0), user.id);
     return { user: publicUser({ ...await one(env, 'SELECT * FROM users WHERE id=?', user.id), development_access: user.development_access }) };
@@ -32,7 +32,7 @@ export async function api(request, env, portal, path, body) {
     if (!result[0].meta.changes) fail(409, 'ØªØºÙŠØ±Øª Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø­Ø³Ø§Ø¨. Ø³Ø¬Ù‘Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø¬Ø¯Ø¯Ù‹Ø§.');
     return { ok: true };
   }
-  if (user.status !== 'active') fail(403, 'Ø·Ù„Ø¨ Ø§Ù†Ø¶Ù…Ø§Ù…Ùƒ Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù…ÙˆØ§ÙÙ‚Ø© Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©.');
+  if (user.status !== 'active') fail(403, 'Ø·Ù„Ø¨ Ø§Ù†Ø¶Ù…Ø§Ù…Ùƒ Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù…ÙˆØ§ÙÙ‚Ø© Ø§Ù„إدارة.');
   if (path === 'reminders' && !write && user.role !== 'admin') {
     const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
     return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND s.start>=? AND s.start<=? ORDER BY s.start LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
@@ -47,7 +47,7 @@ export async function api(request, env, portal, path, body) {
     if (!equal(await passwordHash(adminPassword, user.password.split(':')[0]), user.password)) fail(403, 'ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ± Ø§Ù„Ø£Ø¯Ù…Ù† ØºÙŠØ± ØµØ­ÙŠØ­Ø©.');
     const id = path.split('/')[1];
     const target = await one(env, "SELECT id FROM users WHERE id=? AND role IN ('teachers','students')", id);
-    if (!target) fail(404, 'Ø§Ù„Ø­Ø³Ø§Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯.');
+    if (!target) fail(404, 'Ø§Ù„Ø­Ø³Ø§Ø¨ ØºÙŠØ± Ù…ÙˆØ¬Ùˆد.');
     const temporaryPassword = random().slice(0, 24);
     const expires = Date.now() + 86400000;
     await env.DB.batch([
@@ -61,7 +61,7 @@ export async function api(request, env, portal, path, body) {
     const id = path.split('/')[1];
     if (!['active', 'suspended'].includes(body.status)) fail(400, 'Ø­Ø§Ù„Ø© ØºÙŠØ± ØµØ­ÙŠØ­Ø©.');
     const target = await one(env, "SELECT * FROM users WHERE id=? AND role!='admin'", id);
-    if (!target) fail(404, 'Ø§Ù„Ø­Ø³Ø§Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯.');
+    if (!target) fail(404, 'Ø§Ù„Ø­Ø³Ø§Ø¨ ØºÙŠØ± Ù…ÙˆØ¬Ùˆد.');
     await env.DB.batch([statement(env, 'UPDATE users SET status=? WHERE id=?', body.status, id), statement(env, 'DELETE FROM sessions WHERE user_id=?', id), auditEntry(env, user.id, `user:${body.status}`, id)]);
     return { ok: true };
   }
@@ -69,7 +69,7 @@ export async function api(request, env, portal, path, body) {
   if (path === 'wallet' && user.role === 'students') {
     if (write) {
       const amount = Math.round(Number(body.amount) * 100);
-      if (!Number.isInteger(amount) || amount < 100 || amount > 1000000) fail(400, 'Ø§Ø®ØªØ± Ù…Ø¨Ù„Øº Ø´Ø­Ù† ØµØ­ÙŠØ­.');
+      if (!Number.isInteger(amount) || amount < 100 || amount > 1000000) fail(400, 'Ø§Ø®ØªØ± Ù…Ø¨Ù„Øº Ø´Ø­Ù† ØµØ­ÙŠح.');
       await run(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) VALUES (?,?,?,?,?,?)", crypto.randomUUID(), user.id, 'sandbox_topup', amount, `sandbox-${random().slice(0, 10)}`, Date.now());
     }
     return { balance: await walletBalance(env, user.id), transactions: await all(env, 'SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id) };
@@ -102,11 +102,11 @@ export async function api(request, env, portal, path, body) {
       if (user.role === 'teachers') return { slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
       return { slots: await all(env, `SELECT s.*,u.name AS teacher_name,u.bio FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND s.start>? ORDER BY s.start LIMIT 500`, Date.now()) };
     }
-    if (user.role !== 'teachers') fail(403, 'Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…ÙˆØ§Ø¹ÙŠØ¯ Ù…ØªØ§Ø­Ø© Ù„Ù„Ø£Ø³ØªØ§Ø° ÙÙ‚Ø·.');
+    if (user.role !== 'teachers') fail(403, 'Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…ÙˆØ§Ø¹ÙŠØ¯ Ù…ØªØ§Ø­Ø© Ù„Ù„Ø£Ø³ØªØ§Ø° ÙÙ‚ط.');
     const start = Number(body.start), minutes = Number(body.minutes), price = Number(body.price);
     if (!Number.isSafeInteger(start) || start <= Date.now() || start > Date.now() + 31536000000 || ![30, 45, 60, 90, 120].includes(minutes) || !Number.isInteger(price) || price < 0 || price > 100000) fail(400, 'ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ù…ÙˆØ¹Ø¯ ÙˆØ§Ù„Ù…Ø¯Ø© ÙˆØ§Ù„Ø³Ø¹Ø±.');
     const result = await run(env, `INSERT INTO slots (id,teacher_id,start,minutes,price,subject) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM slots WHERE teacher_id=? AND status!='cancelled' AND start<? AND start+minutes*60000>?)`, crypto.randomUUID(), user.id, start, minutes, price, field(body.subject, 100), user.id, start + minutes * 60000, start);
-    if (!result.meta.changes) fail(409, 'Ø§Ù„Ù…ÙˆØ¹Ø¯ ÙŠØªØ¯Ø§Ø®Ù„ Ù…Ø¹ Ù…ÙˆØ¹Ø¯ Ø¢Ø®Ø±.');
+    if (!result.meta.changes) fail(409, 'Ø§Ù„Ù…ÙˆØ¹Ø¯ ÙŠØªØ¯Ø§Ø®Ù„ Ù…Ø¹ Ù…Ùˆعد آخر.');
     return { ok: true };
   }
   if (path.startsWith('slots/') && write) {
@@ -119,7 +119,7 @@ export async function api(request, env, portal, path, body) {
     if (user.role !== 'students') fail(403, 'Ø§Ù„Ø­Ø¬Ø² Ù…ØªØ§Ø­ Ù„Ù„Ø·Ù„Ø§Ø¨ ÙÙ‚Ø·.');
     const bookingId = crypto.randomUUID();
     const slot = await one(env, 'SELECT price FROM slots WHERE id=?', id);
-    if (!slot) fail(404, 'Ø§Ù„Ù…ÙˆØ¹Ø¯ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯.');
+    if (!slot) fail(404, 'Ø§Ù„Ù…ÙˆØ¹Ø¯ ØºÙŠØ± Ù…ÙˆØ¬Ùˆد.');
     const method = body.method === 'wallet' ? 'wallet' : 'sandbox';
     if (method === 'wallet' && await walletBalance(env, user.id) < slot.price) fail(402, 'Ø±ØµÙŠØ¯ Ø§Ù„Ù…Ø­ÙØ¸Ø© ØºÙŠØ± ÙƒØ§Ù.');
     const statements = [
@@ -136,7 +136,7 @@ export async function api(request, env, portal, path, body) {
   if (category === 'bookings' && id) {
     const row = await booking(env, id, user);
     if (action === 'room' && !write) {
-      if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'Ø§Ù„ØºØ±ÙØ© Ù…ØªØ§Ø­Ø© ÙÙ‚Ø· Ù„Ø·Ø±ÙÙŠ Ø§Ù„Ø­ØµØ© Ø§Ù„Ù…Ø¤ÙƒØ¯Ø©.');
+      if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'Ø§Ù„ØºØ±ÙØ© Ù…ØªØ§Ø­Ø© ÙÙ‚Ø· Ù„Ø·Ø±ÙÙŠ Ø§Ù„Ø­ØµØ© Ø§Ù„Ù…Ø¤Ùƒدة.');
       const now = Date.now();
       if (now < row.start - 900000 || now > row.start + row.minutes * 60000 + 1800000) fail(403, 'ØªÙØªØ­ Ø§Ù„ØºØ±ÙØ© Ù‚Ø¨Ù„ Ø§Ù„Ù…ÙˆØ¹Ø¯ Ø¨Ø±Ø¨Ø¹ Ø³Ø§Ø¹Ø© ÙˆØªØºÙ„Ù‚ Ø¨Ø¹Ø¯ Ù†Ù‡Ø§ÙŠØªÙ‡ Ø¨Ù†ØµÙ Ø³Ø§Ø¹Ø©.');
       const otherId = user.role === 'teachers' ? row.student_id : row.teacher_id;
@@ -145,14 +145,14 @@ export async function api(request, env, portal, path, body) {
     }
     if (action === 'messages') {
       if (write) {
-        if (row.status === 'cancelled') fail(409, 'Ø§Ù„Ø­ØµØ© Ù…Ù„ØºØ§Ø©.');
+        if (row.status === 'cancelled') fail(409, 'Ø§Ù„Ø­ØµØ© Ù…Ù„غاة.');
         await run(env, 'INSERT INTO messages VALUES (?,?,?,?,?)', crypto.randomUUID(), id, user.id, field(body.body, 2000), Date.now());
       }
       return { messages: await all(env, 'SELECT m.id,m.body,m.created,u.name FROM messages m JOIN users u ON u.id=m.author_id WHERE booking_id=? ORDER BY m.created LIMIT 500', id) };
     }
     if (action === 'cancel' && write) {
-      if (row.status !== 'confirmed') fail(409, 'Ø§Ù„Ø­ØµØ© Ù„Ù… ØªØ¹Ø¯ Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„Ø¥Ù„ØºØ§Ø¡.');
-      if (user.role !== 'admin' && row.start <= Date.now()) fail(409, 'Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ù„Ø¥Ù„ØºØ§Ø¡ Ø­ØµØ© Ø¨Ø¯Ø£ Ù…ÙˆØ¹Ø¯Ù‡Ø§.');
+      if (row.status !== 'confirmed') fail(409, 'Ø§Ù„Ø­ØµØ© Ù„Ù… ØªØ¹Ø¯ Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„Ø¥Ù„غاء.');
+      if (user.role !== 'admin' && row.start <= Date.now()) fail(409, 'Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ù„Ø¥Ù„ØºØ§Ø¡ Ø­ØµØ© Ø¨Ø¯Ø£ Ù…ÙˆØ¹Ø¯Ù‡ا.');
       await env.DB.batch([
         statement(env, "UPDATE bookings SET status='cancelled',room=? WHERE id=? AND status='confirmed'", random(), id),
         statement(env, "UPDATE slots SET status='open' WHERE id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM bookings WHERE slot_id=? AND status='confirmed')", row.slot_id, id, row.slot_id),
@@ -163,18 +163,18 @@ export async function api(request, env, portal, path, body) {
     if (action === 'complete' && write && user.role === 'teachers') {
       if (row.start + row.minutes * 60000 > Date.now()) fail(409, 'ÙŠÙ…ÙƒÙ† Ø¥ÙƒÙ…Ø§Ù„ Ø§Ù„Ø­ØµØ© Ø¨Ø¹Ø¯ Ø§Ù†ØªÙ‡Ø§Ø¡ Ù…ÙˆØ¹Ø¯Ù‡Ø§.');
       const r = await run(env, "UPDATE bookings SET status='completed',room=? WHERE id=? AND status='confirmed'", random(), id);
-      if (!r.meta.changes) fail(409, 'Ø§Ù„Ø­ØµØ© Ù„ÙŠØ³Øª Ù…Ø¤ÙƒØ¯Ø©.');
+      if (!r.meta.changes) fail(409, 'Ø§Ù„Ø­ØµØ© Ù„ÙŠØ³Øª Ù…Ø¤Ùƒدة.');
       return { ok: true };
     }
     if (action === 'notes' && write && user.role === 'teachers') {
       const resource = field(body.resource, 1000, 0);
       if (resource) { let url; try { url = new URL(resource); } catch { fail(400, 'Ø±Ø§Ø¨Ø· Ø§Ù„Ù…Ø§Ø¯Ø© ØºÙŠØ± ØµØ­ÙŠØ­.'); } if (url.protocol !== 'https:') fail(400, 'Ø§Ø³ØªØ®Ø¯Ù… Ø±Ø§Ø¨Ø· HTTPS Ù„Ù„Ù…Ø§Ø¯Ø©.'); }
-      if (row.status === 'cancelled') fail(409, 'Ø§Ù„Ø­ØµØ© Ù…Ù„ØºØ§Ø©.');
+      if (row.status === 'cancelled') fail(409, 'Ø§Ù„Ø­ØµØ© Ù…Ù„غاة.');
       await run(env, 'UPDATE bookings SET notes=?,resource=? WHERE id=?', field(body.notes, 5000, 0), resource, id);
       return { ok: true };
     }
     if (action === 'payment' && write && user.role === 'admin') {
-      if (![0, 1].includes(body.paid)) fail(400, 'Ø­Ø§Ù„Ø© Ø¯ÙØ¹ ØºÙŠØ± ØµØ­ÙŠØ­Ø©.');
+      if (![0, 1].includes(body.paid)) fail(400, 'Ø­Ø§Ù„Ø© Ø¯ÙØ¹ ØºÙŠØ± ØµØ­ÙŠحة.');
       await env.DB.batch([statement(env, 'UPDATE bookings SET paid=?,payment_ref=? WHERE id=?', body.paid, field(body.reference, 200, body.paid ? 1 : 0), id), auditEntry(env, user.id, body.paid ? 'payment:received' : 'payment:reversed', id)]);
       return { ok: true };
     }
