@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList } from 'lucide-react';
+import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, History } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { PortalWorkspace } from '../features/portal/PortalWorkspace';
@@ -15,10 +15,10 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [view, setView] = useState('bookings');
+  const [view, setView] = useState(portal === 'students' ? 'home' : 'bookings');
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    const pop = () => { setPortal(currentPortal()); setView('bookings'); };
+    const pop = () => { const next = currentPortal(); setPortal(next); setView(next === 'students' ? 'home' : 'bookings'); };
     addEventListener('popstate', pop); return () => removeEventListener('popstate', pop);
   }, []);
   useEffect(() => {
@@ -29,16 +29,18 @@ export function App() {
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, [retry]);
   async function logout() {
-    try { await request('auth/logout', {}); setUser(null); setView('bookings'); } catch (e) { setError((e as Error).message); }
+    try { await request('auth/logout', {}); setUser(null); setView(portal === 'students' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
   if (loading) return <main className="loading-page" role="status">جارٍ تحميل حسابك…</main>;
   if (error && !user) return <main className="loading-page"><p role="alert">{error}</p><button onClick={() => setRetry(retry + 1)}>إعادة المحاولة</button></main>;
   if (!user) return <AuthForm key={portal} portal={portal} onLogin={setUser} />;
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir="rtl"><h1>هذا القسم غير متاح لحسابك</h1><a className="primary-button" href={`/${user.role}`}>العودة إلى قسمك</a><button className="text-button" onClick={logout}>تسجيل الخروج</button></main>;
-  const nav = [{ id: 'bookings', label: 'الحصص والحجوزات', icon: CalendarDays },
-    ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: portal === 'teachers' ? 'مواعيدي المتاحة' : 'حجز حصة', icon: Search }]),
-    { id: 'profile', label: 'حسابي', icon: Settings }];
+  const nav = portal === 'students'
+    ? [{ id: 'home', label: 'الرئيسية', icon: Home }, { id: 'tutors', label: 'أساتذتي', icon: Users }, { id: 'wallet', label: 'المحفظة', icon: Wallet }, { id: 'history', label: 'السجل', icon: History }, { id: 'profile', label: 'حسابي', icon: Settings }]
+    : [{ id: 'bookings', label: 'الحصص والحجوزات', icon: CalendarDays },
+      ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: 'مواعيدي المتاحة', icon: Search }]),
+      { id: 'profile', label: 'حسابي', icon: Settings }];
   return <main className="app-shell business-shell" dir="rtl">
     <aside className="sidebar"><div className="brand"><img src="/icon.svg" width="40" height="40" alt="" /><div><strong>Mansah</strong><span>{portalNames[portal]}</span></div></div>
       <nav className="nav-list">{nav.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={18} />{label}</button>)}</nav>
