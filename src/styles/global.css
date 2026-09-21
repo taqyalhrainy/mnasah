@@ -435,6 +435,18 @@ h1 {
   background: #8b948c;
 }
 
+.mobile-app-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.download-app-button.pending,
+.download-app-button:disabled {
+  cursor: not-allowed;
+  background: #8b948c;
+}
+
 .video-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;

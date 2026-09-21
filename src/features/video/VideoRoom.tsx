@@ -590,7 +590,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />إعادة المحاولة</button>}
       </div>
 
-      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة شاشة الهاتف تحتاج التطبيق</strong><p>{screenShareMobileOS === 'ios' ? 'الآيفون لا يثبّت APK. نسخة iOS غير متوفرة حالياً، وسنضيف رابط TestFlight أو App Store عند تجهيزها.' : 'متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. نزّل تطبيق أندرويد حتى تقدر تشارك شاشة الجهاز.'}</p></div>{screenShareMobileOS === 'android' && <a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />تنزيل التطبيق</a>}</div>}
+      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة شاشة الهاتف تحتاج التطبيق</strong><p>متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. اختر التطبيق المناسب لجهازك.</p></div><div className="mobile-app-actions"><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />تطبيق أندرويد</a><button className="download-app-button pending" type="button" disabled>{screenShareMobileOS === 'ios' ? 'تطبيق iOS غير متوفر حالياً' : 'تطبيق iOS قريباً'}</button></div></div>}
 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (
