@@ -278,6 +278,15 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   background: #f8fbff;
   font-weight: 800;
 }
+.teaching-subject-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, .75fr);
+  gap: 8px;
+}
+.teaching-subject-row select {
+  min-height: 48px;
+  padding: 0 10px;
+}
 .teaching-subjects input {
   width: 18px;
   height: 18px;
