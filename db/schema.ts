@@ -16,7 +16,7 @@ export const sessions = sqliteTable('sessions', {
 export const slots = sqliteTable('slots', {
   id: text('id').primaryKey(), teacherId: text('teacher_id').notNull().references(() => users.id),
   start: integer('start').notNull(), minutes: integer('minutes').notNull(), price: integer('price').notNull(),
-  subject: text('subject').notNull(), status: text('status').notNull().default('open'),
+  subject: text('subject').notNull(), status: text('status').notNull().default('open'), availableUntil: integer('available_until').notNull().default(0),
 }, t => [uniqueIndex('teacher_start').on(t.teacherId, t.start)]);
 export const bookings = sqliteTable('bookings', {
   id: text('id').primaryKey(), slotId: text('slot_id').notNull().references(() => slots.id),
