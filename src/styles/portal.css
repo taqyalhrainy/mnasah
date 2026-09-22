@@ -440,6 +440,17 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 }
 .week-board .available { color: #1D4ED8; background: #DBEAFE; }
 .week-board .booked { color: #92400E; background: #FEF3C7; }
+.slot-detail-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #c8d8ef;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 16px 42px #12284b12;
+}
+.slot-detail-card h3,
+.slot-detail-card p { margin: 0; }
 .earnings-week {
   display: grid;
   gap: 8px;
