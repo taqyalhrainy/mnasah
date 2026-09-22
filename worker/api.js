@@ -109,8 +109,8 @@ export async function api(request, env, portal, path, body) {
     }
     if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأستاذ فقط.');
     const start = Number(body.start), minutes = Number(body.minutes), price = Number(body.price), availableUntil = Number(body.available_until || body.availableUntil || 0);
-    if (!Number.isSafeInteger(start) || start <= Date.now() || start > Date.now() + 31536000000 || ![30, 45, 60, 90, 120].includes(minutes) || !Number.isInteger(price) || price < 0 || price > 100000) fail(400, 'تحقق من الموعد والمدة والسعر.');
     const until = Number.isSafeInteger(availableUntil) && availableUntil >= start + minutes * 60000 ? availableUntil : start + minutes * 60000;
+    if (!Number.isSafeInteger(start) || start > Date.now() + 31536000000 || until <= Date.now() || ![30, 45, 60, 90, 120].includes(minutes) || !Number.isInteger(price) || price < 0 || price > 100000) fail(400, 'تحقق من الموعد والمدة والسعر.');
     const result = await run(env, `INSERT INTO slots (id,teacher_id,start,minutes,price,subject,available_until) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM slots WHERE teacher_id=? AND status!='cancelled' AND start<? AND COALESCE(NULLIF(available_until,0),start+minutes*60000)>?)`, crypto.randomUUID(), user.id, start, minutes, price, field(body.subject, 100), until, user.id, until, start);
     if (!result.meta.changes) fail(409, 'الموعد يتداخل مع موعد آخر.');
     return { ok: true };
