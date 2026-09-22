@@ -249,10 +249,23 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   background: #fff;
   box-shadow: 0 16px 42px #12284b10;
 }
+.teaching-category-grid { align-items: start; }
+.teaching-category-card { min-height: 0; }
+.teaching-category-card summary {
+  display: grid;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.teaching-category-card summary::-webkit-details-marker { display: none; }
+.teaching-category-card[open] { border-color: #8fb0f0; }
+.teaching-category-card[open] > summary > svg { transform: rotate(-90deg); }
 .teaching-subjects {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e2eaf4;
 }
 .teaching-subjects label {
   display: flex;
@@ -269,6 +282,22 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   width: 18px;
   height: 18px;
   accent-color: #2563eb;
+}
+.selected-teaching {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d8e4f0;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+.selected-teaching div { display: flex; flex-wrap: wrap; gap: 8px; }
+.selected-teaching span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #173ea6;
+  background: #eaf2ff;
+  font-weight: 900;
 }
 .teacher-metrics {
   display: grid;
