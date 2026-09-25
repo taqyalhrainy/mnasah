@@ -124,8 +124,9 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
   const teacherNextLesson = bookings.filter(b => b.status === 'confirmed' && b.start > Date.now()).sort((a, b) => a.start - b.start)[0];
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const today = todayStart.getTime(), tomorrow = today + 86400000;
-  const weekDays = ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'].map((name, index) => {
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
     const d = new Date(today); d.setDate(todayStart.getDate() + index);
+    const name = d.toLocaleDateString('ar-JO', { weekday: 'long' });
     return { name, value: d.getTime(), label: d.toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' }) };
   });
   const teacherBooked = bookings.filter(b => b.status === 'confirmed' && (filter === 'all' || (filter === 'today' && b.start >= today && b.start < tomorrow) || (filter === 'tomorrow' && b.start >= tomorrow && b.start < tomorrow + 86400000) || (filter === 'week' && b.start >= today && b.start < today + 604800000))).sort((a, b) => a.start - b.start);
@@ -257,4 +258,5 @@ function TransactionList({ bookings }: { bookings: Booking[] }) {
 }
 
 function Empty({ text }: { text: string }) { return <div className="empty-state"><CalendarPlus size={30} /><p>{text}</p></div>; }
+
 
