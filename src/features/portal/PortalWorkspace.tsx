@@ -148,7 +148,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
     setCategoryId(id); setStudentCategory(title); setStudentLevel(''); setStudentSubject('');
     setStudentStep(category?.levels.length ? 'levels' : category?.subjects.length ? 'subjects' : 'tutors');
   }
-  const subjectSlots = openSlots.filter(s => !studentSubject || s.subject === 'كل المواد المختارة' || s.subject.includes(studentSubject) || studentSubject.includes(s.subject));
+  const subjectSlots = openSlots.filter(s => !studentSubject || (s.subject === 'كل المواد المختارة' ? (s.teacher_subjects || '').includes(studentSubject) : s.subject.includes(studentSubject) || studentSubject.includes(s.subject)));
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label="بحث" placeholder="ابحث عن مادة أو أستاذ" value={query} onChange={e => setQuery(e.target.value)} /></label>;
   const bookSlot = (s: Slot) => { if (window.confirm(`تأكيد حجز الحصة بقيمة ${money(s.price)}؟`)) void act(() => post(`slots/${s.id}`), 'تم تأكيد الحجز. ستجده في السجل.'); };
   const atTime = (day: number, time: unknown) => { const [h, m] = String(time).split(':').map(Number); const d = new Date(day); d.setHours(h || 0, m || 0, 0, 0); return d.getTime(); };

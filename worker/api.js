@@ -105,7 +105,7 @@ export async function api(request, env, portal, path, body) {
   if (path === 'slots') {
     if (!write) {
       if (user.role === 'teachers') return { slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
-      return { slots: await all(env, `SELECT s.*,u.name AS teacher_name,u.bio FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND s.start>? ORDER BY s.start LIMIT 500`, Date.now()) };
+      return { slots: await all(env, `SELECT s.*,u.name AS teacher_name,u.bio,u.subject AS teacher_subjects FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND s.start>? ORDER BY s.start LIMIT 500`, Date.now()) };
     }
     if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأستاذ فقط.');
     const start = Number(body.start), minutes = Number(body.minutes), price = Number(body.price), availableUntil = Number(body.available_until || body.availableUntil || 0);
