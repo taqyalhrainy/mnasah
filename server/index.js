@@ -11,6 +11,8 @@ const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const MONGODB_DB = process.env.MONGODB_DB || 'mansah';
+const MONGODB_USER = process.env.MONGODB_USER || '';
+const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || '';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
 const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-token';
 
@@ -39,7 +41,7 @@ let client;
 async function connect() {
   if (db) return db;
   if (!MONGODB_URI) fail(500, 'MongoDB غير مضبوط على الخادم.');
-  client = new MongoClient(MONGODB_URI);
+  client = new MongoClient(MONGODB_URI, MONGODB_USER ? { auth: { username: MONGODB_USER, password: MONGODB_PASSWORD } } : {});
   await client.connect();
   db = client.db(MONGODB_DB);
   await Promise.all([

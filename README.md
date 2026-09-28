@@ -30,7 +30,7 @@ For frontend hot reload, keep `npm run dev:worker` on 8787 and run `npm run dev:
 
 The standalone backend is in `server/index.js`. It is written in JavaScript with Node.js, Express, and MongoDB.
 
-Create a local `.env` file from `.dev.vars.example`, set `MONGODB_URI`, then run:
+Create a local `.env` file from `.dev.vars.example`, set `MONGODB_URI`, `MONGODB_USER`, `MONGODB_PASSWORD`, and `MONGODB_DB`, then run:
 
 ```sh
 npm run build
