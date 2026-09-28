@@ -35,6 +35,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+app.get('/health', (_req, res) => res.json({ ok: true }));
 
 let db;
 let client;

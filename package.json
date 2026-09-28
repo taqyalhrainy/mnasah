@@ -16,6 +16,7 @@
     "dev:worker": "wrangler dev --port 8787",
     "backend": "node server/index.js",
     "dev:backend": "node --watch server/index.js",
+    "start": "node server/index.js",
     "test": "node --test tests/api.test.mjs",
     "preview": "vite preview",
     "server": "wrangler dev --port 8787"
