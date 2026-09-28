@@ -1,0 +1,5 @@
+OWNER_SETUP_TOKEN=replace-with-a-long-random-token
+
+# Optional development-only shared login hash. Do not put plaintext passwords here.
+# DEVELOPMENT_LOGIN_HASH=replace-with-generated-password-hash
+# DEVELOPMENT_LOGIN_EXPIRES=replace-with-utc-epoch-ms

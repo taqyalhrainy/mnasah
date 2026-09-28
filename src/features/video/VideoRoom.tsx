@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
@@ -6,13 +6,29 @@ import { VideoConnection, VideoRole, VideoSource } from '../../services/videoCon
 const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
 const MIN_WHITEBOARD_ZOOM = 0.005;
 const MAX_WHITEBOARD_ZOOM = 5;
+const MIN_STROKE_POINT_DISTANCE = 1.5;
+const MAX_STROKE_POINTS = 1200;
+const LIVE_STROKE_BROADCAST_INTERVAL_MS = 32;
 
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: 'release', listener: () => void) => void };
 type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> } };
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }> };
-type WhiteboardStroke = { id: string; color: string; size: number; points: Array<{ x: number; y: number }> };
-type WhiteboardMessage = { kind: 'stroke'; stroke: WhiteboardStroke } | { kind: 'clear' } | { kind: 'erase'; ids: string[] } | { kind: 'mode'; mode: StageMode } | { kind: 'sync'; strokes: WhiteboardStroke[]; mode?: StageMode };
+type WhiteboardPoint = { x: number; y: number };
+type WhiteboardStroke = { id: string; color: string; size: number; points: WhiteboardPoint[] };
+type WhiteboardMessage =
+  | { kind: 'stroke-start'; stroke: WhiteboardStroke }
+  | { kind: 'stroke-points'; id: string; points: WhiteboardPoint[] }
+  | { kind: 'stroke'; stroke: WhiteboardStroke }
+  | { kind: 'clear' }
+  | { kind: 'erase'; ids: string[] }
+  | { kind: 'mode'; mode: StageMode }
+  | { kind: 'sync'; strokes: WhiteboardStroke[]; mode?: StageMode };
 type StageMode = 'video' | 'whiteboard';
+
+const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { stroke: WhiteboardStroke }) {
+  const path = stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  return <path d={path} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />;
+});
 
 declare global { interface Window { mansahCallActive?: boolean } }
 
@@ -53,6 +69,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
   const activeStrokeRef = useRef<WhiteboardStroke | null>(null);
   const activeStrokeFrameRef = useRef<number | null>(null);
+  const liveStrokePointsRef = useRef<WhiteboardPoint[]>([]);
+  const liveStrokeTimerRef = useRef<number | null>(null);
+  const lastLiveStrokeBroadcastRef = useRef(0);
   const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
@@ -60,6 +79,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   useEffect(() => () => {
     window.mansahCallActive = false;
     if (activeStrokeFrameRef.current !== null) cancelAnimationFrame(activeStrokeFrameRef.current);
+    if (liveStrokeTimerRef.current !== null) window.clearTimeout(liveStrokeTimerRef.current);
     void wakeLockRef.current?.release();
     connectionRef.current?.close();
   }, []);
@@ -269,28 +289,28 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     }
   };
 
-  const bindLocalVideo = (element: HTMLVideoElement | null) => {
-    localVideoRef.current = element;
-    if (element && localStreamRef.current) {
-      element.srcObject = localStreamRef.current;
-      updateVideoRatio('local', element);
-    }
-  };
-
-  const bindRemoteVideo = (element: HTMLVideoElement | null) => {
-    remoteVideoRef.current = element;
-    if (element && remoteStreamRef.current) {
-      element.srcObject = remoteStreamRef.current;
-      updateVideoRatio('remote', element);
-    }
-  };
-
-  const updateVideoRatio = (id: 'local' | 'remote', video: HTMLVideoElement | null) => {
+  const updateVideoRatio = useCallback((id: 'local' | 'remote', video: HTMLVideoElement | null) => {
     if (!video?.videoWidth || !video.videoHeight) return;
     const ratio = video.videoWidth / video.videoHeight;
     if (!Number.isFinite(ratio) || ratio <= 0) return;
     setVideoRatios((current) => Math.abs(current[id] - ratio) < 0.01 ? current : { ...current, [id]: ratio });
-  };
+  }, []);
+
+  const bindLocalVideo = useCallback((element: HTMLVideoElement | null) => {
+    localVideoRef.current = element;
+    if (element && localStreamRef.current) {
+      if (element.srcObject !== localStreamRef.current) element.srcObject = localStreamRef.current;
+      updateVideoRatio('local', element);
+    }
+  }, [updateVideoRatio]);
+
+  const bindRemoteVideo = useCallback((element: HTMLVideoElement | null) => {
+    remoteVideoRef.current = element;
+    if (element && remoteStreamRef.current) {
+      if (element.srcObject !== remoteStreamRef.current) element.srcObject = remoteStreamRef.current;
+      updateVideoRatio('remote', element);
+    }
+  }, [updateVideoRatio]);
 
   const handlePictureInPictureToggle = async () => {
     try {
@@ -320,7 +340,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'clear' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'erase';
+    return kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'erase';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -341,9 +361,29 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       ensureWhiteboardContentVisible(message.strokes);
       return setSyncedWhiteboardStrokes(message.strokes);
     }
+    if (message.kind === 'stroke-start') {
+      return setSyncedWhiteboardStrokes((current) => {
+        const existingIndex = current.findIndex((stroke) => stroke.id === message.stroke.id);
+        if (existingIndex < 0) return [...current, message.stroke];
+        const next = [...current];
+        next[existingIndex] = message.stroke;
+        return next;
+      });
+    }
+    if (message.kind === 'stroke-points') {
+      if (!message.points.length) return;
+      return setSyncedWhiteboardStrokes((current) => {
+        const existingIndex = current.findIndex((stroke) => stroke.id === message.id);
+        if (existingIndex < 0) return current;
+        const next = [...current];
+        const stroke = current[existingIndex];
+        next[existingIndex] = { ...stroke, points: [...stroke.points, ...message.points] };
+        return next;
+      });
+    }
     setSyncedWhiteboardStrokes((current) => {
-      if (current.some((stroke) => stroke.id === message.stroke.id)) return current;
-      const next = [...current, message.stroke];
+      const existingIndex = current.findIndex((stroke) => stroke.id === message.stroke.id);
+      const next = existingIndex < 0 ? [...current, message.stroke] : current.map((stroke, index) => index === existingIndex ? message.stroke : stroke);
       ensureWhiteboardContentVisible(next);
       return next;
     });
@@ -383,8 +423,29 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     if (activeStrokeFrameRef.current !== null) return;
     activeStrokeFrameRef.current = requestAnimationFrame(() => {
       activeStrokeFrameRef.current = null;
-      setActiveStroke(activeStrokeRef.current);
+      const stroke = activeStrokeRef.current;
+      setActiveStroke(stroke ? { ...stroke, points: [...stroke.points] } : null);
     });
+  };
+
+  const flushLiveStrokePoints = () => {
+    if (liveStrokeTimerRef.current !== null) {
+      window.clearTimeout(liveStrokeTimerRef.current);
+      liveStrokeTimerRef.current = null;
+    }
+    const stroke = activeStrokeRef.current;
+    const points = liveStrokePointsRef.current;
+    if (!stroke || !points.length) return;
+    liveStrokePointsRef.current = [];
+    lastLiveStrokeBroadcastRef.current = performance.now();
+    sendWhiteboard({ kind: 'stroke-points', id: stroke.id, points });
+  };
+
+  const scheduleLiveStrokeBroadcast = () => {
+    if (liveStrokeTimerRef.current !== null) return;
+    const elapsed = performance.now() - lastLiveStrokeBroadcastRef.current;
+    const delay = Math.max(0, LIVE_STROKE_BROADCAST_INTERVAL_MS - elapsed);
+    liveStrokeTimerRef.current = window.setTimeout(flushLiveStrokePoints, delay);
   };
 
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
@@ -395,7 +456,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     }
     const next = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] };
     activeStrokeRef.current = next;
+    liveStrokePointsRef.current = [];
     setActiveStroke(next);
+    sendWhiteboard({ kind: 'stroke-start', stroke: { ...next, points: [...next.points] } });
   };
 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
@@ -409,8 +472,16 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       return;
     }
     if (!activeStrokeRef.current) return;
-    activeStrokeRef.current = { ...activeStrokeRef.current, points: [...activeStrokeRef.current.points, whiteboardPoint(event)] };
+    const stroke = activeStrokeRef.current;
+    const point = whiteboardPoint(event);
+    const last = stroke.points.at(-1);
+    if (last && (point.x - last.x) ** 2 + (point.y - last.y) ** 2 < MIN_STROKE_POINT_DISTANCE ** 2) return;
+    const nextPoint = { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
+    stroke.points.push(nextPoint);
+    liveStrokePointsRef.current.push(nextPoint);
+    if (stroke.points.length > MAX_STROKE_POINTS) stroke.points = stroke.points.filter((_, index) => index % 2 === 0);
     scheduleActiveStrokePaint();
+    scheduleLiveStrokeBroadcast();
   };
 
   const finishWhiteboardStroke = () => {
@@ -419,7 +490,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
       cancelAnimationFrame(activeStrokeFrameRef.current);
       activeStrokeFrameRef.current = null;
     }
-    const finishedStroke = activeStrokeRef.current;
+    flushLiveStrokePoints();
+    const finishedStroke = activeStrokeRef.current ? { ...activeStrokeRef.current, points: [...activeStrokeRef.current.points] } : null;
     activeStrokeRef.current = null;
     if (!finishedStroke) return;
     if (finishedStroke.points.length > 1) {
@@ -442,8 +514,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     setSyncedWhiteboardStrokes((current) => current.slice(0, -1));
     sendWhiteboard({ kind: 'erase', ids: [lastStroke.id] });
   };
-
-  const pathForStroke = (stroke: WhiteboardStroke) => stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 
   const fitWhiteboardToStrokes = (strokes: WhiteboardStroke[]) => {
     const aspect = getLiveWhiteboardAspect();
@@ -541,7 +611,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>}
       </div>
       <svg ref={whiteboardSvgRef} className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
-        {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <path key={stroke.id} d={pathForStroke(stroke)} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />)}
+        {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}
       </svg>
     </div>
   );

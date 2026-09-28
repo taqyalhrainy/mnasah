@@ -1,12 +1,61 @@
-node_modules
-dist
-.env
-.env.local
-npm-debug.log*
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
 *.tsbuildinfo
-*.tar.gz
-.wrangler
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
 .dev.vars
-playwright-report
-test-results
-.private
+.dev.vars.*
+!.dev.vars.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# Local platform/deployment state
+DO_NOT_UPLOAD/
+.wrangler/
+.openai/
+.private/
+
+# Logs and reports
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+playwright-report/
+test-results/
+
+# Databases and local runtime data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Generated mobile artifacts
+*.apk
+*.aab
+*.ipa
+public/downloads/
+
+# Backups and archives
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

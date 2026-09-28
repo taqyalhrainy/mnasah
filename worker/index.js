@@ -20,7 +20,7 @@ export default {
         if (data.cookie) { headers['Set-Cookie'] = data.cookie; delete data.cookie; }
         return Response.json(data, { headers });
       }
-      if (['/', '/admin', '/teachers', '/students', '/video'].includes(url.pathname) || /^\/(admin|teachers|students)\//.test(url.pathname)) {
+      if (['/', '/admin', '/teachers', '/students', '/video', '/video-test'].includes(url.pathname) || /^\/(admin|teachers|students)\//.test(url.pathname)) {
         return new Response(html, { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' } });
       }
       return env.ASSETS.fetch(request);

@@ -3,6 +3,7 @@ import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList,
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { PortalWorkspace } from '../features/portal/PortalWorkspace';
+import { VideoTestPage } from '../features/video/VideoTestPage';
 import { request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
 
@@ -11,6 +12,11 @@ function currentPortal(): Portal {
   return part === 'admin' || part === 'teachers' ? part : 'students';
 }
 export function App() {
+  if (location.pathname === '/video-test') return <VideoTestPage />;
+  return <PortalApp />;
+}
+
+function PortalApp() {
   const [portal, setPortal] = useState(currentPortal);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
