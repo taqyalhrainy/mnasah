@@ -4,8 +4,9 @@ export type User = { id: string; email: string; name: string; role: Portal; stat
 export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?: string; teacher_subjects?: string; start: number; minutes: number; price: number; subject: string; status: string; available_until?: number };
 export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string };
 export type Message = { id: string; body: string; created: number; name: string };
+const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api/${path}`, { credentials: 'same-origin', cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
+  const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
   let data;
   try { data = await response.json(); } catch { throw new Error('تعذر الاتصال بالخدمة. حاول مجددًا.'); }
   if (!response.ok) throw new Error(data.error || 'تعذر تنفيذ الطلب.');

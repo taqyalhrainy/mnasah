@@ -26,6 +26,19 @@ Open `http://127.0.0.1:8787/students`, `/teachers`, or `/admin`. Configure a loc
 
 For frontend hot reload, keep `npm run dev:worker` on 8787 and run `npm run dev:client` on 5173.
 
+## Node/MongoDB Backend
+
+The standalone backend is in `server/index.js`. It is written in JavaScript with Node.js, Express, and MongoDB.
+
+Create a local `.env` file from `.dev.vars.example`, set `MONGODB_URI`, then run:
+
+```sh
+npm run build
+npm run backend
+```
+
+For a GitHub Pages frontend, rebuild with `VITE_API_URL` set to the deployed backend URL.
+
 ## Checks
 
 ```sh

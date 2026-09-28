@@ -1,4 +1,8 @@
 OWNER_SETUP_TOKEN=replace-with-a-long-random-token
+MONGODB_URI=mongodb+srv://user:password@cluster.example.mongodb.net/mansah?retryWrites=true&w=majority
+MONGODB_DB=mansah
+CLIENT_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://taqyalhrainy.github.io
+PORT=8787
 
 # Optional development-only shared login hash. Do not put plaintext passwords here.
 # DEVELOPMENT_LOGIN_HASH=replace-with-generated-password-hash
