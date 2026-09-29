@@ -3,7 +3,7 @@ services:
     name: mansah
     env: node
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run build:backend
     startCommand: npm start
     envVars:
       - key: NODE_ENV

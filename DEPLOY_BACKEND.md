@@ -5,7 +5,7 @@ This app needs a Node.js backend for `/api`. GitHub Pages can only host the stat
 Use these settings:
 
 ```text
-Build command: npm ci && npm run build
+Build command: npm ci && npm run build:backend
 Start command: npm start
 ```
 
