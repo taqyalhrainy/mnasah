@@ -33,18 +33,24 @@ try {
   });
 
   await page.goto('http://127.0.0.1:8787/teachers');
-  await page.locator('.teaching-category-card summary').click();
+  await page.locator('.teaching-category-card > summary').click();
 
   const subject = page.getByLabel('تدريس رياضيات', { exact: true });
   const all = page.getByLabel('كل مستويات رياضيات', { exact: true });
   const first = page.getByLabel('رياضيات - الصف الأول', { exact: true });
   const fourth = page.getByLabel('رياضيات - الصف الرابع', { exact: true });
   const seventh = page.getByLabel('رياضيات - الصف السابع', { exact: true });
+  const levelsPanel = page.locator('.teaching-level-picker .teaching-levels');
 
+  assert.equal(await levelsPanel.isVisible(), false, 'levels should stay collapsed until the teacher opens them');
   await subject.check();
   assert.equal(await all.isChecked(), true, 'selecting the subject should select all levels');
   assert.equal(await first.isChecked(), true);
   assert.equal(await seventh.isChecked(), true);
+  assert.equal(await levelsPanel.isVisible(), false, 'selecting a subject should not force the long level list open');
+
+  await page.locator('.teaching-level-picker summary').click();
+  assert.equal(await levelsPanel.isVisible(), true, 'clicking the level arrow should reveal the levels');
 
   await first.uncheck();
   assert.equal(await all.isChecked(), false, 'removing one level should clear the all-levels checkbox');

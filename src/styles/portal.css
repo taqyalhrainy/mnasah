@@ -285,21 +285,41 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   font-weight: 800;
 }
 .teaching-subject-row {
-  display: grid;
-  gap: 12px;
   padding: 12px;
   border: 1px solid #d8e4f0;
   border-radius: 12px;
   background: #f8fbff;
 }
+.teaching-subject-row > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.teaching-subject-row > summary::-webkit-details-marker { display: none; }
+.teaching-subject-row > summary > svg {
+  color: #64748b;
+  transition: transform .18s ease;
+}
+.teaching-subject-row[open] > summary > svg { transform: rotate(-90deg); }
+.teaching-level-summary {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
 .teaching-subject-main {
   min-height: 34px;
   font-size: 15px;
+  cursor: pointer;
 }
 .teaching-levels {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
   gap: 7px;
+  margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid #d8e4f0;
 }
