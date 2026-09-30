@@ -277,25 +277,45 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
   padding-top: 14px;
   border-top: 1px solid #e2eaf4;
 }
-.teaching-subjects label {
+.teaching-subject-main,
+.teaching-level-option {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 10px 12px;
-  border: 1px solid #d8e4f0;
-  border-radius: 12px;
-  background: #f8fbff;
   font-weight: 800;
 }
 .teaching-subject-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, .75fr);
-  gap: 8px;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d8e4f0;
+  border-radius: 12px;
+  background: #f8fbff;
 }
-.teaching-subject-row select {
-  min-height: 48px;
-  padding: 0 10px;
+.teaching-subject-main {
+  min-height: 34px;
+  font-size: 15px;
+}
+.teaching-levels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid #d8e4f0;
+}
+.teaching-level-option {
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #e1e9f3;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 12px;
+}
+.teaching-level-option.all-levels {
+  grid-column: 1 / -1;
+  color: #173ea6;
+  background: #eaf2ff;
+  border-color: #bfd1f4;
 }
 .teaching-subjects input {
   width: 18px;

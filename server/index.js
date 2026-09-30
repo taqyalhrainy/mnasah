@@ -216,7 +216,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
 
     if (path === 'profile') {
-      if (write) await db.collection('users').updateOne({ id: user.id }, { $set: { name: field(body.name, 100), subject: field(body.subject || '', 100, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: field(body.phone || '', 40, 0) } });
+      if (write) await db.collection('users').updateOne({ id: user.id }, { $set: { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: field(body.phone || '', 40, 0) } });
       return res.json({ user: publicUser(await db.collection('users').findOne({ id: user.id })) });
     }
     if (path === 'password' && write) {

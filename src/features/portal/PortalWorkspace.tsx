@@ -23,6 +23,33 @@ const normalizedSearch = (value: string) => value.normalize('NFKD').toLocaleLowe
 const searchKeys = (value: string) => { const normalized = normalizedSearch(value).replaceAll(' ', ''); return [normalized, normalized.replace(/[اوي]/g, '')].filter(key => key.length > 1); };
 const fuzzyMatch = (left: string, right: string) => searchKeys(left).some(a => searchKeys(right).some(b => a.includes(b) || b.includes(a)));
 const teachesSubject = (list: string, subject: string) => list.split(' | ').some(item => fuzzyMatch(item, subject));
+type TeachingChoice = { categoryId: string; categoryName: string; subject: string; levels: string[] };
+const teachingChoiceKey = (categoryId: string, subject: string) => `${categoryId}\u0000${subject}`;
+const uniqueTeachingChoices = (choices: TeachingChoice[]) => [...new Map(choices.map(choice => [teachingChoiceKey(choice.categoryId, choice.subject), choice])).values()];
+const serializeTeachingChoices = (choices: TeachingChoice[]) => choices.map(choice => [choice.categoryName, choice.subject, choice.levels.join('، ')].filter(Boolean).join(' › ')).join(' | ');
+const teachingChoiceLabel = (choice: TeachingChoice, category?: Category) => `${choice.categoryName} › ${choice.subject}${category?.levels.length ? ` › ${choice.levels.length === category.levels.length ? 'كل المستويات' : choice.levels.join('، ')}` : ''}`;
+function parseTeachingChoices(value: string, catalog: Category[]) {
+  if (!value || !catalog.length) return [];
+  const choices: TeachingChoice[] = [];
+  for (const entry of value.split(' | ').map(item => item.trim()).filter(Boolean)) {
+    const parts = entry.split(' › ').map(item => item.trim());
+    if (parts.length >= 2) {
+      const category = catalog.find(item => item.name === parts[0]);
+      if (!category || !category.subjects.includes(parts[1])) continue;
+      const selected = parts[2] ? parts[2].split('،').map(item => item.trim()).filter(level => category.levels.includes(level)) : [];
+      choices.push({ categoryId: category.id, categoryName: category.name, subject: parts[1], levels: category.levels.length ? selected : [] });
+      continue;
+    }
+    for (const category of catalog) {
+      for (const subject of category.subjects) {
+        if (entry !== subject && !entry.startsWith(`${subject} - `)) continue;
+        const legacyLevel = entry.slice(subject.length + 3).trim();
+        choices.push({ categoryId: category.id, categoryName: category.name, subject, levels: category.levels.length ? (legacyLevel && category.levels.includes(legacyLevel) ? [legacyLevel] : [...category.levels]) : [] });
+      }
+    }
+  }
+  return uniqueTeachingChoices(choices);
+}
 
 export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -42,6 +69,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
   const [categoryId, setCategoryId] = useState('');
   const [studentLevel, setStudentLevel] = useState('');
   const [studentSubject, setStudentSubject] = useState('');
+  const [teachingChoices, setTeachingChoices] = useState<TeachingChoice[]>([]);
   const [availabilityDay, setAvailabilityDay] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); });
   const [availabilityMode, setAvailabilityMode] = useState<'range' | 'custom'>('range');
   const [selected, setSelected] = useState<string | null>(null);
@@ -88,6 +116,9 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
     }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [portal, view, revision]);
+  useEffect(() => {
+    if (catalog.length) setTeachingChoices(parseTeachingChoices(user.subject, catalog));
+  }, [catalog, user.subject]);
   useEffect(() => {
     if (!selected) return;
     let alive = true; setMessages([]);
@@ -150,7 +181,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
   const myTutors = [...teacherMap.values()];
   const categories = catalog.map(category => [category.id, category.name, category.description, category.icon] as const);
   const catalogSubjects = [...new Set(catalog.flatMap(category => category.subjects))];
-  const teacherSubjects = user.subject ? user.subject.split(' | ').map(s => s.trim()).filter(Boolean) : [];
+  const teacherSubjects = [...new Set(teachingChoices.map(choice => choice.subject))];
   const activeCategory = catalog.find(category => category.id === categoryId);
   const levels = activeCategory?.levels || [];
   const subjects = activeCategory?.subjects || [];
@@ -159,10 +190,31 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
     setCategoryId(id); setStudentCategory(title); setStudentLevel(''); setStudentSubject('');
     setStudentStep(category?.levels.length ? 'levels' : category?.subjects.length ? 'subjects' : 'tutors');
   }
+  function updateTeachingSubject(category: Category, subject: string, checked: boolean) {
+    const key = teachingChoiceKey(category.id, subject);
+    setTeachingChoices(current => checked
+      ? uniqueTeachingChoices([...current, { categoryId: category.id, categoryName: category.name, subject, levels: [...category.levels] }])
+      : current.filter(choice => teachingChoiceKey(choice.categoryId, choice.subject) !== key));
+  }
+  function updateTeachingLevel(category: Category, subject: string, level: string, checked: boolean) {
+    const key = teachingChoiceKey(category.id, subject);
+    setTeachingChoices(current => {
+      const existing = current.find(choice => teachingChoiceKey(choice.categoryId, choice.subject) === key);
+      const levels = checked ? [...new Set([...(existing?.levels || []), level])] : (existing?.levels || []).filter(item => item !== level);
+      const without = current.filter(choice => teachingChoiceKey(choice.categoryId, choice.subject) !== key);
+      return levels.length ? uniqueTeachingChoices([...without, { categoryId: category.id, categoryName: category.name, subject, levels: category.levels.filter(item => levels.includes(item)) }]) : without;
+    });
+  }
   const subjectSlots = openSlots.filter(s => {
     if (!studentSubject) return true;
+    const slotMatchesSubject = s.subject === 'كل المواد المختارة' || fuzzyMatch(s.subject, studentSubject);
+    const choices = parseTeachingChoices(s.teacher_subjects || '', catalog);
+    if (choices.length) {
+      const matching = choices.filter(choice => (!activeCategory || choice.categoryId === activeCategory.id) && fuzzyMatch(choice.subject, studentSubject));
+      return slotMatchesSubject && matching.some(choice => !studentLevel || !activeCategory?.levels.length || choice.levels.includes(studentLevel));
+    }
     const specialties = `${s.subject} ${s.teacher_subjects || ''}`;
-    return fuzzyMatch(specialties, studentSubject) || Boolean(activeCategory && fuzzyMatch(specialties, activeCategory.name)) || (s.subject === 'كل المواد المختارة' && teachesSubject(s.teacher_subjects || '', studentSubject));
+    return fuzzyMatch(specialties, studentSubject) || (s.subject === 'كل المواد المختارة' && teachesSubject(s.teacher_subjects || '', studentSubject));
   });
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label="بحث" placeholder="ابحث عن مادة أو أستاذ" value={query} onChange={e => setQuery(e.target.value)} /></label>;
   const bookSlot = (s: Slot) => { if (window.confirm(`تأكيد حجز الحصة بقيمة ${money(s.price)}؟`)) void act(() => post(`slots/${s.id}`), 'تم تأكيد الحجز. ستجده في السجل.'); };
@@ -207,16 +259,20 @@ export function PortalWorkspace({ portal, user, view, onUser, onView }: { portal
       {view === 'home' && <section className="tutor-home">
         <div className="student-hero tutor-hero"><div><span>منصة الأساتذة</span><h2>بشو بترغب تعطي؟</h2><p>اختر المجال والمستوى والمادة، ثم افتح مواعيدك للطلاب بسهولة.</p></div><div className="tutor-summary"><span>الحصة القادمة</span>{teacherNextLesson ? <><strong>{teacherNextLesson.subject}</strong><p>{teacherNextLesson.student_name} · {date(teacherNextLesson.start)}</p><button className="primary-button" disabled={busy || !canJoinBooking(teacherNextLesson)} title={joinTitle(teacherNextLesson)} onClick={() => { onView('booked'); void join(teacherNextLesson); }}>{canJoinBooking(teacherNextLesson) ? 'دخول الحصة' : 'يفتح قبل الموعد بـ15 دقيقة'}</button></> : <p>لا توجد حصة قادمة.</p>}</div></div>
         <div className="teacher-metrics"><div><span>حجوزات اليوم</span><strong>{teacherBooked.filter(b => new Date(b.start).toDateString() === new Date().toDateString()).length}</strong></div><div><span>الساعات المتاحة</span><strong>{slots.filter(s => s.status === 'open').length}</strong></div><div><span>مستحقات هذا الأسبوع</span><strong>{money(netEarnings)}</strong></div></div>
-        <form className="teaching-picker" onSubmit={async e => { e.preventDefault(); const values = new FormData(e.currentTarget).getAll('subjects').map(String); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject: values.join(' | ') }); onUser(result.user); }, 'تم حفظ المواد التي تدرسها.'); }}>
-          <div className="section-heading"><div><h3>اختر مجالاتك وموادك</h3><p className="muted">افتح البطاقة وحدد المواد التي تدرسها.</p></div><button className="primary-button" disabled={busy}>حفظ</button></div>
-          <div className="category-grid teaching-category-grid">{catalog.map(category => <details className="category-card teaching-category-card" key={category.id}><summary><span><CategoryIcon value={category.icon} /></span><strong>{category.name}</strong><p>{category.description}</p><ChevronLeft size={18} /></summary><div className="teaching-subjects">{category.subjects.map(subject => <div className="teaching-subject-row" key={subject}><label><input type="checkbox" name="subjects" defaultChecked={teacherSubjects.some(item => item === subject || item.startsWith(`${subject} - `))} value={subject} />{subject}</label><select aria-label="المستوى" onChange={e => { const input = e.currentTarget.closest('.teaching-subject-row')?.querySelector<HTMLInputElement>('input[name=subjects]'); if (input) input.value = e.currentTarget.value ? `${subject} - ${e.currentTarget.value}` : subject; }} defaultValue=""><option value="">كل المستويات</option>{category.levels.map(level => <option key={level} value={level}>{level}</option>)}</select></div>)}</div></details>)}</div>
-          <div className="selected-teaching"><strong>مواد اخترت أن تدرسها</strong>{teacherSubjects.length ? <div>{teacherSubjects.map(subject => <span key={subject}>{subject}</span>)}</div> : <p className="muted">لم تختر مواد بعد.</p>}</div>
+        <form className="teaching-picker" onSubmit={async e => { e.preventDefault(); const subject = serializeTeachingChoices(teachingChoices); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject }); onUser(result.user); }, 'تم حفظ المواد والمستويات التي تدرسها.'); }}>
+          <div className="section-heading"><div><h3>اختر مجالاتك وموادك</h3><p className="muted">حدد المادة، ثم اختر مستوى واحداً أو أكثر. اختيار «كل المستويات» يحددها جميعاً.</p></div><button className="primary-button" disabled={busy}>حفظ</button></div>
+          <div className="category-grid teaching-category-grid">{catalog.map(category => <details className="category-card teaching-category-card" key={category.id}><summary><span><CategoryIcon value={category.icon} /></span><strong>{category.name}</strong><p>{category.description}</p><ChevronLeft size={18} /></summary><div className="teaching-subjects">{category.subjects.map(subject => {
+            const choice = teachingChoices.find(item => item.categoryId === category.id && item.subject === subject);
+            const allLevels = Boolean(choice && category.levels.length && category.levels.every(level => choice.levels.includes(level)));
+            return <div className="teaching-subject-row" key={subject}><label className="teaching-subject-main"><input type="checkbox" aria-label={`تدريس ${subject}`} checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{subject}</label>{category.levels.length > 0 && <div className="teaching-levels" aria-label={`مستويات ${subject}`}><label className="teaching-level-option all-levels"><input type="checkbox" aria-label={`كل مستويات ${subject}`} checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />كل المستويات</label>{category.levels.map(level => <label className="teaching-level-option" key={level}><input type="checkbox" aria-label={`${subject} - ${level}`} checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{level}</label>)}</div>}</div>;
+          })}</div></details>)}</div>
+          <div className="selected-teaching"><strong>المواد والمستويات المختارة</strong>{teachingChoices.length ? <div>{teachingChoices.map(choice => <span key={teachingChoiceKey(choice.categoryId, choice.subject)}>{teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))}</span>)}</div> : <p className="muted">لم تختر مواد بعد.</p>}</div>
         </form>
       </section>}
       {view === 'booked' && <section className="student-page"><div className="section-heading"><h2>المواعيد المحجوزة</h2><div className="history-tabs"><button onClick={() => setFilter('today')}>اليوم</button><button onClick={() => setFilter('tomorrow')}>غداً</button><button onClick={() => setFilter('week')}>الأسبوع</button></div></div>{!teacherBooked.length && <Empty text="لا توجد حصص محجوزة حالياً." />}<div className="history-list">{teacherBooked.map((b, i) => <article className={i === 0 ? 'next-booking' : ''} key={b.id}><BookOpen size={20} /><div><strong>{b.subject}</strong><p>{b.student_name} · {date(b.start)} · {b.minutes} دقيقة</p></div><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل</button><button className="primary-button" disabled={busy || !canJoinBooking(b)} title={joinTitle(b)} onClick={() => join(b)}><Video size={16} />{canJoinBooking(b) ? 'دخول' : 'لم يحن الموعد'}</button></article>)}</div></section>}
       {view === 'available' && <section className="student-page availability-page"><div className="section-heading"><div><h2>المواعيد المتاحة</h2><p className="muted">اختر اليوم، ثم أضف فترة كاملة أو وقت واحد.</p></div></div><div className="availability-planner"><div className="availability-days">{weekDays.map(day => <button key={day.value} type="button" className={availabilityDay === day.value ? 'selected' : ''} onClick={() => setAvailabilityDay(day.value)}><strong>{day.name}</strong><span>{day.label}</span><small>{slots.filter(s => s.status !== 'cancelled' && new Date(s.start).toDateString() === new Date(day.value).toDateString()).length} موعد</small></button>)}</div>{addSlotForm}</div><div className="week-board">{weekDays.map(day => <div key={day.value}><strong>{day.name}</strong>{slots.filter(s => s.status !== 'cancelled' && new Date(s.start).toDateString() === new Date(day.value).toDateString()).slice(0, 4).map(s => <button type="button" className={s.status === 'booked' ? 'booked' : 'available'} key={s.id} onPointerDown={() => setSelectedSlot(s.id)} onClick={() => setSelectedSlot(s.id)}>{timeOnly(s.start)} - {timeOnly(s.available_until || s.start + s.minutes * 60000)} · {s.status === 'booked' ? 'محجوز' : 'متاح'}</button>)}{!slots.filter(s => s.status !== 'cancelled' && new Date(s.start).toDateString() === new Date(day.value).toDateString()).length && <small>غير محدد</small>}</div>)}</div>{currentSlot && <article className="slot-detail-card"><div className="section-heading"><div><span className={`badge ${currentSlot.status}`}>{statusNames[currentSlot.status]}</span><h3>{currentSlot.subject}</h3></div><button className="icon-button" type="button" onClick={() => setSelectedSlot(null)}><X size={18} /></button></div><p><strong>التاريخ:</strong> {new Date(currentSlot.start).toLocaleDateString('ar-JO')}</p><p><strong>الفترة المتاحة:</strong> {timeOnly(currentSlot.start)} - {timeOnly(currentSlot.available_until || currentSlot.start + currentSlot.minutes * 60000)}</p><p><strong>طول الحصة:</strong> {currentSlot.minutes} دقيقة</p><p><strong>المواد المتاحة:</strong> {currentSlot.subject}</p><p><strong>السعر:</strong> {money(currentSlot.price)}</p>{currentSlot.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => deleteSlot(currentSlot.id)}><X size={17} />حذف الموعد</button>}</article>}</section>}
       {view === 'earnings' && <section className="student-page earnings-page"><div className="wallet-hero"><span>مستحقات هذا الأسبوع</span><strong>{money(netEarnings)}</strong><p>عدد الحصص المكتملة: {completedThisWeek.length} · إجمالي الحصص: {money(grossEarnings)} · عمولة المنصة: -{money(platformFee)}</p><span className="badge pending">قيد الانتظار</span></div><div className="earnings-week">{['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'].map((day, i) => <article key={day}><span>{day}</span><strong>{money(completedThisWeek.filter((_, index) => index % 7 === i).reduce((sum, b) => sum + Math.round(b.price * .85), 0))}</strong></article>)}</div><p className="notice">دفعات الأسابيع السابقة والتحويل البنكي تحتاج جداول Payout في الباكند، لذلك لا يتم عرض سجل تحويلات وهمي.</p><button className="text-button" onClick={() => onView('history')}>عرض السجل</button></section>}
-      {view === 'profile' && <section className="student-page account-page"><h2>حسابي</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>ملف الأستاذ</h3><label>الاسم الكامل<input name="name" defaultValue={user.name} required /></label><label>البريد الإلكتروني<input value={user.email} readOnly dir="ltr" /></label><label>المادة أو التخصص<input name="subject" defaultValue={user.subject} /></label><label>نبذة مهنية<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />حفظ</button></form><div className="account-settings"><button onClick={() => setSuccess('حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب.')}>حالة التوثيق: حسب موافقة الإدارة</button><button onClick={() => onView('available')}>إعدادات التوفر</button><button onClick={() => onView('earnings')}>تفاصيل المستحقات</button><button onClick={reminders.toggle}>إعدادات الإشعارات</button><button onClick={() => setSuccess('يمكنك طلب الدعم من الإدارة عبر رسائل الحصة أو حساب المنصة.')}>المساعدة والدعم</button></div></div></section>}
+      {view === 'profile' && <section className="student-page account-page"><h2>حسابي</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>ملف الأستاذ</h3><label>الاسم الكامل<input name="name" defaultValue={user.name} required /></label><label>البريد الإلكتروني<input value={user.email} readOnly dir="ltr" /></label><label>المواد والمستويات<textarea value={teachingChoices.map(choice => teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))).join('\n')} readOnly rows={5} /></label><input type="hidden" name="subject" value={user.subject} /><label>نبذة مهنية<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />حفظ</button></form><div className="account-settings"><button onClick={() => setSuccess('حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب.')}>حالة التوثيق: حسب موافقة الإدارة</button><button onClick={() => onView('available')}>إعدادات التوفر</button><button onClick={() => onView('earnings')}>تفاصيل المستحقات</button><button onClick={reminders.toggle}>إعدادات الإشعارات</button><button onClick={() => setSuccess('يمكنك طلب الدعم من الإدارة عبر رسائل الحصة أو حساب المنصة.')}>المساعدة والدعم</button></div></div></section>}
       {view === 'history' && <section className="student-page"><h2>السجل</h2><div className="history-tabs"><button onClick={() => setFilter('all')}>الكل</button><button onClick={() => setFilter('completed')}>الحصص</button><button onClick={() => onView('earnings')}>المستحقات</button></div><div className="history-list">{bookings.filter(b => filter === 'all' || b.status === filter).map(b => <article key={b.id}><HistoryIcon size={20} /><div><strong>{b.student_name}</strong><p>{b.subject} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><b>{money(b.price)}</b></article>)}</div></section>}
     </>}
   </div>;
