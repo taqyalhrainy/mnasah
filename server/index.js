@@ -327,8 +327,19 @@ app.all('/api/:portal/*path', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.use(express.static(path.join(root, 'dist/client')));
-app.get('*path', (_req, res) => res.sendFile(path.join(root, 'dist/client/index.html')));
+app.use(express.static(path.join(root, 'dist/client'), {
+  maxAge: '1y',
+  immutable: true,
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('index.html') || filePath.endsWith('service-worker.js') || filePath.endsWith('manifest.webmanifest')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
+app.get('*path', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(root, 'dist/client/index.html'));
+});
 app.use((error, _req, res, _next) => {
   if (!error.status) console.error(error);
   res.status(error.status || 500).json({ error: error.status ? error.message : 'تعذر تنفيذ الطلب الآن. حاول مجدداً.' });
@@ -337,4 +348,7 @@ app.use((error, _req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`Mansah backend listening on http://127.0.0.1:${PORT}`);
   console.log(`Backend language: JavaScript (Node.js + Express). Database: MongoDB.`);
+  connect().then(() => console.log('MongoDB connection warmed.')).catch(error => {
+    console.error('MongoDB warmup failed:', error.message);
+  });
 });

@@ -16,10 +16,27 @@ export function App() {
   return <PortalApp />;
 }
 
+const wakeRetryDelays = [2500, 4000, 6000, 8000, 10000, 12000];
+
+function WakeLoading({ slow, attempt }: { slow: boolean; attempt: number }) {
+  return <main className="loading-page wake-page" role="status" dir="rtl" aria-live="polite">
+    <div className="wake-card">
+      <img src="/icon.svg" width="56" height="56" alt="" />
+      <div className="wake-spinner" aria-hidden="true" />
+      <p className="wake-kicker">Mansah</p>
+      <h1>{slow ? 'السيرفر يستيقظ الآن' : 'جارٍ تحميل منصتك'}</h1>
+      <p>{slow ? 'Waiting a few moments...' : 'نجهز حسابك والبيانات الخاصة بك.'}</p>
+      {attempt > 0 && <small>محاولة الاتصال رقم {attempt + 1}</small>}
+    </div>
+  </main>;
+}
+
 function PortalApp() {
   const [portal, setPortal] = useState(currentPortal);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [slowWake, setSlowWake] = useState(false);
+  const [wakeAttempt, setWakeAttempt] = useState(0);
   const [error, setError] = useState('');
   const [view, setView] = useState(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings');
   const [retry, setRetry] = useState(0);
@@ -28,17 +45,40 @@ function PortalApp() {
     addEventListener('popstate', pop); return () => removeEventListener('popstate', pop);
   }, []);
   useEffect(() => {
+    let alive = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const slowTimer = setTimeout(() => { if (alive) setSlowWake(true); }, 1800);
     setLoading(true); setError('');
     request<{ user: User | null }>(`auth/me?portal=${portal}`).then(result => {
+      if (!alive) return;
       setUser(result.user);
       if (location.pathname === '/video' && result.user) { history.replaceState({}, '', `/${result.user.role}`); setPortal(result.user.role); }
-    }).catch(e => setError(e.message)).finally(() => setLoading(false));
-  }, [retry, portal]);
+      setWakeAttempt(0);
+      setSlowWake(false);
+    }).catch(e => {
+      if (!alive) return;
+      const delay = wakeRetryDelays[wakeAttempt];
+      if (delay !== undefined) {
+        setSlowWake(true);
+        retryTimer = setTimeout(() => { if (alive) setWakeAttempt(attempt => attempt + 1); }, delay);
+        return;
+      }
+      setError(e.message);
+    }).finally(() => {
+      clearTimeout(slowTimer);
+      if (alive && !retryTimer) setLoading(false);
+    });
+    return () => {
+      alive = false;
+      clearTimeout(slowTimer);
+      clearTimeout(retryTimer);
+    };
+  }, [retry, portal, wakeAttempt]);
   async function logout() {
     try { await request(`auth/logout?portal=${portal}`, { role: portal }); setUser(null); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
-  if (loading) return <main className="loading-page" role="status">جارٍ تحميل حسابك…</main>;
-  if (error && !user) return <main className="loading-page"><p role="alert">{error}</p><button onClick={() => setRetry(retry + 1)}>إعادة المحاولة</button></main>;
+  if (loading) return <WakeLoading slow={slowWake || wakeAttempt > 0} attempt={wakeAttempt} />;
+  if (error && !user) return <main className="loading-page wake-page" dir="rtl"><div className="wake-card"><p role="alert">{error}</p><button className="primary-button" onClick={() => { setWakeAttempt(0); setRetry(retry + 1); }}>إعادة المحاولة</button></div></main>;
   if (!user) return <AuthForm key={portal} portal={portal} onLogin={setUser} />;
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir="rtl"><h1>هذا القسم غير متاح لحسابك</h1><a className="primary-button" href={`/${user.role}`}>العودة إلى قسمك</a><button className="text-button" onClick={logout}>تسجيل الخروج</button></main>;

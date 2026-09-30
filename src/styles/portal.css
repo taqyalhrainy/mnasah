@@ -67,6 +67,16 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 @media(prefers-reduced-motion: reduce) { .lesson-pulse { animation: none; background: #fff4cc; border-inline-start: 4px solid #bb850b; } }
 @media(max-width: 520px) { .lesson-reminder { flex-wrap: wrap; } .lesson-reminder > button { width: 100%; } }
 .loading-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 20px; text-align: center; }
+.wake-page { background: radial-gradient(circle at top, #eef6f3 0, #f4f6f8 42%, #eef1f5 100%); }
+.wake-card { width: min(100%, 430px); display: grid; justify-items: center; gap: 14px; padding: 32px 24px; color: #17262c; }
+.wake-card img { border-radius: 12px; box-shadow: 0 10px 28px #0b513526; }
+.wake-card h1 { margin: 0; font-size: clamp(25px, 6vw, 34px); line-height: 1.25; }
+.wake-card p { margin: 0; color: #56636a; line-height: 1.8; }
+.wake-card small { color: #6a7680; }
+.wake-kicker { font-weight: 800; color: #1f7a5c !important; letter-spacing: 0; }
+.wake-spinner { width: 44px; height: 44px; border-radius: 50%; border: 4px solid #dce6e1; border-top-color: #287f62; animation: wake-spin .85s linear infinite; }
+@keyframes wake-spin { to { transform: rotate(360deg); } }
+@media(prefers-reduced-motion: reduce) { .wake-spinner { animation: none; border-top-color: #dce6e1; box-shadow: inset 0 0 0 6px #287f62; } }
 .auth-page { min-height: 100vh; padding: 48px 24px; background: #f4f6f8; }
 .auth-brand { display: flex; gap: 12px; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 48px; }
 .auth-form { max-width: 410px; margin: auto; }
