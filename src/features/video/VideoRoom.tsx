@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, MouseEvent, PointerEvent, WheelEvent } from 'react';
+import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
@@ -24,6 +24,16 @@ type WhiteboardMessage =
   | { kind: 'mode'; mode: StageMode }
   | { kind: 'sync'; strokes: WhiteboardStroke[]; mode?: StageMode };
 type StageMode = 'video' | 'whiteboard';
+type CallMessage = { id: string; body: string; created: number; name: string };
+type VideoRoomProps = {
+  assignedRole: VideoRole;
+  assignedRoom: string;
+  authorize: () => Promise<unknown>;
+  messages?: CallMessage[];
+  onSendMessage?: (body: string) => Promise<void>;
+  onPresenceChange?: (active: boolean) => Promise<unknown>;
+  onLeave?: () => void;
+};
 
 const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { stroke: WhiteboardStroke }) {
   const path = stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
@@ -32,7 +42,7 @@ const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { st
 
 declare global { interface Window { mansahCallActive?: boolean } }
 
-export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize }: { assignedRole: VideoRole; assignedRoom: string; authorize: () => Promise<unknown> }) {
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, onLeave }: VideoRoomProps) {
   const [status, setStatus] = useState('جاهز للانضمام');
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
@@ -49,6 +59,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const [stageMode, setStageMode] = useState<StageMode>('video');
   const [sidePanel, setSidePanel] = useState<'participants' | 'chat' | null>(null);
   const [showMore, setShowMore] = useState(false);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatSending, setChatSending] = useState(false);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
   const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
@@ -73,8 +85,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   const liveStrokeTimerRef = useRef<number | null>(null);
   const lastLiveStrokeBroadcastRef = useRef(0);
   const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const presenceRef = useRef(onPresenceChange);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
+
+  useEffect(() => { presenceRef.current = onPresenceChange; }, [onPresenceChange]);
 
   useEffect(() => () => {
     window.mansahCallActive = false;
@@ -103,6 +119,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isConnected]);
+
+  useEffect(() => {
+    if (!isConnected || !presenceRef.current) return;
+    void presenceRef.current(true).catch(() => undefined);
+    const timer = window.setInterval(() => { const update = presenceRef.current?.(true); if (update) void update.catch(() => undefined); }, 15000);
+    return () => { window.clearInterval(timer); const update = presenceRef.current?.(false); if (update) void update.catch(() => undefined); };
+  }, [isConnected]);
+
+  useEffect(() => {
+    if (sidePanel === 'chat') chatEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages, sidePanel]);
 
   useEffect(() => {
     if (!isConnected) {
@@ -232,6 +259,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
     setShowMore(false);
     setStatus('تم إنهاء الجلسة');
     window.mansahCallActive = false;
+    const presenceUpdate = onPresenceChange?.(false);
+    if (presenceUpdate) void presenceUpdate.catch(() => undefined);
+    onLeave?.();
+  };
+
+  const sendChatMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const body = chatDraft.trim();
+    if (!body || !onSendMessage || chatSending) return;
+    setChatSending(true);
+    try { await onSendMessage(body); setChatDraft(''); }
+    finally { setChatSending(false); }
   };
 
   const handleAudioToggle = () => {
@@ -649,7 +688,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
   };
 
   return (
-    <section className={`video-room call-experience ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel ? 'panel-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
+    <section className={`video-room call-experience ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
       <div className="video-header call-header">
         <div><h2>الحصة المباشرة</h2><p>{status}{hasRemoteStream ? ` • ${localName} مع ${remoteName}` : ` • بانتظار ${remoteName}`}</p></div>
         <div className="status-pill"><RadioTower size={17} />{isJoining ? 'جار الانضمام' : status}</div>
@@ -673,7 +712,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
             {focusedParticipant ? <>{renderTile(focusedParticipant, 'focus')}<div className="floating-preview" style={{ '--video-ratio': String(videoRatios[focusedParticipant === 'local' ? 'remote' : 'local']) } as CSSProperties}>{renderTile(focusedParticipant === 'local' ? 'remote' : 'local', 'pip')}</div></> : <>{renderTile('remote')}{renderTile('local')}</>}
           </div>
         )}
-        {sidePanel && <aside className="call-side-panel" aria-label={sidePanel === 'chat' ? 'المحادثة' : 'المشاركون'}><div className="panel-title"><strong>{sidePanel === 'chat' ? 'المحادثة' : 'المشاركون'}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق">×</button></div>{sidePanel === 'participants' ? <div className="participant-list"><span>{localName} - أنت</span><span>{hasRemoteStream ? remoteName : `${remoteName} بانتظار الدخول`}</span></div> : <p className="panel-empty">رسائل الحصة تبقى في تفاصيل الحصة، وهذه اللوحة جاهزة للمحادثة أثناء الاتصال.</p>}</aside>}
+        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label="المشاركون"><div className="panel-title"><strong>المشاركون</strong><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق">×</button></div><div className="participant-list"><span>{localName} - أنت</span><span>{hasRemoteStream ? remoteName : `${remoteName} بانتظار الدخول`}</span></div></aside>}
+        {sidePanel === 'chat' && <aside className="call-chat-drawer" aria-label="المحادثة"><div className="call-chat-head"><div><MessageSquare size={18} /><strong>محادثة الحصة</strong><span>تصل للطرف الآخر مباشرة</span></div><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق المحادثة">×</button></div><div className="call-chat-messages">{!messages.length && <p className="call-chat-empty">ابدأ المحادثة أثناء المكالمة.</p>}{messages.map(message => <article key={message.id}><header><strong>{message.name}</strong><time>{new Date(message.created).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</time></header><p>{message.body}</p></article>)}<div ref={chatEndRef} /></div><form className="call-chat-compose" onSubmit={sendChatMessage}><input aria-label="رسالة جديدة" value={chatDraft} onChange={event => setChatDraft(event.target.value)} placeholder="اكتب رسالة…" maxLength={2000} disabled={!onSendMessage || chatSending} /><button type="submit" disabled={!chatDraft.trim() || !onSendMessage || chatSending} aria-label="إرسال الرسالة"><MessageSquare size={18} /></button></form></aside>}
       </div>
 
       <div className="call-toolbar" aria-label="أدوات المكالمة">
@@ -684,7 +724,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize 
         <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => { setSidePanel(sidePanel === 'chat' ? null : 'chat'); setShowMore(false); }} title="المحادثة" type="button"><MessageSquare size={20} /></button>
         {installPrompt && <button className="tool-button" onClick={handleInstallApp} title="تثبيت كتطبيق" type="button"><Download size={20} /></button>}
         <button className={showMore ? 'tool-button active-share' : 'tool-button'} onClick={() => setShowMore(!showMore)} title="خيارات أكثر" type="button"><MoreHorizontal size={20} /></button>
-        <button className="tool-button danger" disabled={!isConnected} onClick={endCall} title="إنهاء المكالمة" type="button"><PhoneOff size={20} /></button>
+        <button className="tool-button danger" onClick={endCall} title="إنهاء المكالمة والخروج" type="button"><PhoneOff size={20} /></button>
         {showMore && <div className="call-more-menu"><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />المشاركون</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />عرض الفيديو</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? 'Fill frame' : 'Fit video'}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />نافذة عائمة</button></div>}
       </div>
     </section>

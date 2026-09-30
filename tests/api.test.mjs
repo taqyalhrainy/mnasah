@@ -91,10 +91,16 @@ test('authorization and the full reservation lifecycle', async () => {
   assert.equal((await call('other', 'students/reminders')).bookings.length, 0);
   await call('owner', 'admin/reminders', undefined, 404);
   assert.ok(!(await call('student', 'students/overview')).bookings[0].room);
+  assert.equal((await call('student', 'students/rooms')).bookings.length, 1);
+  assert.equal((await call('teacher', 'teachers/rooms')).bookings.length, 1);
   await call('other', `students/bookings/${reservation.id}/room`, undefined, 404);
   await call('owner', `admin/bookings/${reservation.id}/room`, undefined, 403);
   const studentRoom = await call('student', `students/bookings/${reservation.id}/room`);
   assert.equal(studentRoom.room, (await call('teacher', `teachers/bookings/${reservation.id}/room`)).room);
+  assert.equal((await call('student', `students/bookings/${reservation.id}/presence`)).teacherLive, false);
+  assert.equal((await call('teacher', `teachers/bookings/${reservation.id}/presence`, { active: true })).teacherLive, true);
+  assert.equal((await call('student', `students/bookings/${reservation.id}/presence`)).teacherLive, true);
+  assert.equal((await call('teacher', `teachers/bookings/${reservation.id}/presence`, { active: false })).teacherLive, false);
   DB.db.prepare('UPDATE slots SET start=? WHERE id=?').run(Date.now() - 2 * 86400000, slot.id);
   assert.equal((await call('student', `students/bookings/${reservation.id}/room`)).room, studentRoom.room);
   DB.db.prepare('UPDATE slots SET start=? WHERE id=?').run(start, slot.id);

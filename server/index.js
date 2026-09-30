@@ -154,7 +154,8 @@ async function enrichBookings(bookings) {
     const s = slotMap.get(b.slot_id) || {};
     const teacher = userMap.get(s.teacher_id) || {};
     const student = userMap.get(b.student_id) || {};
-    return { ...s, ...b, teacher_id: s.teacher_id, teacher_name: teacher.name || '', student_name: student.name || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '' };
+    const { room: _room, ...safeBooking } = b;
+    return { ...s, ...safeBooking, teacher_id: s.teacher_id, teacher_name: teacher.name || '', student_name: student.name || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '' };
   });
 }
 async function walletBalance(userId) {
@@ -256,7 +257,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       return res.json({ balance: await walletBalance(user.id), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
     }
-    if (['overview', 'home', 'booked', 'available', 'history', 'reminders'].includes(path) && !write) {
+    if (['overview', 'home', 'booked', 'available', 'history', 'reminders', 'rooms'].includes(path) && !write) {
       const bookings = await bookingRows(user.role === 'admin' ? {} : user.role === 'teachers' ? {} : { student_id: user.id });
       const owned = user.role === 'teachers' ? bookings.filter(b => b.teacher_id === user.id) : bookings;
       const slots = user.role === 'teachers' ? await db.collection('slots').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ start: -1 }).limit(500).toArray() : undefined;
@@ -295,7 +296,27 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (category === 'bookings' && id) {
       const row = (await enrichBookings([await db.collection('bookings').findOne({ id }, { projection: { _id: 0 } })]))[0];
       if (!row || (user.role !== 'admin' && row.teacher_id !== user.id && row.student_id !== user.id)) fail(404, 'الحصة غير موجودة.');
-      if (action === 'room' && !write) return res.json({ room: row.room, role: user.role === 'teachers' ? 'teacher' : 'student' });
+      if (action === 'room' && !write) {
+        if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الدخول متاح فقط لطرفي الحصة المؤكدة.');
+        if (Date.now() < row.start - 900000) fail(403, 'يمكن دخول الحصة قبل موعدها بخمس عشرة دقيقة.');
+        const bookingDocument = await db.collection('bookings').findOne({ id }, { projection: { _id: 0, room: 1 } });
+        return res.json({ room: bookingDocument.room, role: user.role === 'teachers' ? 'teacher' : 'student' });
+      }
+      if (action === 'presence') {
+        if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
+        if (write) {
+          const key = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
+          const until = body.active === false ? 0 : Date.now() + 45000;
+          await db.collection('bookings').updateOne({ id }, { $set: { [key]: until } });
+          row[key] = until;
+        }
+        return res.json({
+          teacherLive: Number(row.teacher_present_until || 0) > Date.now(),
+          studentLive: Number(row.student_present_until || 0) > Date.now(),
+          teacher_present_until: Number(row.teacher_present_until || 0),
+          student_present_until: Number(row.student_present_until || 0),
+        });
+      }
       if (action === 'messages') {
         if (write) await db.collection('messages').insertOne({ id: crypto.randomUUID(), booking_id: id, author_id: user.id, body: field(body.body, 2000), created: Date.now() });
         const messages = await db.collection('messages').find({ booking_id: id }, { projection: { _id: 0 } }).sort({ created: 1 }).limit(500).toArray();

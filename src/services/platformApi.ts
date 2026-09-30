@@ -2,7 +2,7 @@ export type Portal = 'admin' | 'teachers' | 'students';
 export type Category = { id: string; name: string; description: string; icon: string; levels: string[]; subjects: string[] };
 export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string; mustChangePassword?: boolean };
 export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?: string; teacher_subjects?: string; start: number; minutes: number; price: number; subject: string; status: string; available_until?: number };
-export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string };
+export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string; teacher_present_until?: number; student_present_until?: number };
 export type Message = { id: string; body: string; created: number; name: string };
 const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export async function request<T>(path: string, body?: unknown): Promise<T> {

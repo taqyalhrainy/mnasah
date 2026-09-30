@@ -20,7 +20,10 @@ try {
   });
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
-    return route.fulfill({ json: path.endsWith('/me') ? { user } : path.endsWith('/profile') ? { user } : { bookings: [booking()] } });
+    if (path.endsWith('/me') || path.endsWith('/profile')) return route.fulfill({ json: { user } });
+    if (path.endsWith('/catalog')) return route.fulfill({ json: { categories: [] } });
+    if (path.endsWith('/slots')) return route.fulfill({ json: { slots: [] } });
+    return route.fulfill({ json: { bookings: [booking()] } });
   });
   await page.goto('http://127.0.0.1:8787/students');
   await page.getByRole('button', { name: 'تفعيل تنبيهات الحصص' }).waitFor();
@@ -30,7 +33,8 @@ try {
   await page.clock.fastForward(60000);
   await page.getByText('تبدأ خلال 15 دقيقة', { exact: true }).waitFor();
   await page.waitForFunction(() => window.sentReminders.length === 1);
-  assert.equal(await page.locator('.booking-row.lesson-pulse').count(), 1);
+  assert.equal(await page.locator('.lesson-reminder').count(), 1);
+  await page.getByRole('button', { name: 'فتح الغرف' }).waitFor();
   await page.screenshot({ path: '.private/reminder-mobile.png', fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.getByRole('button', { name: 'حسابي', exact: true }).click();

@@ -2,7 +2,7 @@ import { all, one, run, statement, field, fail, auditEntry } from './db.js';
 import { getUser, publicUser, passwordHash, equal, random } from './auth.js';
 import { catalog } from './catalog.js';
 
-const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
+const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
 async function walletBalance(env, userId) {
   const row = await one(env, 'SELECT COALESCE(SUM(amount),0) AS balance FROM wallet_transactions WHERE user_id=?', userId);
@@ -37,6 +37,10 @@ export async function api(request, env, portal, path, body) {
   if (path === 'reminders' && !write && user.role !== 'admin') {
     const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
     return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND s.start>=? AND s.start<=? ORDER BY s.start LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
+  }
+  if (path === 'rooms' && !write && user.role !== 'admin') {
+    const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
+    return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? ORDER BY s.start DESC LIMIT 500`, user.id) };
   }
   if (path === 'catalog') return catalog(env, user, write, body);
   if (user.role === 'teachers' && !write && ['home', 'booked', 'available', 'history'].includes(path)) {
@@ -152,6 +156,21 @@ export async function api(request, env, portal, path, body) {
       const otherId = user.role === 'teachers' ? row.student_id : row.teacher_id;
       if (!(await one(env, "SELECT id FROM users WHERE id=? AND status='active'", otherId))) fail(403, 'حساب الطرف الآخر غير نشط.');
       return { room: (await one(env, 'SELECT room FROM bookings WHERE id=?', id)).room, role: user.role === 'teachers' ? 'teacher' : 'student' };
+    }
+    if (action === 'presence') {
+      if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
+      if (write) {
+        const column = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
+        const until = body.active === false ? 0 : Date.now() + 45000;
+        await run(env, `UPDATE bookings SET ${column}=? WHERE id=?`, until, id);
+        row[column] = until;
+      }
+      return {
+        teacherLive: Number(row.teacher_present_until || 0) > Date.now(),
+        studentLive: Number(row.student_present_until || 0) > Date.now(),
+        teacher_present_until: Number(row.teacher_present_until || 0),
+        student_present_until: Number(row.student_present_until || 0),
+      };
     }
     if (action === 'messages') {
       if (write) {
