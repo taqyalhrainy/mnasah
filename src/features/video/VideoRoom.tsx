@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { Camera, CameraOff, Download, Grid2X2, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
+import { Camera, CameraOff, Download, Grid2X2, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
@@ -33,6 +33,10 @@ type VideoRoomProps = {
   onSendMessage?: (body: string) => Promise<void>;
   onPresenceChange?: (active: boolean) => Promise<unknown>;
   onLeave?: () => void;
+  navigationItems?: Array<{ id: string; label: string }>;
+  onNavigate?: (id: string) => void;
+  compact?: boolean;
+  onExpand?: () => void;
 };
 
 const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { stroke: WhiteboardStroke }) {
@@ -42,7 +46,7 @@ const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { st
 
 declare global { interface Window { mansahCallActive?: boolean } }
 
-export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, onLeave }: VideoRoomProps) {
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, onLeave, navigationItems = [], onNavigate, compact = false, onExpand }: VideoRoomProps) {
   const [status, setStatus] = useState('جاهز للانضمام');
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
@@ -61,6 +65,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [showMore, setShowMore] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [siteMenuOpen, setSiteMenuOpen] = useState(false);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
   const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
@@ -688,10 +693,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   return (
-    <section className={`video-room call-experience ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
+    <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
+      {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label="فتح صفحات المنصة" aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label="صفحات المنصة"><strong>تصفح المنصة</strong>{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
       <div className="video-header call-header">
         <div><h2>الحصة المباشرة</h2><p>{status}{hasRemoteStream ? ` • ${localName} مع ${remoteName}` : ` • بانتظار ${remoteName}`}</p></div>
-        <div className="status-pill"><RadioTower size={17} />{isJoining ? 'جار الانضمام' : status}</div>
+        <div className="call-header-actions">{compact && <button className="call-expand-button" type="button" onClick={onExpand} title="العودة إلى المكالمة الكاملة"><Maximize2 size={17} />تكبير</button>}<div className="status-pill"><RadioTower size={17} />{isJoining ? 'جار الانضمام' : status}</div></div>
       </div>
 
       <div className="session-controls call-start">

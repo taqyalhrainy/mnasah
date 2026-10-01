@@ -53,6 +53,21 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('call-active')), true);
   assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.immersive-call-shell')).position), 'fixed');
 
+  await page.waitForFunction(() => [...document.querySelectorAll('video')].some(video => video.srcObject));
+  await page.evaluate(() => { window.callStreamBeforeBrowsing = [...document.querySelectorAll('video')].find(video => video.srcObject)?.srcObject; });
+  await page.getByLabel('فتح صفحات المنصة').hover();
+  const callNavigation = page.getByRole('navigation', { name: 'صفحات المنصة' });
+  await callNavigation.waitFor();
+  await page.screenshot({ path: '.private/call-navigation-open.png' });
+  await callNavigation.getByRole('button', { name: 'المحفظة', exact: true }).click();
+  await page.locator('.floating-call-shell').waitFor();
+  await page.locator('.wallet-page').waitFor();
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('video')].some(video => video.srcObject === window.callStreamBeforeBrowsing)), true, 'browsing portal pages must preserve the active call stream');
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('call-active')), false);
+  await page.screenshot({ path: '.private/call-browse-floating.png', fullPage: true });
+  await page.getByTitle('العودة إلى المكالمة الكاملة').click();
+  await page.locator('.immersive-call-shell').waitFor();
+
   await page.getByTitle('المحادثة').click();
   const chat = page.locator('.call-chat-drawer');
   await chat.waitFor();

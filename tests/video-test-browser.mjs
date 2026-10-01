@@ -58,8 +58,27 @@ try {
         && [...video.srcObject.getTracks()].every(track => track.readyState === 'live'));
     }), true, 'drawing must not detach or stop the camera and microphone streams');
   }
+
+  await student.evaluate(() => { window.remoteStreamBeforeTeacherReturn = document.querySelectorAll('video')[0]?.srcObject; });
+  await teacher.reload();
+  await teacher.locator('.video-test-page').waitFor();
+  await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
+  await student.waitForFunction(() => {
+    const remote = document.querySelectorAll('video')[0]?.srcObject;
+    return remote && remote !== window.remoteStreamBeforeTeacherReturn && [...remote.getTracks()].every(track => track.readyState === 'live');
+  }, undefined, { timeout: 30000 });
+
+  await teacher.evaluate(() => { window.remoteStreamBeforeStudentReturn = document.querySelectorAll('video')[0]?.srcObject; });
+  await student.reload();
+  await student.locator('.video-test-page').waitFor();
+  await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
+  await teacher.waitForFunction(() => {
+    const remote = document.querySelectorAll('video')[0]?.srcObject;
+    return remote && remote !== window.remoteStreamBeforeStudentReturn && [...remote.getTracks()].every(track => track.readyState === 'live');
+  }, undefined, { timeout: 30000 });
+
   assert.equal(errors.length, 0, errors.join('\n'));
-  console.log('Direct video route and whiteboard media-stability checks passed.');
+  console.log('Direct video route, whiteboard stability, and teacher/student leave-and-return checks passed.');
 } finally {
   await browser.close();
 }

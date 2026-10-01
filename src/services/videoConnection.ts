@@ -36,7 +36,9 @@ export class VideoConnection {
   private videoSource: VideoSource = 'camera';
   private cleanRoomId?: string;
   private retryTimer?: number;
+  private signalingRetryTimer?: number;
   private hasRemoteStream = false;
+  private closed = false;
 
   constructor(
     private readonly roomId: string,
@@ -45,6 +47,7 @@ export class VideoConnection {
   ) {}
 
   async start() {
+    this.closed = false;
     const cleanRoomId = normalizeRoomId(this.roomId);
     if (!cleanRoomId) {
       throw new Error('اكتب رقم غرفة صحيح');
@@ -67,17 +70,7 @@ export class VideoConnection {
     });
     this.cameraTrack = this.localStream.getVideoTracks()[0];
 
-    this.peer = new Peer(getPeerId(cleanRoomId, this.role), {
-      debug: 1,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' },
-        ],
-      },
-    });
-
-    this.bindPeerEvents(cleanRoomId);
+    this.createPeer(cleanRoomId);
     return this.localStream;
   }
 
@@ -146,7 +139,9 @@ export class VideoConnection {
   }
 
   close() {
+    this.closed = true;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
+    if (this.signalingRetryTimer) window.clearTimeout(this.signalingRetryTimer);
     this.activeCall?.close();
     this.activeDataConnection?.close();
     this.peer?.destroy();
@@ -180,12 +175,10 @@ export class VideoConnection {
     });
 
     this.peer.on('call', (call) => {
-      if (this.hasRemoteStream) {
-        call.close();
-        return;
-      }
-
-      this.activeCall?.close();
+      // A returning participant creates a fresh MediaConnection. Always prefer
+      // that new call over a possibly stale connection left by the old tab.
+      // Rejecting it while `hasRemoteStream` was still true made both sides wait
+      // forever after either participant left and rejoined.
       this.callbacks.onStatus('جاري قبول الاتصال');
       call.answer(this.localStream!);
       this.bindCallEvents(call);
@@ -197,7 +190,8 @@ export class VideoConnection {
 
     this.peer.on('error', (error) => {
       if (error.type === 'unavailable-id') {
-        this.callbacks.onStatus('هذا الدور مفتوح حالياً في نفس الغرفة');
+        this.callbacks.onStatus('جاري استعادة مقعدك في الغرفة');
+        this.retryPeerRegistration(cleanRoomId);
         return;
       }
 
@@ -213,6 +207,30 @@ export class VideoConnection {
       this.callbacks.onStatus('انقطع اتصال الإشارة، حاول بدء الجلسة مرة أخرى');
       this.reconnectSignaling();
     });
+  }
+
+  private createPeer(cleanRoomId: string) {
+    if (this.closed) return;
+    this.peer = new Peer(getPeerId(cleanRoomId, this.role), {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' },
+        ],
+      },
+    });
+    this.bindPeerEvents(cleanRoomId);
+  }
+
+  private retryPeerRegistration(cleanRoomId: string) {
+    if (this.closed || this.signalingRetryTimer) return;
+    this.signalingRetryTimer = window.setTimeout(() => {
+      this.signalingRetryTimer = undefined;
+      if (this.closed) return;
+      this.peer?.destroy();
+      this.createPeer(cleanRoomId);
+    }, 2200);
   }
 
   reconnectSignaling() {
@@ -241,6 +259,7 @@ export class VideoConnection {
   }
 
   private startPeerSearch(cleanRoomId: string) {
+    if (this.closed) return;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
 
     const callOtherPeer = () => {
@@ -262,28 +281,42 @@ export class VideoConnection {
   }
 
   private bindCallEvents(call: MediaConnection) {
-    this.activeCall?.close();
+    const previousCall = this.activeCall;
     this.activeCall = call;
+    if (previousCall && previousCall !== call) previousCall.close();
 
     call.on('stream', (remoteStream) => {
+      if (this.activeCall !== call) return;
       this.hasRemoteStream = true;
       if (this.retryTimer) window.clearInterval(this.retryTimer);
       this.callbacks.onRemoteStream(remoteStream);
       this.callbacks.onStatus('الاتصال مباشر');
+
+      remoteStream.getTracks().forEach((track) => {
+        track.addEventListener('ended', () => this.handleCallEnded(call), { once: true });
+      });
     });
 
-    call.on('close', () => {
-      this.hasRemoteStream = false;
-      if (this.activeCall === call) this.activeCall = undefined;
-      this.callbacks.onPeerLeft();
-      this.callbacks.onStatus('غادر الطرف الآخر الجلسة');
-    });
+    call.on('close', () => this.handleCallEnded(call));
 
     call.on('error', (error) => {
-      if (this.activeCall === call) this.activeCall = undefined;
-
+      if (this.closed || this.activeCall !== call) return;
+      this.hasRemoteStream = false;
+      this.activeCall = undefined;
+      this.callbacks.onPeerLeft();
       this.callbacks.onStatus(error.message || 'تعذر إكمال المكالمة');
+      if (this.cleanRoomId) this.startPeerSearch(this.cleanRoomId);
     });
+  }
+
+  private handleCallEnded(call: MediaConnection) {
+    // Closing a superseded call must not tear down the fresh replacement.
+    if (this.closed || this.activeCall !== call) return;
+    this.hasRemoteStream = false;
+    this.activeCall = undefined;
+    this.callbacks.onPeerLeft();
+    this.callbacks.onStatus('غادر الطرف الآخر الجلسة، بانتظار عودته');
+    if (this.cleanRoomId) this.startPeerSearch(this.cleanRoomId);
   }
 
   private bindDataConnection(connection: DataConnection) {
