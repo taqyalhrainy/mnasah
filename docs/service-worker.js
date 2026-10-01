@@ -55,8 +55,13 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || '/students', self.location.origin);
-  if (target.origin !== self.location.origin || !/^\/(teachers|students)$/.test(target.pathname)) return;
+  const rawUrl = event.notification.data?.url || 'students';
+  const target = /^https?:\/\//.test(rawUrl)
+    ? new URL(rawUrl)
+    : new URL(String(rawUrl).replace(/^\/+/, ''), self.registration.scope);
+  const scopePath = new URL(self.registration.scope).pathname.replace(/\/$/, '');
+  const routePath = scopePath && target.pathname.startsWith(`${scopePath}/`) ? target.pathname.slice(scopePath.length) : target.pathname;
+  if (target.origin !== self.location.origin || !/^\/(teachers|students)$/.test(routePath)) return;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const existing = windows.find(client => new URL(client.url).pathname === target.pathname);
