@@ -306,15 +306,22 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
         if (write) {
           const key = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
+          const peerKey = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
           const until = body.active === false ? 0 : Date.now() + 45000;
-          await db.collection('bookings').updateOne({ id }, { $set: { [key]: until } });
+          const peerId = body.active === false ? '' : field(body.peerId || '', 160, 0);
+          await db.collection('bookings').updateOne({ id }, { $set: { [key]: until, [peerKey]: peerId } });
           row[key] = until;
+          row[peerKey] = peerId;
         }
+        const teacherLive = Number(row.teacher_present_until || 0) > Date.now();
+        const studentLive = Number(row.student_present_until || 0) > Date.now();
         return res.json({
-          teacherLive: Number(row.teacher_present_until || 0) > Date.now(),
-          studentLive: Number(row.student_present_until || 0) > Date.now(),
+          teacherLive,
+          studentLive,
           teacher_present_until: Number(row.teacher_present_until || 0),
           student_present_until: Number(row.student_present_until || 0),
+          teacherPeerId: teacherLive ? row.teacher_peer_id || null : null,
+          studentPeerId: studentLive ? row.student_peer_id || null : null,
         });
       }
       if (action === 'messages') {

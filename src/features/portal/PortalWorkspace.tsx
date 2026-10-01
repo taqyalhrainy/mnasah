@@ -272,7 +272,11 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         const result = await request<{ messages: Message[] }>(`${portal}/bookings/${room.id}/messages`, { body });
         setMessages(result.messages);
       }}
-      onPresenceChange={active => request(`${portal}/bookings/${room.id}/presence`, { active })}
+      onPresenceChange={(active, peerId) => request(`${portal}/bookings/${room.id}/presence`, { active, peerId })}
+      getRemotePeerId={async () => {
+        const presence = await request<{ teacherPeerId?: string | null; studentPeerId?: string | null }>(`${portal}/bookings/${room.id}/presence`);
+        return room.role === 'teacher' ? presence.studentPeerId : presence.teacherPeerId;
+      }}
       onLeave={() => { setRoom(null); setCallCompact(false); refresh(); }}
     /></div>;
   if (portal === 'students') return <>{callLayer}<div className="portal-content student-experience">

@@ -31,7 +31,8 @@ type VideoRoomProps = {
   authorize: () => Promise<unknown>;
   messages?: CallMessage[];
   onSendMessage?: (body: string) => Promise<void>;
-  onPresenceChange?: (active: boolean) => Promise<unknown>;
+  onPresenceChange?: (active: boolean, peerId?: string | null) => Promise<unknown>;
+  getRemotePeerId?: () => Promise<string | null | undefined>;
   onLeave?: () => void;
   navigationItems?: Array<{ id: string; label: string }>;
   onNavigate?: (id: string) => void;
@@ -46,7 +47,7 @@ const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { st
 
 declare global { interface Window { mansahCallActive?: boolean } }
 
-export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, onLeave, navigationItems = [], onNavigate, compact = false, onExpand }: VideoRoomProps) {
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, onLeave, navigationItems = [], onNavigate, compact = false, onExpand }: VideoRoomProps) {
   const [status, setStatus] = useState('جاهز للانضمام');
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
@@ -92,6 +93,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const presenceRef = useRef(onPresenceChange);
+  const localPeerIdRef = useRef<string | null>(null);
   const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
   const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
 
@@ -127,8 +129,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   useEffect(() => {
     if (!isConnected || !presenceRef.current) return;
-    void presenceRef.current(true).catch(() => undefined);
-    const timer = window.setInterval(() => { const update = presenceRef.current?.(true); if (update) void update.catch(() => undefined); }, 15000);
+    void presenceRef.current(true, localPeerIdRef.current).catch(() => undefined);
+    const timer = window.setInterval(() => { const update = presenceRef.current?.(true, localPeerIdRef.current); if (update) void update.catch(() => undefined); }, 15000);
     return () => { window.clearInterval(timer); const update = presenceRef.current?.(false); if (update) void update.catch(() => undefined); };
   }, [isConnected]);
 
@@ -199,6 +201,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setRemoteVideoSource('camera');
       setHasRemoteStream(false);
       setFocusedParticipant(null);
+      localPeerIdRef.current = null;
       const connection = new VideoConnection(roomId.trim(), role, {
         onRemoteStream: (stream) => {
           remoteStreamRef.current = stream;
@@ -215,6 +218,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         },
         onWhiteboardMessage: handleWhiteboardMessage,
         onDataOpen: () => sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, mode: stageMode }),
+        onLocalPeerId: (peerId) => {
+          localPeerIdRef.current = peerId;
+          const update = presenceRef.current?.(Boolean(peerId), peerId);
+          if (update) void update.catch(() => undefined);
+        },
+        getRemotePeerId,
         onLocalVideoSource: (source) => {
           setIsScreenSharing(source === 'screen');
           if (source === 'screen') {
@@ -247,6 +256,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const endCall = () => {
     connectionRef.current?.close();
     connectionRef.current = null;
+    localPeerIdRef.current = null;
     localStreamRef.current = null;
     remoteStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;

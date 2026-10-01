@@ -18,6 +18,7 @@ export function VideoTestPage() {
   const [copied, setCopied] = useState(false);
   const otherRole: VideoRole = role === 'teacher' ? 'student' : 'teacher';
   const otherUrl = `${location.origin}/video-test?room=${encodeURIComponent(token)}&role=${otherRole}`;
+  const presenceKey = (targetRole: VideoRole) => `mansah-video-test:${token}:${targetRole}`;
 
   useEffect(() => {
     const canonical = `/video-test?room=${encodeURIComponent(token)}&role=${role}`;
@@ -47,7 +48,23 @@ export function VideoTestPage() {
           </a>
         </div>
       </header>
-      <VideoRoom assignedRole={role} assignedRoom={`test-${token}`} authorize={() => Promise.resolve()} />
+      <VideoRoom
+        assignedRole={role}
+        assignedRoom={`test-${token}`}
+        authorize={() => Promise.resolve()}
+        onPresenceChange={async (active, peerId) => {
+          if (!active || !peerId) localStorage.removeItem(presenceKey(role));
+          else localStorage.setItem(presenceKey(role), JSON.stringify({ peerId, expires: Date.now() + 45000 }));
+        }}
+        getRemotePeerId={async () => {
+          try {
+            const presence = JSON.parse(localStorage.getItem(presenceKey(otherRole)) || 'null') as { peerId?: string; expires?: number } | null;
+            return presence?.peerId && Number(presence.expires) > Date.now() ? presence.peerId : null;
+          } catch {
+            return null;
+          }
+        }}
+      />
     </main>
   );
 }

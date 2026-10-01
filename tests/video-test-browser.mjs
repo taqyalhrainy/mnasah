@@ -10,13 +10,14 @@ const context = await browser.newContext({ permissions: ['camera', 'microphone']
 const teacher = await context.newPage();
 const student = await context.newPage();
 const errors = [];
+const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8787';
 teacher.on('pageerror', error => errors.push(error.message));
 student.on('pageerror', error => errors.push(error.message));
 
 try {
   const room = `browser-check-${Date.now()}`;
-  await teacher.goto(`http://127.0.0.1:8787/video-test?room=${room}&role=teacher`);
-  await student.goto(`http://127.0.0.1:8787/video-test?room=${room}&role=student`);
+  await teacher.goto(`${baseUrl}/video-test?room=${room}&role=teacher`);
+  await student.goto(`${baseUrl}/video-test?room=${room}&role=student`);
   await teacher.locator('.video-test-page').waitFor();
   await student.locator('.video-test-page').waitFor();
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
@@ -59,26 +60,22 @@ try {
     }), true, 'drawing must not detach or stop the camera and microphone streams');
   }
 
-  await student.evaluate(() => { window.remoteStreamBeforeTeacherReturn = document.querySelectorAll('video')[0]?.srcObject; });
-  await teacher.reload();
-  await teacher.locator('.video-test-page').waitFor();
-  await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
-  await student.waitForFunction(() => {
-    const remote = document.querySelectorAll('video')[0]?.srcObject;
-    return remote && remote !== window.remoteStreamBeforeTeacherReturn && [...remote.getTracks()].every(track => track.readyState === 'live');
-  }, undefined, { timeout: 30000 });
+  async function leaveAndReturn(leaver, waitingParticipant) {
+    await waitingParticipant.evaluate(() => { window.remoteStreamBeforeReturn = document.querySelectorAll('video')[0]?.srcObject; });
+    await leaver.locator('.call-toolbar .danger').click();
+    await leaver.locator('.session-controls .primary-button').click();
+    await leaver.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
+    await waitingParticipant.waitForFunction(() => {
+      const remote = document.querySelectorAll('video')[0]?.srcObject;
+      return remote && remote !== window.remoteStreamBeforeReturn && [...remote.getTracks()].every(track => track.readyState === 'live');
+    }, undefined, { timeout: 30000 });
+  }
 
-  await teacher.evaluate(() => { window.remoteStreamBeforeStudentReturn = document.querySelectorAll('video')[0]?.srcObject; });
-  await student.reload();
-  await student.locator('.video-test-page').waitFor();
-  await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
-  await teacher.waitForFunction(() => {
-    const remote = document.querySelectorAll('video')[0]?.srcObject;
-    return remote && remote !== window.remoteStreamBeforeStudentReturn && [...remote.getTracks()].every(track => track.readyState === 'live');
-  }, undefined, { timeout: 30000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) await leaveAndReturn(teacher, student);
+  for (let attempt = 0; attempt < 3; attempt += 1) await leaveAndReturn(student, teacher);
 
   assert.equal(errors.length, 0, errors.join('\n'));
-  console.log('Direct video route, whiteboard stability, and teacher/student leave-and-return checks passed.');
+  console.log('Direct video route, whiteboard stability, and repeated teacher/student leave-and-return checks passed.');
 } finally {
   await browser.close();
 }

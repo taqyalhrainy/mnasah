@@ -2,7 +2,7 @@ import { all, one, run, statement, field, fail, auditEntry } from './db.js';
 import { getUser, publicUser, passwordHash, equal, random } from './auth.js';
 import { catalog } from './catalog.js';
 
-const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
+const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
 async function walletBalance(env, userId) {
   const row = await one(env, 'SELECT COALESCE(SUM(amount),0) AS balance FROM wallet_transactions WHERE user_id=?', userId);
@@ -161,15 +161,22 @@ export async function api(request, env, portal, path, body) {
       if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
       if (write) {
         const column = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
+        const peerColumn = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
         const until = body.active === false ? 0 : Date.now() + 45000;
-        await run(env, `UPDATE bookings SET ${column}=? WHERE id=?`, until, id);
+        const peerId = body.active === false ? '' : field(body.peerId || '', 160, 0);
+        await run(env, `UPDATE bookings SET ${column}=?,${peerColumn}=? WHERE id=?`, until, peerId, id);
         row[column] = until;
+        row[peerColumn] = peerId;
       }
+      const teacherLive = Number(row.teacher_present_until || 0) > Date.now();
+      const studentLive = Number(row.student_present_until || 0) > Date.now();
       return {
-        teacherLive: Number(row.teacher_present_until || 0) > Date.now(),
-        studentLive: Number(row.student_present_until || 0) > Date.now(),
+        teacherLive,
+        studentLive,
         teacher_present_until: Number(row.teacher_present_until || 0),
         student_present_until: Number(row.student_present_until || 0),
+        teacherPeerId: teacherLive ? row.teacher_peer_id || null : null,
+        studentPeerId: studentLive ? row.student_peer_id || null : null,
       };
     }
     if (action === 'messages') {
