@@ -52,6 +52,7 @@ export function VideoTestPage() {
         assignedRole={role}
         assignedRoom={`test-${token}`}
         authorize={() => Promise.resolve()}
+        onSendMessage={async () => undefined}
         onPresenceChange={async (active, peerId) => {
           if (!active || !peerId) localStorage.removeItem(presenceKey(role));
           else localStorage.setItem(presenceKey(role), JSON.stringify({ peerId, expires: Date.now() + 45000 }));

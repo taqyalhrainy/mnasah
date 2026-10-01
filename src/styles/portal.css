@@ -1536,22 +1536,20 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
 .compact-call .tool-button[title="تثبيت كتطبيق"],
 .compact-call .tool-button[title="خيارات أكثر"] { display: none; }
 
-/* Discord-style bottom chat drawer. */
+/* Discord-style chat timeline below the video stage. */
 .call-chat-drawer {
-  position: absolute;
-  inset-inline: clamp(8px, 8vw, 130px);
-  bottom: 8px;
-  z-index: 7;
+  position: relative;
+  z-index: 2;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  height: min(44dvh, 390px);
-  min-height: 220px;
+  flex: 0 0 clamp(210px, 28dvh, 320px);
+  width: 100%;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid #3a3e48;
-  border-radius: 20px 20px 14px 14px;
-  background: #1b1d22f7;
-  box-shadow: 0 -22px 70px #000b;
-  backdrop-filter: blur(18px);
+  border-radius: 14px;
+  background: #191b20;
+  box-shadow: inset 0 1px #ffffff05;
   animation: call-chat-rise .18s ease-out;
 }
 @keyframes call-chat-rise { from { opacity: 0; transform: translateY(24px); } }
@@ -1565,6 +1563,32 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
 .call-chat-messages time { color: #9299a5; }
 .call-chat-messages p { margin: 5px 0 0; color: #f5f7fa; white-space: pre-wrap; overflow-wrap: anywhere; }
 .call-chat-empty { margin: auto; color: var(--call-muted); }
+.call-typing-indicator {
+  direction: ltr;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  justify-self: start;
+  width: 54px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 18px 18px 18px 5px;
+  background: #30333b;
+}
+.call-typing-indicator span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c7cbd3;
+  animation: call-typing-dot 1.05s ease-in-out infinite;
+}
+.call-typing-indicator span:nth-child(2) { animation-delay: .14s; }
+.call-typing-indicator span:nth-child(3) { animation-delay: .28s; }
+@keyframes call-typing-dot {
+  0%, 60%, 100% { opacity: .38; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
 .call-chat-compose { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 8px; padding: 10px 12px; border-top: 1px solid #333741; }
 .call-chat-compose input { width: 100%; min-height: 44px; border: 1px solid #3a3e48; border-radius: 12px; padding: 0 13px; color: #fff; background: #24272e; outline: 0; }
 .call-chat-compose input:focus { border-color: #7aa2ff; box-shadow: 0 0 0 3px #3972f32e; }
@@ -1582,7 +1606,7 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
   .room-card { grid-template-columns: 74px minmax(0, 1fr); gap: 12px; }
   .room-card-action { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) minmax(150px, auto); align-items: center; }
   .room-card-date { padding: 9px; }
-  .call-chat-drawer { inset-inline: 5px; bottom: 4px; height: min(54dvh, 420px); border-radius: 18px 18px 10px 10px; }
+  .call-chat-drawer { flex-basis: min(38dvh, 310px); border-radius: 12px; }
   .call-chat-head span { display: none; }
   .call-site-navigation { inset-inline-start: 6px; }
   .call-menu-trigger { width: 42px; height: 42px; }

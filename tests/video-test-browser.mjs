@@ -23,6 +23,15 @@ try {
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
 
+  await teacher.getByTitle('المحادثة').click();
+  await student.getByTitle('المحادثة').click();
+  await teacher.getByLabel('رسالة جديدة').fill('أ');
+  await student.locator('.call-typing-indicator').waitFor({ timeout: 10000 });
+  assert.equal(await student.locator('.call-typing-indicator span').count(), 3);
+  await student.locator('.call-typing-indicator').waitFor({ state: 'detached', timeout: 5000 });
+  await teacher.getByTitle('المحادثة').click();
+  await student.getByTitle('المحادثة').click();
+
   await teacher.locator('.call-toolbar .tool-button').nth(3).click();
   await teacher.locator('.whiteboard-canvas').waitFor();
   await student.locator('.whiteboard-canvas').waitFor();

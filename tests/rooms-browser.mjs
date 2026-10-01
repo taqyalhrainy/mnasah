@@ -74,9 +74,23 @@ try {
   await page.getByLabel('رسالة جديدة').fill('رسالة مباشرة من الغرفة');
   await page.getByLabel('إرسال الرسالة').click();
   await page.getByText('رسالة مباشرة من الغرفة', { exact: true }).waitFor();
-  const placement = await chat.evaluate(element => ({ position: getComputedStyle(element).position, bottom: getComputedStyle(element).bottom }));
-  assert.deepEqual(placement, { position: 'absolute', bottom: '8px' });
+  const placement = await page.evaluate(() => {
+    const chatElement = document.querySelector('.call-chat-drawer');
+    const stage = document.querySelector('.call-stage');
+    const messagesElement = document.querySelector('.call-chat-messages');
+    const chatRect = chatElement.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    return { position: getComputedStyle(chatElement).position, separated: chatRect.top >= stageRect.bottom, messagesOverflow: getComputedStyle(messagesElement).overflowY };
+  });
+  assert.deepEqual(placement, { position: 'relative', separated: true, messagesOverflow: 'auto' });
   await page.screenshot({ path: '.private/immersive-call-chat.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => {
+    const chatRect = document.querySelector('.call-chat-drawer').getBoundingClientRect();
+    const stageRect = document.querySelector('.call-stage').getBoundingClientRect();
+    return chatRect.top >= stageRect.bottom && document.documentElement.scrollWidth <= innerWidth;
+  }), true, 'mobile chat must stay below the video without horizontal overflow');
+  await page.screenshot({ path: '.private/immersive-call-chat-mobile.png' });
 
   await page.getByTitle('إنهاء المكالمة والخروج').click();
   await page.locator('.immersive-call-shell').waitFor({ state: 'detached' });

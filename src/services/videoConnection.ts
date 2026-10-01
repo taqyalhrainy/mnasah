@@ -4,6 +4,7 @@ type PeerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
   onRemoteVideoSource: (source: VideoSource) => void;
   onWhiteboardMessage?: (message: unknown) => void;
+  onRemoteTyping?: (typing: boolean) => void;
   onDataOpen?: () => void;
   onLocalPeerId?: (peerId: string | null) => void | Promise<void>;
   getRemotePeerId?: () => Promise<string | null | undefined>;
@@ -276,6 +277,12 @@ export class VideoConnection {
     return true;
   }
 
+  sendTyping(typing: boolean) {
+    if (!this.activeDataConnection?.open) return false;
+    this.activeDataConnection.send({ type: 'typing', typing });
+    return true;
+  }
+
   private startPeerSearch() {
     if (this.closed) return;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
@@ -410,6 +417,10 @@ export class VideoConnection {
     });
 
     connection.on('data', (message) => {
+      if (isTypingMessage(message)) {
+        this.callbacks.onRemoteTyping?.(message.typing);
+        return;
+      }
       if (isVideoSourceMessage(message)) {
         this.callbacks.onRemoteVideoSource(message.source);
         return;
@@ -436,6 +447,12 @@ export class VideoConnection {
     if (!this.activeDataConnection?.open) return;
     this.activeDataConnection.send({ type: 'video-source', source: this.videoSource });
   }
+}
+
+function isTypingMessage(message: unknown): message is { type: 'typing'; typing: boolean } {
+  if (!message || typeof message !== 'object') return false;
+  const candidate = message as { type?: unknown; typing?: unknown };
+  return candidate.type === 'typing' && typeof candidate.typing === 'boolean';
 }
 
 function isWhiteboardMessage(message: unknown): message is { type: 'whiteboard'; message: unknown } {
