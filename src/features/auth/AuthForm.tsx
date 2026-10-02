@@ -19,12 +19,12 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <main className={`auth-page redesigned-auth portal-${portal}`} dir="rtl">
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>Mansah<span className="brand-dot">.</span></strong></div><span className="auth-masthead-portal"><PortalIcon size={18} />{portalNames[portal]}</span></header>
     <div className="auth-main">
-      <div className="auth-brand"><img src={`${base}icon.svg`} width="44" height="44" alt="" /><strong>Mansah<span>منصّة</span></strong></div>
       <section className="auth-form">
-        <div className="auth-portal-label"><PortalIcon size={19} />{portalNames[portal]}</div>
+        <div className="auth-portal-label">منصّة تعليم خصوصي</div>
         <h1>{setupToken ? 'إنشاء حساب الأونر' : register ? 'انضم إلى منصّة' : 'تسجيل الدخول'}</h1>
-        <p className="auth-welcome">{register ? 'بداية جديدة، وفرص أكبر.' : 'أهلاً بعودتك. مكانك بانتظارك.'}</p>
+        <p className="auth-welcome">{register ? 'أهلاً في منصّة.' : 'أهلاً بعودتك.'}</p>
         {portal !== 'admin' && !setupToken && <nav className="auth-role-tabs" aria-label="بوابات المنصة"><a href={`${base}students`} aria-current={portal === 'students' ? 'page' : undefined}><GraduationCap size={18} />طالب</a><a href={`${base}teachers`} aria-current={portal === 'teachers' ? 'page' : undefined}><Users size={18} />أستاذ</a></nav>}
         <form onSubmit={submit}>
           {register && <label>الاسم الكامل<div className="auth-input-wrap"><UserPlus size={18} /><input name="name" autoComplete="name" placeholder="اسمك الكامل" maxLength={100} required /></div></label>}
@@ -36,8 +36,8 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
         </form>
         {portal !== 'admin' && <div className="auth-register"><span>{register ? 'لديك حساب؟' : 'أول مرة في منصّة؟'}</span><button className="text-button" onClick={() => { setRegister(!register); setError(''); }}><UserPlus size={17} />{register ? 'لدي حساب بالفعل' : 'إنشاء حساب جديد'}</button></div>}
       </section>
-      <footer className="auth-footer"><ShieldCheck size={15} /><span>مساحتك الخاصة للتعلّم</span><span dir="ltr">Mansah © {new Date().getFullYear()}</span></footer>
+      <footer className="auth-footer"><ShieldCheck size={15} /><span>{portalNames[portal]}</span><span dir="ltr">Mansah © {new Date().getFullYear()}</span></footer>
     </div>
-    <aside className="auth-visual" aria-label="مساحة تعلم"><img src={`${base}images/study-workspace.jpg`} alt="طالب يكتب ملاحظاته أثناء الدراسة" fetchPriority="low" /><div className="auth-visual-caption"><span>منصّة تعليم خصوصي</span><strong>Mansah</strong><p>مساحتك للتعلّم، والنمو.</p><div><span>منصّة</span><span>كل خطوة تصنع فرقاً.</span></div></div></aside>
+    <aside className="auth-visual" aria-label="مساحة تعلم"><img src={`${base}images/learning-desk-v3.jpg`} alt="دفتر دراسة وقلم وسماعات على مكتب أصفر" fetchPriority="high" /></aside>
   </main>;
 }

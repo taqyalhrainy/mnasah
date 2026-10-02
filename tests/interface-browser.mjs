@@ -50,6 +50,7 @@ async function makePage(role, loggedIn = true) {
   });
   await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
   await page.evaluate(() => document.fonts.ready);
+  await page.locator('img').evaluateAll(images => Promise.all(images.map(image => image.decode())));
   return { context, page };
 }
 
@@ -76,7 +77,9 @@ async function checkLayout(page, label) {
 try {
   for (const role of ['students', 'teachers', 'admin']) {
     const { context, page } = await makePage(role);
-    for (const width of [1440, 1920, 768, 390, 320]) {
+    await checkLayout(page, `${role} initial desktop`);
+    assert.equal(await page.locator('.sidebar').evaluate(header => header.getBoundingClientRect().height < 100), true, `${role} desktop navigation must be a horizontal masthead`);
+    for (const width of [1440, 1920, 1280, 1024, 950, 768, 390, 320]) {
       await page.setViewportSize({ width, height: width < 768 ? 844 : 1000 });
       await checkLayout(page, `${role} home at ${width}px`);
       if (width === 1440 || width === 390) await page.screenshot({ path: `.private/redesign-${role}-${width}.png`, fullPage: true });
@@ -104,10 +107,13 @@ try {
       assert.equal(await reminders.isChecked(), false);
       await page.getByTitle('البحث عن مادة أو أستاذ').click();
       await page.waitForFunction(() => document.activeElement?.matches('.student-search input'));
-      await page.getByTitle('عرض أيام الأسبوع').click();
+      assert.equal(await page.locator('.overview-metrics').isVisible(), false);
+      await page.getByTitle('عرض ملخّص الأسبوع').click();
       assert.equal(await page.locator('.agenda-days').isVisible(), true);
-      await page.getByTitle('طي أيام الأسبوع').click();
+      assert.equal(await page.locator('.overview-metrics').isVisible(), true);
+      await page.getByTitle('طي ملخّص الأسبوع').click();
       assert.equal(await page.locator('.agenda-days').isVisible(), false);
+      assert.equal(await page.locator('.overview-metrics').isVisible(), false);
       await page.locator('.category-card').filter({ hasText: 'المنهاج الأردني' }).click();
       await page.locator('.choice-grid').getByRole('button', { name: 'الصف الخامس' }).click();
       await page.locator('.choice-grid').getByRole('button', { name: 'رياضيات' }).click();

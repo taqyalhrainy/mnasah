@@ -2,3 +2,10 @@ study-workspace.jpg
 Photo by Green Chameleon on Unsplash.
 Source: https://unsplash.com/photos/person-writing-on-white-paper-s9CC2SKySJM
 License: https://unsplash.com/license
+
+learning-desk-v3.jpg
+Generated specifically for Mansah with the built-in image_gen tool.
+Prompt: overhead editorial photograph of an open notebook, pencil, red bookmark,
+and blue headphones on a bright yellow desk; objects on the left, clear right
+side for the sign-in form; crisp daylight, no text or logos.
+Original generated PNG retained locally; JPEG export optimized to 137367 bytes.

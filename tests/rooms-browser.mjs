@@ -41,6 +41,8 @@ try {
   await page.getByText('LIVE', { exact: true }).waitFor();
   await roomsNav.click();
   await page.getByRole('heading', { name: 'غرف الحصص' }).waitFor();
+  await page.getByRole('tab', { name: 'القادمة', exact: true }).click();
+  await page.locator('.room-card.is-live').waitFor();
   assert.equal(await page.locator('.room-card.is-live').count(), 1);
   assert.match(await page.locator('.room-countdown strong').innerText(), /^\d{2}:\d{2}$/);
   await page.screenshot({ path: '.private/rooms-hub.png', fullPage: true });
