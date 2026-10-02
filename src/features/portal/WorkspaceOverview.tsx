@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronDown, Clock3, GraduationCap, Video } from 'lucide-react';
 import { date, type Booking, type Portal, type User } from '../../services/platformApi';
 
-export function WorkspaceOverview({ user, portal, bookings, availableCount, onView }: {
-  user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void;
+export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, compact = false }: {
+  user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; compact?: boolean;
 }) {
   const [weekExpanded, setWeekExpanded] = useState(false);
   const now = Date.now();
@@ -28,8 +28,8 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     { label: 'حصص مكتملة', value: completed, icon: CheckCheck },
     { label: teacher ? 'مواعيد متاحة' : 'أساتذة متاحون', value: availableCount, icon: teacher ? Clock3 : GraduationCap },
   ];
-  return <section className="workspace-overview" aria-label="ملخص حسابك">
-    <div className="welcome-heading"><div><span className="overview-kicker">{teacher ? 'كل حصة تصنع فرقاً' : 'رحلتك، على طريقتك'}</span><h2>أهلاً، {user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>{teacher ? 'يوم جديد، وأثر جديد.' : 'جاهز لخطوتك القادمة؟'}</p></div><button className="secondary-button" onClick={() => onView(teacher ? 'available' : 'rooms')}>{teacher ? <CalendarDays size={17} /> : <Video size={17} />}{teacher ? 'إضافة موعد' : 'غرف حصصي'}<ArrowLeft size={16} /></button></div>
+  return <section className={`workspace-overview ${compact ? 'overview-rail' : ''}`} aria-label="ملخص حسابك">
+    {!compact && <div className="welcome-heading"><div><span className="overview-kicker">{teacher ? 'جدولك اليوم' : 'رحلتك التعليمية'}</span><h2>أهلاً، {user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>{teacher ? 'حصصك ومواعيدك، في مكان واحد.' : 'جاهز لخطوتك القادمة؟'}</p></div><button className="primary-button" onClick={() => onView(teacher ? 'available' : 'rooms')}>{teacher ? <CalendarDays size={17} /> : <Video size={17} />}{teacher ? 'إضافة موعد' : 'غرف حصصي'}<ArrowLeft size={16} /></button></div>}
     <div className="overview-metrics">{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={21} strokeWidth={1.7} /></span><div><span>{label}</span><strong>{value.toLocaleString('ar-JO')}</strong></div></div>)}</div>
     <div className="overview-schedule">
       <article className={`next-lesson ${!next ? 'no-next-lesson' : ''}`}>

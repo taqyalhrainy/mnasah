@@ -49,6 +49,7 @@ function PortalApp() {
   const [view, setView] = useState(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings');
   const [roomLive, setRoomLive] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [searchFocusKey, setSearchFocusKey] = useState(0);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [view]);
   useEffect(() => {
     const pop = () => { const next = currentPortal(); setPortal(next); setView(next === 'students' || next === 'teachers' ? 'home' : 'bookings'); setRoomLive(false); };
@@ -87,6 +88,12 @@ function PortalApp() {
   async function logout() {
     try { await request(`auth/logout?portal=${portal}`, { role: portal }); setUser(null); setRoomLive(false); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
+  function openQuickAction() {
+    if (portal === 'students') {
+      setView('home');
+      setSearchFocusKey(value => value + 1);
+    } else setView(portal === 'teachers' ? 'available' : 'users');
+  }
   if (loading) return <WakeLoading slow={slowWake || wakeAttempt > 0} attempt={wakeAttempt} />;
   if (error && !user) return <main className="loading-page wake-page" dir="rtl"><div className="wake-card"><p role="alert">{error}</p><button className="primary-button" onClick={() => { setWakeAttempt(0); setRetry(retry + 1); }}>إعادة المحاولة</button></div></main>;
   if (!user) return <AuthForm key={portal} portal={portal} onLogin={setUser} />;
@@ -107,10 +114,10 @@ function PortalApp() {
       <nav className="nav-list" aria-label="التنقل الرئيسي">{nav.map(({ id, label, icon: Icon }) => <button key={id} title={label} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={20} strokeWidth={1.8} /><span>{label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}</button>)}</nav>
       <div className="sidebar-footer"><a href={assetUrl('downloads/mansah.apk')} className="nav-button" title="تطبيق أندرويد"><Download size={19} /><span>تطبيق أندرويد</span><ArrowLeft size={15} /></a><button className="nav-button" onClick={logout} title="تسجيل الخروج"><LogOut size={19} /><span>تسجيل الخروج</span></button><button className="sidebar-profile" onClick={() => setView('profile')} title="حسابي"><span className="account-avatar">{user.name.trim().charAt(0)}</span><span><strong>{user.name}</strong><small>{portal === 'students' ? 'طالب' : portal === 'teachers' ? 'أستاذ' : 'مدير المنصّة'}</small></span><Settings size={17} /></button></div>
     </aside>
-    <section className="workspace"><header className="topbar"><div className="topbar-location"><img className="mobile-brand" src={assetUrl('icon.svg')} width="34" height="34" alt="Mansah" /><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div><div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' })}</time><details className="account-menu"><summary><span className="account-avatar">{user.name.trim().charAt(0)}</span><span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={() => setView('profile')}><Settings size={16} />حسابي</button><a href={assetUrl('downloads/mansah.apk')}><Download size={16} />تطبيق أندرويد</a><button onClick={logout}><LogOut size={16} />تسجيل الخروج</button></div></details></div></header>
+    <section className="workspace"><header className="topbar"><div className="topbar-location"><img className="mobile-brand" src={assetUrl('icon.svg')} width="34" height="34" alt="Mansah" /><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div><div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' })}</time><button className="icon-button quick-action" onClick={openQuickAction} title={portal === 'students' ? 'البحث عن مادة أو أستاذ' : portal === 'teachers' ? 'إضافة موعد متاح' : 'إدارة الحسابات'}>{portal === 'students' ? <Search size={19} /> : portal === 'teachers' ? <CalendarDays size={19} /> : <Users size={19} />}</button><details className="account-menu"><summary><span className="account-avatar">{user.name.trim().charAt(0)}</span><span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />حسابي</button><a href={assetUrl('downloads/mansah.apk')}><Download size={16} />تطبيق أندرويد</a><button onClick={logout}><LogOut size={16} />تسجيل الخروج</button></div></details></div></header>
       <div className="workspace-content" id="main-content" tabIndex={-1}>
       {error && <p className="notice error" role="alert">{error}</p>}
-      {user.status === 'suspended' ? <p className="notice error">حسابك موقوف. راجع الإدارة.</p> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><h2>طلبك قيد المراجعة</h2><p>ستظهر المواعيد والحصص بعد موافقة الإدارة على حسابك.</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>تحديث حالة الطلب</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} onRoomLiveChange={setRoomLive} />}
+      {user.status === 'suspended' ? <p className="notice error">حسابك موقوف. راجع الإدارة.</p> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><h2>طلبك قيد المراجعة</h2><p>ستظهر المواعيد والحصص بعد موافقة الإدارة على حسابك.</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>تحديث حالة الطلب</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} onRoomLiveChange={setRoomLive} searchFocusKey={searchFocusKey} />}
       </div></section>
   </main>;
 }

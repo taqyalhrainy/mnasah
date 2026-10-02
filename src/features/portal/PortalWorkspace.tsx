@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { BookOpen, CalendarPlus, Check, ChevronLeft, CreditCard, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight } from 'lucide-react';
 import { request, date, money, statusNames, type Booking, type Slot, type Portal, type User, type Message } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
@@ -52,12 +52,13 @@ function parseTeachingChoices(value: string, catalog: Category[]) {
   return uniqueTeachingChoices(choices);
 }
 
-export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLiveChange }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void; onRoomLiveChange?: (live: boolean) => void }) {
+export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLiveChange, searchFocusKey = 0 }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void; onRoomLiveChange?: (live: boolean) => void; searchFocusKey?: number }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadedView, setLoadedView] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -80,6 +81,18 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [callCompact, setCallCompact] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const reminders = useLessonReminders(portal, user.id, revision, room?.id);
+  const focusedSearch = useRef(0);
+  useEffect(() => {
+    if (portal !== 'students' || view !== 'home' || loadedView !== view || loading || searchFocusKey === focusedSearch.current) return;
+    const frame = requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>('.student-search input');
+      if (!input || document.querySelector('.workspace-skeleton')) return;
+      input.scrollIntoView({ block: 'center', behavior: 'instant' });
+      input.focus({ preventScroll: true });
+      focusedSearch.current = searchFocusKey;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [portal, view, loadedView, loading, searchFocusKey]);
   const refresh = () => setRevision(v => v + 1);
   useEffect(() => { setQuery(''); setFilter('all'); setSelected(null); setSuccess(''); }, [view]);
   useEffect(() => {
@@ -116,7 +129,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       }
       const failure = dataResult.status === 'rejected' ? dataResult.reason : catalogResult.status === 'rejected' ? catalogResult.reason : null;
       if (failure) setError(failure instanceof Error ? failure.message : 'تعذر تحميل بعض البيانات. حاول مجدداً.');
-    }).finally(() => { if (alive) setLoading(false); });
+    }).finally(() => { if (alive) { setLoadedView(view); setLoading(false); } });
     return () => { alive = false; };
   }, [portal, view, revision]);
   useEffect(() => {
@@ -290,17 +303,19 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {error && <p className="notice error" role="alert">{error}</p>}{success && <p className="notice success" role="status">{success}</p>}
     {loading ? <WorkspaceSkeleton /> : <>
       {view === 'home' && <section className="student-home">
-        <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={new Set(openSlots.map(slot => slot.teacher_id)).size} onView={onView} />
-        <div className="student-hero" id="learning-path"><div><span className="section-kicker">مسارك القادم</span><h2>ماذا سنتعلّم اليوم؟</h2></div>{studentSearch}</div>
+        <div className="welcome-heading student-welcome"><div><span className="overview-kicker">مساحتك التعليمية</span><h2>أهلاً، {user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>ماذا تريد أن تتعلّم اليوم؟</p></div><button className="secondary-button" onClick={() => onView('rooms')}><Video size={18} />غرف حصصي<ChevronLeft size={16} /></button></div>
+        <div className="student-home-grid"><div className="discovery-workspace">
+        <div className="student-hero" id="learning-path"><div><span className="section-kicker">اكتشف مجالك</span><h2>ابدأ بما يهمّك</h2></div>{studentSearch}</div>
         {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon]) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span><CategoryIcon value={icon} /></span><strong>{title}</strong><p>{desc}</p><ChevronLeft size={18} /></button>)}</div>}
         {studentStep !== 'categories' && <div className="student-flow"><div className="discovery-path"><button className="text-button back-to-categories" onClick={() => { setStudentStep('categories'); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}><ArrowRight size={16} />العودة للتصنيفات</button><ChevronLeft size={15} /><button className="text-button" onClick={() => { setStudentStep(levels.length ? 'levels' : subjects.length ? 'subjects' : 'tutors'); setStudentLevel(''); setStudentSubject(''); }}>{studentCategory}</button>{studentLevel && <><ChevronLeft size={15} /><button className="text-button" onClick={() => { setStudentStep('subjects'); setStudentSubject(''); }}>{studentLevel}</button></>}{studentSubject && <><ChevronLeft size={15} /><span>{studentSubject}</span></>}</div><h3>{studentStep === 'levels' ? 'اختر مستواك الدراسي' : studentStep === 'subjects' ? 'اختر المادة' : 'موعدك مع التعلّم'}</h3>{studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{level}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'subjects' && <div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentStep('tutors'); }} key={subject}>{subject}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'tutors' && <TutorList slots={subjectSlots} busy={busy} bookSlot={bookSlot} />}</div>}
         <section className="available-tutors"><div className="section-heading"><div><span className="section-kicker">وقت مناسب، وأستاذ مناسب</span><h3>مواعيد متاحة للحجز</h3></div><button className="text-button" onClick={() => { setStudentStep('tutors'); setStudentSubject(''); setStudentCategory(''); setStudentLevel(''); setCategoryId(''); }}>عرض الكل<ChevronLeft size={16} /></button></div><TutorList slots={openSlots.slice(0, 6)} busy={busy} bookSlot={bookSlot} compact /></section>
+        </div><aside className="study-rail" aria-label="حصصك وجدولك"><WorkspaceOverview compact user={user} portal={portal} bookings={bookings} availableCount={new Set(openSlots.map(slot => slot.teacher_id)).size} onView={onView} /></aside></div>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} />}
       {view === 'tutors' && <section className="student-page"><h2>أساتذتي</h2>{!myTutors.length && <Empty text="لم تحجز مع أي أستاذ بعد." />}<div className="student-list">{myTutors.map(b => <article className="saved-tutor" key={b.teacher_id}><div className="avatar"><UserRound size={24} /></div><div><strong>{b.teacher_name}</strong><p>{b.subject} · آخر حصة {date(b.start)}</p></div><button className="primary-button" onClick={() => onView('home')}>احجز مجدداً</button></article>)}</div></section>}
       {view === 'wallet' && <section className="student-page wallet-page"><div className="wallet-hero"><CreditCard size={30} /><span>المحفظة</span><strong>قريباً في منصّة</strong><p>إضافة الرصيد والدفع الإلكتروني غير متاحين حالياً. يمكنك متابعة حجوزاتك كالمعتاد.</p></div><TransactionList bookings={bookings} /></section>}
       {view === 'history' && <section className="student-page"><h2>السجل</h2><div className="history-tabs">{[['all', 'الكل'], ['confirmed', 'القادمة'], ['completed', 'المكتملة'], ['cancelled', 'الملغاة']].map(([id, label]) => <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}</div>{!shownBookings.length && <Empty text="لا توجد حصص في هذا القسم." />}<div className="history-list">{shownBookings.map(b => <article key={b.id}><BookOpen size={20} /><div><strong>{b.subject}</strong><p>{b.teacher_name} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل</button></article>)}</div></section>}
-      {view === 'profile' && <section className="student-page account-page"><h2>حسابي</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>المعلومات الشخصية</h3><label>الاسم الكامل<input name="name" defaultValue={user.name} required /></label><label>البريد الإلكتروني<input value={user.email} readOnly dir="ltr" /></label><label>المرحلة الدراسية<input placeholder="مثال: توجيهي" disabled /></label><input type="hidden" name="subject" value="" /><input type="hidden" name="bio" value="" /><button className="primary-button" disabled={busy}><Save size={17} />حفظ</button></form><div className="account-settings"><button disabled>الإشعارات غير متاحة</button><button disabled>طرق الدفع غير متاحة</button><button disabled>الخصوصية والأمان قريباً</button><button disabled>المساعدة والدعم قريباً</button></div></div></section>}
+      {view === 'profile' && <section className="student-page account-page"><h2>حسابي</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>المعلومات الشخصية</h3><label>الاسم الكامل<input name="name" defaultValue={user.name} required /></label><label>البريد الإلكتروني<input value={user.email} readOnly dir="ltr" /></label><input type="hidden" name="subject" value="" /><input type="hidden" name="bio" value="" /><button className="primary-button" disabled={busy}><Save size={17} />حفظ</button></form><aside className="account-facts"><h3>تفاصيل الحساب</h3><dl><div><dt>نوع الحساب</dt><dd>طالب</dd></div><div><dt>حالة الحساب</dt><dd><span className={`badge ${user.status}`}>{statusNames[user.status]}</span></dd></div><div><dt>تنبيهات الحصص</dt><dd><label className="preference-toggle"><input type="checkbox" aria-label="تنبيهات الحصص" checked={reminders.enabled} onChange={reminders.toggle} />{reminders.enabled ? 'مفعّلة' : 'غير مفعّلة'}</label></dd></div></dl></aside></div></section>}
     </>}
     {currentSlot && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelectedSlot(null)} className="detail-dialog"><div className="section-heading"><h2>{currentSlot.subject}</h2><button className="icon-button" title="إغلاق التفاصيل" onClick={() => setSelectedSlot(null)}><X size={20} /></button></div><p>{date(currentSlot.start)}</p><p>{currentSlot.minutes} دقيقة · {money(currentSlot.price)}</p><span className={`badge ${currentSlot.status}`}>{statusNames[currentSlot.status]}</span><div className="row-actions">{currentSlot.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm('حذف هذا الموعد؟')) void act(() => post(`slots/${currentSlot.id}`), 'تم حذف الموعد.'); setSelectedSlot(null); }}><X size={17} />حذف الموعد</button>}</div></dialog>}
   </div></>;
@@ -348,7 +363,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       {view === 'bookings' && <>
         <div className="metric-band"><div><span>الحصص المؤكدة</span><strong>{bookings.filter(b => b.status === 'confirmed').length}</strong></div><div><span>الحصص المكتملة</span><strong>{bookings.filter(b => b.status === 'completed').length}</strong></div><div><span>الدفعات المسجلة</span><strong>{money(bookings.filter(b => b.paid).reduce((sum, b) => sum + b.price, 0))}</strong></div></div>
         {!shownBookings.length && <Empty text={query || filter !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا توجد حجوزات حتى الآن.'} />}
-        <div className="booking-list">{shownBookings.map(b => <article className="booking-row" key={b.id}><div><h2>{b.subject}</h2><p>{b.teacher_name} · {b.student_name}</p><time>{date(b.start)} · {b.minutes} دقيقة</time></div><div className="booking-state"><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><strong>{money(b.price)}</strong><small>{b.paid ? 'دفعة مسجلة' : 'غير مدفوع'}</small>{b.status === 'cancelled' && b.paid === 1 && <small className="refund-note">يلزم مراجعة الاسترداد</small>}</div><div className="row-actions"><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل</button></div></article>)}</div>
+        {!!shownBookings.length && <div className="booking-table-heading" aria-hidden="true"><span>الحصة والمشاركون <small>{shownBookings.length}</small></span><span>الحالة والمبلغ</span><span>الإجراءات</span></div>}
+        <div className="booking-list">{shownBookings.map(b => <article className="booking-row" key={b.id}><div className="booking-title"><span className="booking-date-mark" aria-hidden="true"><strong>{new Date(b.start).toLocaleDateString('ar-JO', { day: 'numeric' })}</strong><small>{new Date(b.start).toLocaleDateString('ar-JO', { month: 'short' })}</small></span><div><h2>{b.subject}</h2><p>{b.teacher_name} · {b.student_name}</p><time>{date(b.start)} · {b.minutes} دقيقة</time></div></div><div className="booking-state"><span className={`badge ${b.status}`}>{statusNames[b.status]}</span><strong>{money(b.price)}</strong><small>{b.paid ? 'دفعة مسجلة' : 'غير مدفوع'}</small>{b.status === 'cancelled' && b.paid === 1 && <small className="refund-note">يلزم مراجعة الاسترداد</small>}</div><div className="row-actions"><button className="secondary-button" onClick={() => setSelected(b.id)}>التفاصيل<ChevronLeft size={16} /></button></div></article>)}</div>
       </>}
       {view === 'slots' && <>
         {false && <form className="work-form slot-form" onSubmit={async e => {
@@ -389,7 +405,7 @@ function RoomHub({ portal, bookings, now, filter, onFilter, busy, canJoin, onJoi
     return `${hours ? `${String(hours).padStart(2, '0')}:` : ''}${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
   };
   return <section className="rooms-hub student-page">
-    <div className="rooms-hero"><div><span className="rooms-kicker"><Video size={17} />مساحتك المنظمة للحصص</span><h2>غرف الحصص</h2><p>كل حصة في مكانها، مع حالة مباشرة وعدّ تنازلي واضح قبل البداية.</p></div><div className="rooms-live-summary"><strong>{bookings.filter(booking => booking.status === 'confirmed' && Number(portal === 'students' ? booking.teacher_present_until : booking.student_present_until) > now).length}</strong><span>{portal === 'students' ? 'أساتذة داخل الغرفة الآن' : 'طلاب بانتظارك الآن'}</span></div></div>
+    <div className="rooms-hero"><div><span className="rooms-kicker"><Video size={17} />حصصك المباشرة</span><h2>غرف الحصص</h2><p>{bookings.filter(booking => booking.status === 'confirmed').length} حصص مؤكدة · {new Date(now).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' })}</p></div><div className="rooms-live-summary"><strong>{bookings.filter(booking => booking.status === 'confirmed' && Number(portal === 'students' ? booking.teacher_present_until : booking.student_present_until) > now).length}</strong><span>{portal === 'students' ? 'أساتذة داخل الغرفة الآن' : 'طلاب بانتظارك الآن'}</span></div></div>
     <div className="room-filters" role="tablist" aria-label="فلترة غرف الحصص">{filters.map(([id, label]) => <button type="button" role="tab" aria-selected={filter === id} className={filter === id ? 'active' : ''} onClick={() => onFilter(id)} key={id}>{label}</button>)}</div>
     {!visible.length && <Empty text="لا توجد حصص ضمن هذه الفترة." />}
     <div className="room-list">{visible.map(booking => {

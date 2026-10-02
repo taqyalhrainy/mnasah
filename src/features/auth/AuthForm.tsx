@@ -38,6 +38,6 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
       </section>
       <footer className="auth-footer"><ShieldCheck size={15} /><span>مساحتك الخاصة للتعلّم</span><span dir="ltr">Mansah © {new Date().getFullYear()}</span></footer>
     </div>
-    <aside className="auth-visual" aria-label="مساحة تعلم"><img src={`${base}images/study-workspace.jpg`} alt="طالب يكتب ملاحظاته أثناء الدراسة" fetchPriority="low" /><div className="auth-visual-caption"><span>التعلّم يبدأ بخطوة.</span><strong>خطوتك القادمة<br />تبدأ هنا.</strong><div><span>Mansah</span><span>منصّة تعليم خصوصي</span></div></div></aside>
+    <aside className="auth-visual" aria-label="مساحة تعلم"><img src={`${base}images/study-workspace.jpg`} alt="طالب يكتب ملاحظاته أثناء الدراسة" fetchPriority="low" /><div className="auth-visual-caption"><span>منصّة تعليم خصوصي</span><strong>Mansah</strong><p>مساحتك للتعلّم، والنمو.</p><div><span>منصّة</span><span>كل خطوة تصنع فرقاً.</span></div></div></aside>
   </main>;
 }

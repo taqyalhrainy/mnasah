@@ -28,7 +28,7 @@ const mutations = [];
 
 async function makePage(role, loggedIn = true) {
   const user = role === 'students' ? student : role === 'teachers' ? teacher : owner;
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block', permissions: ['notifications'] });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/**', async route => {
@@ -54,6 +54,10 @@ async function makePage(role, loggedIn = true) {
 }
 
 async function checkLayout(page, label) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const problems = await page.evaluate(() => {
     const issues = [];
     if (document.documentElement.scrollWidth > innerWidth + 1) issues.push(`page width ${document.documentElement.scrollWidth} > ${innerWidth}`);
@@ -65,6 +69,7 @@ async function checkLayout(page, label) {
     }
     return issues;
   });
+  if (problems.length) await page.screenshot({ path: '.private/interface-layout-failure.png', fullPage: true });
   assert.deepEqual(problems, [], label);
 }
 
@@ -91,7 +96,14 @@ try {
       }
     }
     if (role === 'students') {
-      await page.locator('.nav-list').getByRole('button', { name: 'الرئيسية', exact: true }).click();
+      const reminders = page.getByRole('checkbox', { name: 'تنبيهات الحصص', exact: true });
+      assert.equal(await reminders.isChecked(), false);
+      await reminders.click();
+      await page.waitForFunction(() => document.querySelector('.preference-toggle input')?.checked);
+      await reminders.uncheck();
+      assert.equal(await reminders.isChecked(), false);
+      await page.getByTitle('البحث عن مادة أو أستاذ').click();
+      await page.waitForFunction(() => document.activeElement?.matches('.student-search input'));
       await page.getByTitle('عرض أيام الأسبوع').click();
       assert.equal(await page.locator('.agenda-days').isVisible(), true);
       await page.getByTitle('طي أيام الأسبوع').click();
@@ -112,10 +124,16 @@ try {
       await page.getByTitle('إغلاق التفاصيل').click();
     }
     if (role === 'teachers') {
+      await page.getByTitle('إضافة موعد متاح').click();
+      await page.locator('.availability-planner').waitFor();
       await page.locator('.nav-list').getByRole('button', { name: 'المحجوزة', exact: true }).click();
       await page.getByRole('button', { name: 'التفاصيل', exact: true }).first().click();
       await page.getByRole('dialog').waitFor();
       await page.getByTitle('إغلاق التفاصيل').click();
+    }
+    if (role === 'admin') {
+      await page.getByTitle('إدارة الحسابات').click();
+      await page.locator('.accounts-panel').waitFor();
     }
     await context.close();
   }
