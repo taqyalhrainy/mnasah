@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, History, Clock3, Video } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, History, Clock3, Video, ChevronDown, ArrowLeft } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { PortalWorkspace } from '../features/portal/PortalWorkspace';
-import { VideoTestPage } from '../features/video/VideoTestPage';
 import { request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
+const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 
 function currentPortal(): Portal {
   const part = routePath().split('/')[1];
@@ -20,7 +20,7 @@ function routePath() {
   return basePath && path.startsWith(`${basePath}/`) ? path.slice(basePath.length) : path;
 }
 export function App() {
-  if (routePath() === '/video-test') return <VideoTestPage />;
+  if (routePath() === '/video-test') return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><VideoTestPage /></Suspense>;
   return <PortalApp />;
 }
 
@@ -32,9 +32,9 @@ function WakeLoading({ slow, attempt }: { slow: boolean; attempt: number }) {
       <img src={assetUrl('icon.svg')} width="56" height="56" alt="" />
       <div className="wake-spinner" aria-hidden="true" />
       <p className="wake-kicker">Mansah</p>
-      <h1>{slow ? 'السيرفر يستيقظ الآن' : 'جارٍ تحميل منصتك'}</h1>
-      <p>{slow ? 'Waiting a few moments...' : 'نجهز حسابك والبيانات الخاصة بك.'}</p>
-      {attempt > 0 && <small>محاولة الاتصال رقم {attempt + 1}</small>}
+      <h1>{slow ? 'لحظات ونكون معك' : 'جارٍ تحميل منصتك'}</h1>
+      <p>{slow ? 'Please wait a few moments...' : 'نجهز حسابك والبيانات الخاصة بك.'}</p>
+      {attempt > 0 && <small>قد يستغرق التحميل لحظات إضافية.</small>}
     </div>
   </main>;
 }
@@ -49,6 +49,7 @@ function PortalApp() {
   const [view, setView] = useState(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings');
   const [roomLive, setRoomLive] = useState(false);
   const [retry, setRetry] = useState(0);
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [view]);
   useEffect(() => {
     const pop = () => { const next = currentPortal(); setPortal(next); setView(next === 'students' || next === 'teachers' ? 'home' : 'bookings'); setRoomLive(false); };
     addEventListener('popstate', pop); return () => removeEventListener('popstate', pop);
@@ -99,14 +100,17 @@ function PortalApp() {
       ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: 'مواعيدي المتاحة', icon: Search }]),
       { id: 'catalog', label: 'التصنيفات والمواد', icon: ClipboardList },
       { id: 'profile', label: 'حسابي', icon: Settings }];
-  return <main className={`app-shell business-shell ${portal !== 'admin' ? 'learning-shell' : ''}`} dir="rtl">
-    <aside className="sidebar"><div className="brand"><img src={assetUrl('icon.svg')} width="40" height="40" alt="" /><div><strong>Mansah</strong><span>{portalNames[portal]}</span></div></div>
-      <nav className="nav-list">{nav.map(({ id, label, icon: Icon }) => <button key={id} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={18} /><span>{label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}</button>)}</nav>
-      <div className="sidebar-footer"><a href={assetUrl('downloads/mansah.apk')} className="nav-button"><Download size={18} />تطبيق أندرويد</a><button className="nav-button" onClick={logout}><LogOut size={18} />تسجيل الخروج</button></div>
+  return <main className={`app-shell business-shell redesigned-shell portal-${portal} ${portal !== 'admin' ? 'learning-shell' : ''}`} dir="rtl">
+    <a className="skip-link" href="#main-content">انتقل إلى المحتوى</a>
+    <aside className="sidebar"><div className="brand"><img src={assetUrl('icon.svg')} width="42" height="42" alt="" /><div><strong>Mansah</strong><span>{portalNames[portal]}</span></div></div>
+      <span className="nav-section-label">مساحتك</span>
+      <nav className="nav-list" aria-label="التنقل الرئيسي">{nav.map(({ id, label, icon: Icon }) => <button key={id} title={label} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={20} strokeWidth={1.8} /><span>{label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}</button>)}</nav>
+      <div className="sidebar-footer"><a href={assetUrl('downloads/mansah.apk')} className="nav-button" title="تطبيق أندرويد"><Download size={19} /><span>تطبيق أندرويد</span><ArrowLeft size={15} /></a><button className="nav-button" onClick={logout} title="تسجيل الخروج"><LogOut size={19} /><span>تسجيل الخروج</span></button><button className="sidebar-profile" onClick={() => setView('profile')} title="حسابي"><span className="account-avatar">{user.name.trim().charAt(0)}</span><span><strong>{user.name}</strong><small>{portal === 'students' ? 'طالب' : portal === 'teachers' ? 'أستاذ' : 'مدير المنصّة'}</small></span><Settings size={17} /></button></div>
     </aside>
-    <section className="workspace"><header className="topbar"><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div><details className="account-menu"><summary><span className="account-avatar">{user.name.trim().charAt(0)}</span><span className="account-name">{user.name}</span></summary><div><button onClick={() => setView('profile')}><Settings size={16} />حسابي</button><a href={assetUrl('downloads/mansah.apk')}><Download size={16} />تطبيق أندرويد</a><button onClick={logout}><LogOut size={16} />تسجيل الخروج</button></div></details></header>
+    <section className="workspace"><header className="topbar"><div className="topbar-location"><img className="mobile-brand" src={assetUrl('icon.svg')} width="34" height="34" alt="Mansah" /><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div><div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' })}</time><details className="account-menu"><summary><span className="account-avatar">{user.name.trim().charAt(0)}</span><span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={() => setView('profile')}><Settings size={16} />حسابي</button><a href={assetUrl('downloads/mansah.apk')}><Download size={16} />تطبيق أندرويد</a><button onClick={logout}><LogOut size={16} />تسجيل الخروج</button></div></details></div></header>
+      <div className="workspace-content" id="main-content" tabIndex={-1}>
       {error && <p className="notice error" role="alert">{error}</p>}
       {user.status === 'suspended' ? <p className="notice error">حسابك موقوف. راجع الإدارة.</p> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><h2>طلبك قيد المراجعة</h2><p>ستظهر المواعيد والحصص بعد موافقة الإدارة على حسابك.</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>تحديث حالة الطلب</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} onRoomLiveChange={setRoomLive} />}
-    </section>
+      </div></section>
   </main>;
 }

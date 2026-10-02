@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mansah-shell-v2';
+const CACHE_NAME = 'mansah-shell-v3';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'icon.svg', 'manifest.webmanifest'].map(shellUrl);
@@ -40,7 +40,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.origin === self.location.origin && (url.pathname.includes('/assets/') || /\.(?:js|css|svg|png|webp|ico|webmanifest)$/.test(url.pathname))) {
+  if (url.origin === self.location.origin && (url.pathname.includes('/assets/') || /\.(?:js|css|svg|png|jpg|webp|woff2|ico|webmanifest)$/.test(url.pathname))) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(request);

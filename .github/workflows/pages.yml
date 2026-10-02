@@ -34,6 +34,7 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: "true"
+          VITE_API_URL: "https://mnasah.onrender.com"
 
       - name: Add SPA fallback
         run: cp dist/client/index.html dist/client/404.html

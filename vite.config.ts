@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: process.env.GITHUB_PAGES ? '/mnasah/' : '/',
   plugins: [react()],
+  resolve: { dedupe: ['react', 'react-dom'] },
   build: { outDir: 'dist/client' },
   server: {
     port: 5173,
