@@ -1,0 +1,131 @@
+/* Optional color layer. Remove its import to restore the original appearance. */
+:root {
+  color-scheme: dark;
+  --ink: #f2edf8;
+  --muted: #b6a9c8;
+  --line: #43364f;
+  --canvas: #20172c;
+  --brand: #c4a1ed;
+  --brand-dark: #b38bdd;
+  --yellow: #e8cd78;
+  --lime: #e8cd78;
+  --blue: #c4a1ed;
+  --mint: #34253f;
+  --dm-surface: #20192c;
+  --dm-inbox: #251d32;
+  --dm-input: #30243e;
+  --dm-header: #221b2e;
+  --dm-hover: #35273f;
+  --dm-selected: #403051;
+  --dm-selected-line: #7c5b9f;
+  --dm-avatar: #463153;
+  --dm-bubble: #30263f;
+  --dm-bubble-line: #463751;
+  --dm-mine: #49365f;
+  --dm-mine-line: #62487d;
+  --dm-seen: #e8cd78;
+  --dm-welcome-glow: #7f4ca42b;
+  background: var(--canvas);
+  color: var(--ink);
+}
+body { background: var(--canvas); color: var(--ink); }
+::selection { color: #251d16; background: #e8cd78; }
+.redesigned-shell {
+  --ink: #f2edf8; --muted: #b6a9c8; --line: #43364f;
+  --brand: #c4a1ed; --brand-strong: #b38bdd;
+  color: var(--ink);
+  background: radial-gradient(ellipse at 95% 10%,#62427b1c,transparent 45%),#20172c;
+}
+.redesigned-shell .sidebar { background: #131017; border-color: #3d2c49; }
+.redesigned-shell .brand strong .brand-dot,.brand-dot { color: var(--yellow); }
+.redesigned-shell .sidebar .nav-button { color: #b6a9c8; }
+.redesigned-shell .sidebar .nav-button:hover { background: #2c2137; color: var(--ink); }
+.redesigned-shell .sidebar .nav-button.active { background: #382746; color: #f4eaff; }
+.redesigned-shell .sidebar-footer .icon-button { color: #b6a9c8; background: transparent; }
+.redesigned-shell .topbar { background: transparent; }
+.brand-monogram,.brand .brand-monogram { background: #131017; }
+.redesigned-shell .primary-button { background: var(--brand); border-color: var(--brand); color: #24152d; }
+.redesigned-shell .primary-button:hover:not(:disabled) { background: #d1b1f5; border-color: #d1b1f5; }
+.redesigned-shell .secondary-button { background: #2c2137; border-color: #584365; color: var(--ink); }
+.redesigned-shell .secondary-button:hover:not(:disabled) { background: #3a2a49; border-color: #8a67a5; }
+.redesigned-shell .icon-button { background: #2c2137; border-color: var(--line); color: var(--muted); }
+.redesigned-shell .icon-button:hover:not(:disabled) { background: #3a2a49; color: var(--ink); }
+.redesigned-shell .quick-action { background: #2c2137; }
+.account-avatar { background: #463056; color: #e5cafc; }
+.account-menu > div { background: #241a2f; color: var(--ink); border-color: var(--line); }
+.account-menu button,.account-menu a { color: var(--ink); }
+.account-menu button:hover,.account-menu a:hover { background: #392645; }
+.greeting-dot { color: var(--yellow); }
+.metric-icon,.metric-1 .metric-icon,.metric-2 .metric-icon { background: #392847; color: #ddc0fa; }
+.metric-1 .metric-icon { background: #38302a; color: var(--yellow); }
+.next-lesson { background: #e8cd78; color: #211b16; }
+.redesigned-shell .next-lesson h3,.next-lesson-mark { color: #211b16; }
+.next-lesson > .primary-button { background: #19131e; border-color: #19131e; color: #f4eaff; }
+.next-lesson > .primary-button:hover { background: #33213f; border-color: #33213f; }
+.agenda-day.today { color: #f4eaff; background: #4a325f; }
+.student-search,.search-field { border-color: var(--line); background: #2b2036; color: var(--muted); }
+.redesigned-shell .student-search input,.redesigned-shell .search-field input { color: var(--ink); }
+.student-search:focus-within,.search-field:focus-within { background: #332540; border-color: #b98cde; box-shadow: 0 0 0 3px #b98cde16; }
+.category-card { border-color: var(--line); background: #2a1f35; color: var(--ink); }
+.category-card:hover { background: #33243f; border-color: #a77cc6; }
+.category-card > .category-icon { background: #543763; color: #e5cafa; }
+.category-card:nth-child(3n+2) > .category-icon { background: #453a25; color: #e8cd78; }
+.category-card:nth-child(3n) > .category-icon { background: #34283f; color: #c4a1ed; }
+.category-copy > .category-number,.category-card > svg { color: #af96c2; }
+.tutor-photo,.avatar,.tutor-card:nth-child(3n+2) .tutor-photo,.tutor-card:nth-child(3n) .tutor-photo { background: #4b305a; color: #e3c4fa; }
+.tutor-actions b,.history-list article > b,.transaction-list article > b,.booking-state strong { color: var(--ink); }
+.choice-grid button { border-color: var(--line); background: #2a1f35; color: var(--ink); }
+.choice-grid button:hover { border-color: #a77cc6; background: #33243f; }
+.redesigned-shell .work-form,.redesigned-shell .teaching-category-card,.redesigned-shell .account-facts,.redesigned-shell .account-settings,.redesigned-shell .slot-detail-card,.redesigned-shell .slot-item,.redesigned-shell .profile-layout > aside { background: #2a1f35; border-color: var(--line); color: var(--ink); }
+.redesigned-shell .work-form label { color: #d2c0e2; }
+.redesigned-shell .work-form input,.redesigned-shell .work-form select,.redesigned-shell .work-form textarea,.redesigned-shell .lesson-messages textarea,.redesigned-shell .list-toolbar select { background: #241a2f; border-color: #5c476c; color: var(--ink); }
+.redesigned-shell input:read-only { color: var(--muted); background: #281e33; }
+.redesigned-shell input[type=checkbox] { accent-color: #bf9fe8; }
+.teaching-category-card > summary > span,.teaching-category-card:nth-child(3n) > summary > span { background: #4d325c; color: #ddbbf7; }
+.teaching-category-card:nth-child(3n+2) > summary > span { background: #463b27; color: #e8cd78; }
+.teaching-level-option.all-levels,.selected-teaching span { background: #453251; color: #e8d4fa; }
+.availability-days button,.earnings-week article { background: #2a1f35; color: var(--ink); border-color: var(--line); }
+.availability-days button.selected { background: #49315a; border-color: #8860a5; color: #f4eaff; }
+.availability-composer { background: #2a1f35; border-color: var(--line); }
+.availability-mode { background: #20172b; border-color: var(--line); }
+.availability-mode button { color: #bba5cb; }.availability-mode button.selected { color: #f2edf8; background: #49315a; }
+.week-board .available { background: #463251; color: #e3c4fa; }.week-board .booked { background: #393b29; color: #e8cd78; }
+.account-settings button:hover:not(:disabled),.history-tabs button:hover:not(:disabled),.account-tabs button:hover { background: #37263f; }
+.wallet-hero,.learning-shell .wallet-hero { background: #35253f; color: var(--ink); }
+.wallet-hero span,.learning-shell .wallet-hero span,.wallet-hero p,.learning-shell .wallet-hero p { color: var(--muted); }
+.history-list .next-booking { background: #3b3129; }
+.booking-row:hover,.user-row:hover { background: #2a1f35; }
+.booking-table-heading { background: #2b2036; color: var(--muted); }
+.booking-date-mark { background: #423824; color: #e8cd78; }
+.redesigned-shell .badge.confirmed,.redesigned-shell .badge.active,.redesigned-shell .badge.open { background: #263d35; color: #a4debb; }
+.redesigned-shell .badge.completed,.redesigned-shell .badge.booked { background: #453252; color: #dac0f3; }
+.redesigned-shell .badge.pending { background: #423824; color: #e8cd78; }
+.redesigned-shell .badge.cancelled,.redesigned-shell .badge.suspended { background: #482b37; color: #edb0bf; }
+.redesigned-shell .empty-state { background: #2a1f35; border-color: #685078; color: var(--muted); }
+.redesigned-shell .empty-state svg { color: #c4a1ed; }
+.redesigned-shell .detail-dialog { background: #281c33; color: var(--ink); border-color: var(--line); }
+.redesigned-shell .lesson-messages > div,.redesigned-shell .lesson-messages article { background: #34253f; color: var(--ink); }
+.room-card { background: #2a1f35; border-color: var(--line); }.room-card.is-live { border-color: #8f6cab; box-shadow: inset 4px 0 #c4a1ed; }
+.room-card-date,.room-countdown { background: #3a2a45; color: var(--ink); }
+.room-presence span { color: #c4b0d4; background: #36253f; }.room-presence span.online { color: #a4debb; background: #263d35; }
+.room-status { background: #36253f; color: #d7bcef; }.room-status.live { background: #423824; color: var(--yellow); }
+.redesigned-shell .notice,.redesigned-auth .notice { color: var(--ink); background: #36253f; border-color: #725085; }
+.redesigned-shell .notice.error,.redesigned-auth .notice.error { color: #f4bdc6; background: #452535; border-color: #805064; }
+.redesigned-shell .notice.success { color: #b4e4c6; background: #273d35; border-color: #4c7561; }
+.lesson-reminder { background: #423724; border-color: #8e783e; color: #e8cd78; }
+.workspace-skeleton > div,.skeleton-row > span { background: #34253f; }
+.redesigned-auth { color: var(--ink); background: #25172f; }
+.auth-visual { background: #25172f; }
+.auth-visual > img { opacity: .2; filter: grayscale(1); }
+.auth-visual::after { display: block; content: ''; position: absolute; inset: 0; background: linear-gradient(90deg,#25172fa8,#25172f 76%),linear-gradient(0deg,#25172f55,#4a2a6744); }
+.auth-masthead-portal { background: #352440; color: #d6bce8; border: 1px solid #574263; }
+.auth-portal-label { color: #e8cd78; }.auth-welcome,.auth-register { color: #c5afd5; }
+.auth-role-tabs { background: #261a31; border-color: #604675; }.auth-role-tabs a { color: #bda7ce; }.auth-role-tabs a[aria-current=page] { background: #49305c; color: #f4eaff; }
+.auth-input-wrap { background: #2e203a; border-color: #604675; color: #b89ec8; }
+.auth-input-wrap:focus-within { border-color: #c4a1ed; box-shadow: 0 0 0 3px #c4a1ed1a; }
+.redesigned-auth .auth-input-wrap input { color: var(--ink); }.auth-input-wrap input::placeholder { color: #9880aa; }
+.password-toggle { color: #bda7ce; }
+.redesigned-auth .auth-submit { color: #211c13; background: #e8cd78; border-color: #e8cd78; }.redesigned-auth .auth-submit:hover:not(:disabled) { background: #f0db99; border-color: #f0db99; }
+.redesigned-auth .auth-register .text-button { color: #e8cd78; }.auth-footer { color: #bda7ce; border-color: #574263; }
+.wake-page { background: #25172f; }.wake-card { background: #302039; border-color: #574263; color: var(--muted); }.wake-card h1 { color: var(--ink); }
+@media(max-width:768px) { .redesigned-auth { background: #25172f; }.auth-visual { display: block; }.auth-visual > img { opacity: .1; }.auth-visual::after { background: #25172fc9; } }

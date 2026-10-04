@@ -1,6 +1,8 @@
 import { all, one, run, statement, field, fail, auditEntry } from './db.js';
 import { getUser, publicUser, passwordHash, equal, random } from './auth.js';
 import { catalog } from './catalog.js';
+import { handleChat, ensureChat } from '../shared/chat.js';
+import { sqlChatStore } from './chat-store.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
@@ -34,6 +36,7 @@ export async function api(request, env, portal, path, body) {
     return { ok: true };
   }
   if (user.status !== 'active') fail(403, 'هذا الحساب بانتظار موافقة الإدارة.');
+  if (path.startsWith('chat/')) return (await handleChat({ store: sqlChatStore(env), user, path, write, body, query: Object.fromEntries(new URL(request.url).searchParams) })).data;
   if (path === 'reminders' && !write && user.role !== 'admin') {
     const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
     return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND s.start>=? AND s.start<=? ORDER BY s.start LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
@@ -144,6 +147,8 @@ export async function api(request, env, portal, path, body) {
     if (method === 'wallet') statements.push(statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_payment',?,?,? WHERE EXISTS (SELECT 1 FROM bookings WHERE id=?)", crypto.randomUUID(), user.id, -slot.price, bookingId, Date.now(), bookingId));
     const results = await env.DB.batch(statements);
     if (!results[0].meta.changes) fail(409, 'الموعد لم يعد متاحاً أو يتعارض مع حجز آخر.');
+    const teacher = await one(env, 'SELECT teacher_id FROM slots WHERE id=?', id);
+    await ensureChat(sqlChatStore(env), teacher.teacher_id, user.id);
     return { ok: true, id: bookingId };
   }
   const [category, id, action] = path.split('/');

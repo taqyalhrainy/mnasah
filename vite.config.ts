@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://127.0.0.1:8787' },
       '/socket.io': {
-        target: 'http://localhost:4000',
+        target: 'http://127.0.0.1:8787',
         ws: true,
       },
     },

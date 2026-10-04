@@ -111,6 +111,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return () => navigator.serviceWorker?.removeEventListener('message', open);
   }, [portal, onView]);
   useEffect(() => {
+    if (view === 'messages') return;
     let alive = true;
     setLoading(true); setError('');
     const path = portal === 'students' ? (view === 'home' ? 'slots' : view === 'profile' ? 'profile' : 'overview') : view === 'bookings' ? 'overview' : view;
@@ -274,8 +275,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     <section className="lesson-messages"><h3>مراسلات الحصة</h3>{messages.map(m => <article key={m.id}><strong>{m.name}</strong><small>{date(m.created)}</small><p>{m.body}</p></article>)}<form onSubmit={async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const form = e.currentTarget; const data = formData(form); if (await act(async () => { const result = await request<{ messages: Message[] }>(`${portal}/bookings/${current.id}/messages`, data); setMessages(result.messages); }, 'تم إرسال الرسالة.')) form.reset(); }}><label>رسالة جديدة<textarea name="body" maxLength={2000} rows={2} required /></label><button className="primary-button" disabled={busy || current.status === 'cancelled'}><Send size={17} />إرسال</button></form></section>
   </dialog>;
   const callNavigation = portal === 'students'
-    ? [{ id: 'home', label: 'الرئيسية' }, { id: 'rooms', label: 'الغرف' }, { id: 'tutors', label: 'أساتذتي' }, { id: 'wallet', label: 'المحفظة' }, { id: 'history', label: 'السجل' }, { id: 'profile', label: 'حسابي' }]
-    : [{ id: 'home', label: 'الرئيسية' }, { id: 'rooms', label: 'الغرف' }, { id: 'booked', label: 'المحجوزة' }, { id: 'available', label: 'المتاحة' }, { id: 'earnings', label: 'المستحقات' }, { id: 'profile', label: 'حسابي' }];
+    ? [{ id: 'home', label: 'الرئيسية' }, { id: 'rooms', label: 'الغرف' }, { id: 'messages', label: 'الرسائل' }, { id: 'tutors', label: 'أساتذتي' }, { id: 'wallet', label: 'المحفظة' }, { id: 'history', label: 'السجل' }, { id: 'profile', label: 'حسابي' }]
+    : [{ id: 'home', label: 'الرئيسية' }, { id: 'rooms', label: 'الغرف' }, { id: 'messages', label: 'الرسائل' }, { id: 'booked', label: 'المحجوزة' }, { id: 'available', label: 'المتاحة' }, { id: 'earnings', label: 'المستحقات' }, { id: 'profile', label: 'حسابي' }];
   const callLayer = room && <div className={callCompact ? 'floating-call-shell' : 'immersive-call-shell'} dir="rtl"><Suspense fallback={<div className="call-loading" role="status"><div className="wake-spinner" /><p>جارٍ تجهيز الغرفة…</p></div>}><VideoRoom
       key={room.id}
       assignedRole={room.role}
@@ -297,6 +298,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       }}
       onLeave={() => { setRoom(null); setCallCompact(false); refresh(); }}
     /></Suspense></div>;
+  if (view === 'messages') return <>{callLayer}</>;
   if (portal === 'students') return <>{callLayer}{lessonDetails}<div className="portal-content student-experience">
     <div className="reminder-settings"><button className="secondary-button" aria-pressed={reminders.enabled} onClick={reminders.toggle}>{reminders.enabled ? <Bell size={18} /> : <BellOff size={18} />}{reminders.enabled ? 'التنبيهات مفعّلة' : 'تفعيل تنبيهات الحصص'}</button>{reminders.hint && <small role="status">{reminders.hint}</small>}</div>
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{b.subject}</strong><p>{b.start > reminders.now ? `تبدأ خلال ${Math.ceil((b.start - reminders.now) / 60000)} دقيقة` : 'حان موعد الحصة'}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />فتح الغرف</button></div>)}

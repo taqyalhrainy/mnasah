@@ -1,0 +1,106 @@
+import { chromium } from '@playwright/test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { startPlatformServer } from '../server/index.js';
+import { memoryMongo } from './helpers/memory-mongo.mjs';
+
+const users = [
+  { id: 'teacher-ui', name: 'أحمد الخطيب', email: 'teacher@example.test', role: 'teachers', status: 'active', subject: 'رياضيات', bio: 'أستاذ رياضيات' },
+  { id: 'student-ui', name: 'سارة أحمد', email: 'student@example.test', role: 'students', status: 'active', subject: '', bio: '' },
+];
+const db = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(`${user.id}-token`).digest('hex'), expires: Date.now() + 3600000 })), slots: [{ id: 'slot-ui', teacher_id: users[0].id, start: Date.now() - 86400000, minutes: 60, price: 1000, subject: 'رياضيات', status: 'booked' }], bookings: [{ id: 'booking-ui', slot_id: 'slot-ui', student_id: users[1].id, status: 'completed', notes: '', resource: '', paid: 1, created: Date.now() - 86400000 }], catalog: [{ id: 'math', kind: 'category', name: 'رياضيات', levels: [], subjects: ['رياضيات'] }] });
+const { httpServer, io } = await startPlatformServer({ database: db, port: 0 });
+const base = `http://127.0.0.1:${httpServer.address().port}`;
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const contexts = []; const errors = [];
+async function pageFor(user) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' }); contexts.push(context);
+  await context.addCookies([{ name: `mansah_session_${user.role}`, value: `${user.id}-token`, url: base }]);
+  const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`${base}/${user.role}`);
+  await page.locator('.nav-list').getByRole('button', { name: 'الرسائل', exact: true }).click();
+  await page.getByRole('button', { name: `محادثة ${user.role === 'students' ? users[0].name : users[1].name}`, exact: true }).waitFor();
+  return page;
+}
+async function layout(page) {
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Page must not overflow horizontally');
+  const timeline = await page.locator('.dm-timeline').boundingBox();
+  const composer = await page.locator('.dm-composer').boundingBox();
+  assert.ok(timeline.height > 60 && composer.y >= timeline.y + timeline.height - 1, `Composer must be below a scrollable timeline: ${JSON.stringify({ timeline, composer, viewport: page.viewportSize() })}`);
+}
+try {
+  const student = await pageFor(users[1]); const teacher = await pageFor(users[0]);
+  await student.screenshot({ path: '.private/chat-inbox-desktop.png', fullPage: true });
+  await student.getByRole('button', { name: `محادثة ${users[0].name}`, exact: true }).click();
+  await teacher.getByRole('button', { name: `محادثة ${users[1].name}`, exact: true }).click();
+  await student.locator('.dm-conversation-header').waitFor();
+  await teacher.locator('.dm-conversation-header').waitFor();
+  await student.getByLabel('رسالتك', { exact: true }).fill('مرحباً أستاذ، عندي سؤال عن درس اليوم.');
+  await teacher.getByLabel('يكتب الآن', { exact: true }).waitFor({ timeout: 2200 });
+  await teacher.getByLabel('يكتب الآن', { exact: true }).waitFor({ state: 'hidden', timeout: 4000 });
+  const start = Date.now();
+  await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
+  await teacher.locator('.dm-message-content').getByText('مرحباً أستاذ، عندي سؤال عن درس اليوم.', { exact: true }).waitFor({ timeout: 2300 });
+  assert.ok(Date.now() - start < 2500, 'Delivery should use the realtime signal instead of waiting for the polling interval');
+  await student.getByText('تمت القراءة', { exact: true }).waitFor({ timeout: 2500 });
+  await teacher.getByRole('button', { name: 'تفاعل مع الرسالة', exact: true }).first().click();
+  await teacher.getByRole('button', { name: 'تفاعل ❤️', exact: true }).click();
+  await student.getByRole('button', { name: '❤️ 1', exact: true }).waitFor({ timeout: 2500 });
+  await teacher.getByRole('button', { name: 'رد على الرسالة', exact: true }).first().click();
+  await teacher.getByLabel('رسالتك', { exact: true }).fill('أهلاً سارة، ابعتي سؤالك 😊');
+  await teacher.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
+  await student.locator('.dm-reply-quote').waitFor({ timeout: 2500 });
+  await student.getByRole('button', { name: 'إيموجي', exact: true }).click();
+  await student.getByRole('button', { name: 'إضافة 💜', exact: true }).click();
+  assert.equal(await student.getByLabel('رسالتك', { exact: true }).inputValue(), '💜');
+  await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
+  await teacher.locator('.dm-message-content').getByText('💜', { exact: true }).waitFor();
+  await student.getByRole('button', { name: 'صور GIF', exact: true }).click();
+  await student.getByRole('button', { name: 'إرسال GIF رائع', exact: true }).click();
+  await teacher.locator('.dm-message .dm-gif').waitFor();
+  await teacher.getByRole('button', { name: 'إعدادات الرسائل', exact: true }).click();
+  await teacher.getByRole('checkbox', { name: /إظهار تمت القراءة/ }).uncheck();
+  await teacher.getByRole('checkbox', { name: /إظهار حالة الاتصال/ }).uncheck();
+  await student.getByText('الظهور مخفي', { exact: true }).waitFor({ timeout: 4500 });
+  assert.equal(await student.getByText('تمت القراءة', { exact: true }).count(), 0);
+  await teacher.getByRole('button', { name: 'إعدادات الرسائل', exact: true }).click();
+  await student.getByRole('button', { name: 'بحث في الرسائل', exact: true }).click();
+  await student.getByLabel('بحث داخل المحادثة').fill('مرحباً');
+  assert.equal(await student.locator('.dm-message').count(), 1);
+  await student.getByRole('button', { name: 'إغلاق البحث', exact: true }).click();
+  await layout(student);
+  await student.screenshot({ path: '.private/chat-conversation-desktop.png', fullPage: true });
+  for (const width of [1024, 768, 390, 320]) {
+    await student.setViewportSize({ width, height: width < 768 ? 844 : 1000 }); await layout(student);
+    if (width === 390) await student.screenshot({ path: '.private/chat-conversation-mobile.png', fullPage: true });
+  }
+  await student.getByRole('button', { name: 'العودة للمحادثات', exact: true }).click();
+  await student.screenshot({ path: '.private/chat-inbox-mobile.png', fullPage: true });
+  await student.getByRole('button', { name: `محادثة ${users[0].name}`, exact: true }).click();
+  await student.getByLabel('خيارات المحادثة').click();
+  await student.getByRole('button', { name: 'كتم المحادثة', exact: true }).click();
+  await student.getByRole('button', { name: 'حظر المراسلة', exact: true }).click();
+  await teacher.getByText('المراسلة غير متاحة حالياً.', { exact: true }).waitFor();
+  assert.equal(await teacher.getByLabel('رسالتك', { exact: true }).isDisabled(), true);
+  await student.getByRole('button', { name: 'إلغاء الحظر', exact: true }).click();
+  await teacher.getByLabel('رسالتك', { exact: true }).waitFor({ state: 'visible' });
+  await teacher.waitForFunction(() => !document.querySelector('.dm-composer textarea').disabled);
+  student.on('dialog', dialog => dialog.accept());
+  await student.getByRole('button', { name: 'حذف المحادثة عندي', exact: true }).click();
+  await student.getByText('تظهر محادثاتك تلقائياً بعد أول حجز.', { exact: true }).waitFor();
+  assert.ok(await teacher.locator('.dm-message').count() >= 4, 'Deletion must not clear the other participant history');
+  await student.getByRole('button', { name: 'المحادثات المحذوفة', exact: true }).click();
+  await student.getByRole('button', { name: `محادثة ${users[0].name}`, exact: true }).click();
+  await student.getByRole('button', { name: 'استعادة المحادثة', exact: true }).click();
+  assert.equal(await student.locator('.dm-message').count(), 0);
+  await student.reload();
+  await student.locator('.nav-list').getByRole('button', { name: 'الرسائل', exact: true }).click();
+  await student.getByRole('button', { name: `محادثة ${users[0].name}`, exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log('Chat browser checks passed: two authenticated participants, realtime delivery/typing/seen, privacy, reactions, replies, emoji/GIF, search, mute, block, personal deletion, persistence and desktop/mobile layout.');
+} catch (error) {
+  for (let index = 0; index < contexts.length; index++) for (const page of contexts[index].pages()) await page.screenshot({ path: `.private/chat-failure-${index}.png`, fullPage: true }).catch(() => {});
+  throw error;
+} finally {
+  await browser.close(); await new Promise(resolve => io.close(resolve)); httpServer.close();
+}

@@ -18,6 +18,8 @@ try {
     const path = url.pathname.replace('/api/', '');
     if (path.startsWith('auth/me')) return route.fulfill({ json: { user } });
     if (path === 'students/catalog') return route.fulfill({ json: { categories: [] } });
+    if (path === 'students/chat/threads') return route.fulfill({ json: { threads: [], settings: { readReceipts: true, showPresence: true, notifications: true, sounds: false } } });
+    if (path === 'students/chat/presence') return route.fulfill({ json: { ok: true } });
     if (path === 'students/slots') return route.fulfill({ json: { slots: [] } });
     if (path === 'students/rooms' || path === 'students/reminders' || path === 'students/overview') return route.fulfill({ json: { bookings: [booking] } });
     if (path === `students/bookings/${booking.id}/room`) return route.fulfill({ json: { room: 'browser-room-test', role: 'student' } });
@@ -67,6 +69,9 @@ try {
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('video')].some(video => video.srcObject === window.callStreamBeforeBrowsing)), true, 'browsing portal pages must preserve the active call stream');
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('call-active')), false);
   await page.screenshot({ path: '.private/call-browse-floating.png', fullPage: true });
+  await page.locator('.nav-list').getByRole('button', { name: 'الرسائل', exact: true }).click();
+  await page.locator('.dm-heading').waitFor();
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('video')].some(video => video.srcObject === window.callStreamBeforeBrowsing)), true, 'Opening the persistent inbox must preserve the active camera and microphone stream');
   await page.getByTitle('العودة إلى المكالمة الكاملة').click();
   await page.locator('.immersive-call-shell').waitFor();
 

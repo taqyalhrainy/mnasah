@@ -4,10 +4,19 @@ import express from 'express';
 import { MongoClient } from 'mongodb';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { Server } from 'socket.io';
+import { handleChat, ensureChat } from '../shared/chat.js';
+import { mongoChatStore } from './chat-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, { cors: { origin: CLIENT_ORIGIN_ALLOWED, credentials: true } });
+function CLIENT_ORIGIN_ALLOWED(origin, callback) {
+  callback(null, !origin || validChatOrigin(origin));
+}
 const PORT = Number(process.env.PORT || 8787);
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const MONGODB_DB = process.env.MONGODB_DB || 'mansah';
@@ -15,6 +24,16 @@ const MONGODB_USER = process.env.MONGODB_USER || '';
 const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || '';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
 const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-token';
+function validChatOrigin(origin, req) {
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    if (req && url.host === req.headers.host) return true;
+    return CLIENT_ORIGIN.split(',').map(value => value.trim()).includes(origin)
+      || origin === 'https://mnasah.onrender.com' || origin === 'https://taqyalhrainy.github.io'
+      || (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname));
+  } catch { return false; }
+}
 
 if (!MONGODB_URI) {
   console.warn('MONGODB_URI is not set. Add it to .env before using the backend with real data.');
@@ -54,6 +73,14 @@ async function connect() {
     db.collection('bookings').createIndex({ slot_id: 1 }),
     db.collection('bookings').createIndex({ student_id: 1 }),
     db.collection('messages').createIndex({ booking_id: 1, created: 1 }),
+    db.collection('conversations').createIndex({ id: 1 }, { unique: true }),
+    db.collection('conversations').createIndex({ teacher_id: 1, student_id: 1 }, { unique: true }),
+    db.collection('conversations').createIndex({ student_id: 1 }),
+    db.collection('chat_members').createIndex({ thread_id: 1, user_id: 1 }, { unique: true }),
+    db.collection('chat_settings').createIndex({ user_id: 1 }, { unique: true }),
+    db.collection('direct_messages').createIndex({ id: 1 }, { unique: true }),
+    db.collection('direct_messages').createIndex({ thread_id: 1, created: -1, id: -1 }),
+    db.collection('chat_reactions').createIndex({ message_id: 1, user_id: 1, emoji: 1 }, { unique: true }),
     db.collection('catalog').createIndex({ kind: 1, position: 1 }),
   ]);
   await seedCatalog();
@@ -99,6 +126,23 @@ async function getUser(req, role) {
   if (!session) return null;
   return database.collection('users').findOne({ id: session.user_id });
 }
+io.use(async (socket, next) => {
+  try {
+    if (!validChatOrigin(socket.handshake.headers.origin, socket.request)) return next(new Error('Unauthorized'));
+    const portal = socket.handshake.auth?.portal;
+    if (!['students', 'teachers'].includes(portal)) return next(new Error('Unauthorized'));
+    const user = await getUser(socket.request, portal);
+    if (!user || user.role !== portal || user.status !== 'active' || user.must_change_password) return next(new Error('Unauthorized'));
+    socket.data.userId = user.id;
+    next();
+  } catch { next(new Error('Unauthorized')); }
+});
+io.on('connection', socket => {
+  socket.join(`chat:${socket.data.userId}`);
+  // HTTP remains the authority for writes; sockets only signal clients to refresh.
+  const expiry = setTimeout(() => socket.disconnect(true), 3600000);
+  socket.on('disconnect', () => clearTimeout(expiry));
+});
 async function audit(actor, action, target) {
   await db.collection('audit').insertOne({ id: crypto.randomUUID(), actor, action, target, created: Date.now() });
 }
@@ -228,6 +272,15 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ ok: true });
     }
     if (user.status !== 'active') fail(403, 'هذا الحساب بانتظار موافقة الإدارة.');
+    if (path.startsWith('chat/')) {
+      if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
+      const result = await handleChat({ store: mongoChatStore(db), user, path, write, body, query: req.query });
+      for (const userId of result.notify) {
+        if (path.endsWith('/typing')) io.to(`chat:${userId}`).emit('chat:typing', { threadId: path.split('/')[2], authorId: user.id, active: body.active === true });
+        else io.to(`chat:${userId}`).emit('chat:changed', { threadId: path === 'chat/settings' ? null : result.threadId || path.split('/')[2] || null });
+      }
+      return res.json(result.data);
+    }
     if (path === 'catalog') return res.json(await handleCatalog(user, write, body));
     if (path === 'users' && user.role === 'admin' && !write) return res.json({ users: (await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray()).map(publicUser) });
     if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
@@ -290,6 +343,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const bookingId = crypto.randomUUID();
       await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, status: 'confirmed', room: random(), paid: 1, payment_ref: `sandbox-${random().slice(0, 10)}`, notes: '', resource: '', created: Date.now() });
       await db.collection('slots').updateOne({ id }, { $set: { status: 'booked' } });
+      await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
+      io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
       return res.json({ ok: true, id: bookingId });
     }
     const [category, id, action] = path.split('/');
@@ -373,10 +428,23 @@ app.use((error, _req, res, _next) => {
   res.status(error.status || 500).json({ error: error.status ? error.message : 'تعذر تنفيذ الطلب الآن. حاول مجدداً.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Mansah backend listening on http://127.0.0.1:${PORT}`);
-  console.log(`Backend language: JavaScript (Node.js + Express). Database: MongoDB.`);
-  connect().then(() => console.log('MongoDB connection warmed.')).catch(error => {
-    console.error('MongoDB warmup failed:', error.message);
-  });
-});
+export function startPlatformServer({ database, port = PORT } = {}) {
+  if (database) db = database;
+  return new Promise(resolve => httpServer.listen(port, () => {
+    console.log(`Mansah backend listening on port ${httpServer.address().port}`);
+    connect().then(() => console.log('MongoDB connection warmed.')).catch(error => {
+      console.error('MongoDB warmup failed:', error.message);
+    });
+    resolve({ app, httpServer, io });
+  }));
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void startPlatformServer();
+  const shutdown = () => {
+    io.close();
+    httpServer.close();
+    void client?.close();
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+}

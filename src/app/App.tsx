@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, History, Clock3, Video, ChevronDown } from 'lucide-react';
+import { Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, History, Clock3, Video, ChevronDown, MessageCircle } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { PortalWorkspace } from '../features/portal/PortalWorkspace';
 import { request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
+import { useDirectChat } from '../features/chat/useDirectChat';
+const DirectMessages = lazy(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
 const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 
 function currentPortal(): Portal {
@@ -50,6 +52,7 @@ function PortalApp() {
   const [roomLive, setRoomLive] = useState(false);
   const [retry, setRetry] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
+  const chat = useDirectChat(portal, user, view === 'messages', () => setView('messages'));
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [view]);
   useEffect(() => {
     const pop = () => { const next = currentPortal(); setPortal(next); setView(next === 'students' || next === 'teachers' ? 'home' : 'bookings'); setRoomLive(false); };
@@ -100,9 +103,9 @@ function PortalApp() {
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir="rtl"><h1>هذا القسم غير متاح لحسابك</h1><a className="primary-button" href={appUrl(user.role)}>العودة إلى قسمك</a><button className="text-button" onClick={logout}>تسجيل الخروج</button></main>;
   const nav = portal === 'students'
-    ? [{ id: 'home', label: 'الرئيسية', icon: Home }, { id: 'rooms', label: 'الغرف', icon: Video }, { id: 'tutors', label: 'أساتذتي', icon: Users }, { id: 'wallet', label: 'المحفظة', icon: Wallet }, { id: 'history', label: 'السجل', icon: History }, { id: 'profile', label: 'حسابي', icon: Settings }]
+    ? [{ id: 'home', label: 'الرئيسية', icon: Home }, { id: 'rooms', label: 'الغرف', icon: Video }, { id: 'messages', label: 'الرسائل', icon: MessageCircle }, { id: 'tutors', label: 'أساتذتي', icon: Users }, { id: 'wallet', label: 'المحفظة', icon: Wallet }, { id: 'history', label: 'السجل', icon: History }, { id: 'profile', label: 'حسابي', icon: Settings }]
     : portal === 'teachers'
-    ? [{ id: 'home', label: 'الرئيسية', icon: Home }, { id: 'rooms', label: 'الغرف', icon: Video }, { id: 'booked', label: 'المحجوزة', icon: CalendarDays }, { id: 'available', label: 'المتاحة', icon: Clock3 }, { id: 'earnings', label: 'المستحقات', icon: Wallet }, { id: 'profile', label: 'حسابي', icon: Settings }]
+    ? [{ id: 'home', label: 'الرئيسية', icon: Home }, { id: 'rooms', label: 'الغرف', icon: Video }, { id: 'messages', label: 'الرسائل', icon: MessageCircle }, { id: 'booked', label: 'المحجوزة', icon: CalendarDays }, { id: 'available', label: 'المتاحة', icon: Clock3 }, { id: 'earnings', label: 'المستحقات', icon: Wallet }, { id: 'profile', label: 'حسابي', icon: Settings }]
     : [{ id: 'bookings', label: 'الحصص والحجوزات', icon: CalendarDays },
       ...(portal === 'admin' ? [{ id: 'users', label: 'الحسابات', icon: Users }, { id: 'audit', label: 'سجل العمليات', icon: ClipboardList }] : [{ id: 'slots', label: 'مواعيدي المتاحة', icon: Search }]),
       { id: 'catalog', label: 'التصنيفات والمواد', icon: ClipboardList },
@@ -110,13 +113,14 @@ function PortalApp() {
   return <main className={`app-shell business-shell redesigned-shell portal-${portal} ${portal !== 'admin' ? 'learning-shell' : ''}`} dir="rtl">
     <a className="skip-link" href="#main-content">انتقل إلى المحتوى</a>
     <aside className="sidebar"><button className="brand" onClick={() => setView(portal === 'admin' ? 'bookings' : 'home')} title="Mansah"><img className="brand-monogram" src={assetUrl('icon.svg')} width="38" height="38" alt="" /><div><strong>Mansah<span className="brand-dot">.</span></strong><span>{portalNames[portal]}</span></div></button>
-      <nav className="nav-list" aria-label="التنقل الرئيسي">{nav.map(({ id, label, icon: Icon }) => <button key={id} title={label} aria-label={`${label}${id === 'rooms' && roomLive ? ' LIVE' : ''}`} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={20} strokeWidth={1.8} /><span className="nav-label-full">{label}</span><span className="nav-label-short">{id === 'bookings' ? 'الحجوزات' : id === 'audit' ? 'العمليات' : id === 'catalog' ? 'المواد' : label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}</button>)}</nav>
+      <nav className="nav-list" aria-label="التنقل الرئيسي">{nav.map(({ id, label, icon: Icon }) => <button key={id} title={label} aria-label={`${label}${id === 'rooms' && roomLive ? ' LIVE' : ''}`} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={20} strokeWidth={1.8} /><span className="nav-label-full">{label}</span><span className="nav-label-short">{id === 'bookings' ? 'الحجوزات' : id === 'audit' ? 'العمليات' : id === 'catalog' ? 'المواد' : label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}{id === 'messages' && chat.unread > 0 && <span className="nav-unread" aria-label={`${chat.unread} رسائل غير مقروءة`}>{chat.unread > 99 ? '99+' : chat.unread}</span>}</button>)}</nav>
       <div className="sidebar-footer"><a href={assetUrl('downloads/mansah.apk')} className="icon-button" title="تطبيق أندرويد"><Download size={19} /></a><button className="icon-button" onClick={logout} title="تسجيل الخروج"><LogOut size={19} /></button></div>
     </aside>
     <section className="workspace"><header className="topbar"><div className="topbar-location"><img className="mobile-brand brand-monogram" src={assetUrl('icon.svg')} width="32" height="32" alt="Mansah" /><div><span className="eyebrow">{portalNames[portal]}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div><div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' })}</time><button className="icon-button quick-action" onClick={openQuickAction} title={portal === 'students' ? 'البحث عن مادة أو أستاذ' : portal === 'teachers' ? 'إضافة موعد متاح' : 'إدارة الحسابات'}>{portal === 'students' ? <Search size={19} /> : portal === 'teachers' ? <CalendarDays size={19} /> : <Users size={19} />}</button><details className="account-menu"><summary><span className="account-avatar">{user.name.trim().charAt(0)}</span><span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />حسابي</button><a href={assetUrl('downloads/mansah.apk')}><Download size={16} />تطبيق أندرويد</a><button onClick={logout}><LogOut size={16} />تسجيل الخروج</button></div></details></div></header>
       <div className="workspace-content" id="main-content" tabIndex={-1}>
       {error && <p className="notice error" role="alert">{error}</p>}
       {user.status === 'suspended' ? <p className="notice error">حسابك موقوف. راجع الإدارة.</p> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><h2>طلبك قيد المراجعة</h2><p>ستظهر المواعيد والحصص بعد موافقة الإدارة على حسابك.</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>تحديث حالة الطلب</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} onRoomLiveChange={setRoomLive} searchFocusKey={searchFocusKey} />}
+      {portal !== 'admin' && user.status === 'active' && <div hidden={view !== 'messages'}><Suspense fallback={<p role="status">جارٍ تجهيز الرسائل…</p>}><DirectMessages key={user.id} portal={portal} user={user} chat={chat} active={view === 'messages'} /></Suspense></div>}
       </div></section>
   </main>;
 }
