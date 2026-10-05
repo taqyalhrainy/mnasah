@@ -22,3 +22,5 @@ The HTML bootstrap applies saved preferences before React renders. Arabic uses R
 ## Verification
 
 Run `npm run build` and `npm test`, then `node tests/preferences-payments-browser.mjs` against the Vite preview (or set `UI_BASE_URL`). The browser test covers all portal views, both languages and themes, 320-1440px layouts, persistence, canonical form values, date-range limits, financial totals, teacher filtering, CSV export, empty periods, and translated sign-in errors. Existing room tests also verify that changing preferences preserves the active camera and microphone stream.
+
+Dark-mode checks also reject near-white interface surfaces and insufficient text contrast, including placeholders, account menus, lesson and credential dialogs, curriculum editors, teaching-level pickers, and empty payment summaries. Student and teacher workspaces inherit the shared dark surface tokens instead of their legacy light overrides.

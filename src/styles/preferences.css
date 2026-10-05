@@ -1,5 +1,6 @@
 :root { --surface: #fff; --surface-soft: #f4f5f7; --focus-ring: #2764d7; color-scheme: light; }
 :root[data-theme=dark] { --surface: #2a1f35; --surface-soft: #34253f; --focus-ring: #e8cd78; }
+:root[data-theme=dark] .redesigned-shell { --surface: inherit; --surface-soft: inherit; }
 .preference-controls { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .language-control { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); }
 .language-control select { width: 81px; padding: 3px 0; color: inherit; background: transparent; border: 0; font-size: 12px; }

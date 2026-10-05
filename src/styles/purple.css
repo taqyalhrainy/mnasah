@@ -30,6 +30,8 @@
 }
 :root[data-theme=dark] body { background: var(--canvas); color: var(--ink); }
 :root[data-theme=dark] ::selection { color: #251d16; background: #e8cd78; }
+:root[data-theme=dark] .muted { color: var(--muted); }
+:root[data-theme=dark] input::placeholder,:root[data-theme=dark] textarea::placeholder { color: var(--muted); opacity: 1; }
 :root[data-theme=dark] .redesigned-shell {
   --ink: #f2edf8; --muted: #b6a9c8; --line: #43364f;
   --brand: #c4a1ed; --brand-strong: #b38bdd;
@@ -60,6 +62,7 @@
 :root[data-theme=dark] .metric-1 .metric-icon { background: #38302a; color: var(--yellow); }
 :root[data-theme=dark] .next-lesson { background: #e8cd78; color: #211b16; }
 :root[data-theme=dark] .redesigned-shell .next-lesson h3,:root[data-theme=dark] .next-lesson-mark { color: #211b16; }
+:root[data-theme=dark] .next-lesson-mark small { color: #514720; }
 :root[data-theme=dark] .next-lesson > .primary-button { background: #19131e; border-color: #19131e; color: #f4eaff; }
 :root[data-theme=dark] .next-lesson > .primary-button:hover { background: #33213f; border-color: #33213f; }
 :root[data-theme=dark] .agenda-day.today { color: #f4eaff; background: #4a325f; }
@@ -86,13 +89,17 @@
 :root[data-theme=dark] .teaching-level-option.all-levels,:root[data-theme=dark] .selected-teaching span { background: #453251; color: #e8d4fa; }
 :root[data-theme=dark] .availability-days button,:root[data-theme=dark] .earnings-week article { background: #2a1f35; color: var(--ink); border-color: var(--line); }
 :root[data-theme=dark] .availability-days button.selected { background: #49315a; border-color: #8860a5; color: #f4eaff; }
+:root[data-theme=dark] .availability-days button span { color: var(--muted); }
 :root[data-theme=dark] .availability-composer { background: #2a1f35; border-color: var(--line); }
 :root[data-theme=dark] .availability-mode { background: #20172b; border-color: var(--line); }
 :root[data-theme=dark] .availability-mode button { color: #bba5cb; }:root[data-theme=dark] .availability-mode button.selected { color: #f2edf8; background: #49315a; }
 :root[data-theme=dark] .week-board .available { background: #463251; color: #e3c4fa; }:root[data-theme=dark] .week-board .booked { background: #393b29; color: #e8cd78; }
+:root[data-theme=dark] .week-board strong { color: var(--ink); }
 :root[data-theme=dark] .account-settings button:hover:not(:disabled),:root[data-theme=dark] .history-tabs button:hover:not(:disabled),:root[data-theme=dark] .account-tabs button:hover { background: #37263f; }
 :root[data-theme=dark] .wallet-hero,:root[data-theme=dark] .learning-shell .wallet-hero { background: #35253f; color: var(--ink); }
 :root[data-theme=dark] .wallet-hero span,:root[data-theme=dark] .learning-shell .wallet-hero span,:root[data-theme=dark] .wallet-hero p,:root[data-theme=dark] .learning-shell .wallet-hero p { color: var(--muted); }
+:root[data-theme=dark] .positive { color: #a4debb; }
+:root[data-theme=dark] .negative { color: #edb0bf; }
 :root[data-theme=dark] .history-list .next-booking { background: #3b3129; }
 :root[data-theme=dark] .booking-row:hover,:root[data-theme=dark] .user-row:hover { background: #2a1f35; }
 :root[data-theme=dark] .booking-table-heading { background: #2b2036; color: var(--muted); }
@@ -107,6 +114,9 @@
 :root[data-theme=dark] .redesigned-shell .lesson-messages > div,:root[data-theme=dark] .redesigned-shell .lesson-messages article { background: #34253f; color: var(--ink); }
 :root[data-theme=dark] .room-card { background: #2a1f35; border-color: var(--line); }:root[data-theme=dark] .room-card.is-live { border-color: #8f6cab; box-shadow: inset 4px 0 #c4a1ed; }
 :root[data-theme=dark] .room-card-date,:root[data-theme=dark] .room-countdown { background: #3a2a45; color: var(--ink); }
+:root[data-theme=dark] .room-card-date span { color: var(--muted); }
+:root[data-theme=dark] .room-started { color: var(--yellow); }
+:root[data-theme=dark] .room-closed { background: var(--surface-soft); color: var(--muted); }
 :root[data-theme=dark] .room-presence span { color: #c4b0d4; background: #36253f; }:root[data-theme=dark] .room-presence span.online { color: #a4debb; background: #263d35; }
 :root[data-theme=dark] .room-status { background: #36253f; color: #d7bcef; }:root[data-theme=dark] .room-status.live { background: #423824; color: var(--yellow); }
 :root[data-theme=dark] .redesigned-shell .notice,:root[data-theme=dark] .redesigned-auth .notice { color: var(--ink); background: #36253f; border-color: #725085; }
@@ -123,7 +133,7 @@
 :root[data-theme=dark] .auth-role-tabs { background: #261a31; border-color: #604675; }:root[data-theme=dark] .auth-role-tabs a { color: #bda7ce; }:root[data-theme=dark] .auth-role-tabs a[aria-current=page] { background: #49305c; color: #f4eaff; }
 :root[data-theme=dark] .auth-input-wrap { background: #2e203a; border-color: #604675; color: #b89ec8; }
 :root[data-theme=dark] .auth-input-wrap:focus-within { border-color: #c4a1ed; box-shadow: 0 0 0 3px #c4a1ed1a; }
-:root[data-theme=dark] .redesigned-auth .auth-input-wrap input { color: var(--ink); }:root[data-theme=dark] .auth-input-wrap input::placeholder { color: #9880aa; }
+:root[data-theme=dark] .redesigned-auth .auth-input-wrap input { color: var(--ink); }:root[data-theme=dark] .auth-input-wrap input::placeholder { color: var(--muted); }
 :root[data-theme=dark] .password-toggle { color: #bda7ce; }
 :root[data-theme=dark] .redesigned-auth .auth-submit { color: #211c13; background: #e8cd78; border-color: #e8cd78; }:root[data-theme=dark] .redesigned-auth .auth-submit:hover:not(:disabled) { background: #f0db99; border-color: #f0db99; }
 :root[data-theme=dark] .redesigned-auth .auth-register .text-button { color: #e8cd78; }:root[data-theme=dark] .auth-footer { color: #bda7ce; border-color: #574263; }

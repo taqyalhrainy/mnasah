@@ -14,7 +14,12 @@ const slots = [{ ...row, id: 'slot', start: now + 7200000, available_until: now 
 const failures = [];
 await mkdir('.private', { recursive: true });
 async function layout(page, name) {
-  await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await Promise.all(document.getAnimations().filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished.catch(() => {})));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const issues = await page.evaluate(() => {
     const result = [];
     if (document.documentElement.scrollWidth > innerWidth + 1) result.push(`Page overflow: ${document.documentElement.scrollWidth}`);
@@ -22,6 +27,27 @@ async function layout(page, name) {
       const bounds = node.getBoundingClientRect(); if (!bounds.width || !bounds.height) continue;
       if (node.scrollWidth > node.clientWidth + 2) result.push(`Text overflow: ${node.className} ${node.textContent}`);
       if (bounds.left < -1 || bounds.right > innerWidth + 1) result.push(`Viewport overflow: ${node.className}`);
+    }
+    if (document.documentElement.dataset.theme === 'dark') {
+      const rgb = color => color.match(/[\d.]+/g)?.map(Number) || [0, 0, 0, 0];
+      const luminance = color => color.slice(0, 3).map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+      const blend = (foreground, background) => foreground.slice(0, 3).map((value, index) => value * (foreground[3] ?? 1) + background[index] * (1 - (foreground[3] ?? 1)));
+      for (const node of document.querySelectorAll('body *')) {
+        const bounds = node.getBoundingClientRect(), style = getComputedStyle(node);
+        if (!bounds.width || !bounds.height || bounds.bottom <= 0 || style.visibility === 'hidden' || Number(style.opacity) < .8) continue;
+        const background = rgb(style.backgroundColor);
+        if ((background[3] ?? 1) >= .8 && background.slice(0, 3).every(value => value > 220)) result.push(`Light surface in dark mode: ${node.className || node.tagName} ${style.backgroundColor}`);
+        const placeholder = node.matches('input,textarea') && !node.value && node.placeholder;
+        const hasText = [...node.childNodes].some(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim()) || node.matches('input,select,textarea') && (node.value || placeholder);
+        if (!hasText || node.matches(':disabled') || node.closest('[aria-disabled=true]') || !node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+        const ancestors = []; for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) ancestors.unshift(ancestor);
+        if (ancestors.some(ancestor => Number(getComputedStyle(ancestor).opacity) < .8)) continue;
+        const backdrop = ancestors.reduce((color, ancestor) => blend(rgb(getComputedStyle(ancestor).backgroundColor), color), [255, 255, 255]);
+        const foreground = rgb(placeholder ? getComputedStyle(node, '::placeholder').color : style.color);
+        const contrast = (Math.max(luminance(backdrop), luminance(blend(foreground, backdrop))) + .05) / (Math.min(luminance(backdrop), luminance(blend(foreground, backdrop))) + .05);
+        const large = parseFloat(style.fontSize) >= 24 || parseFloat(style.fontSize) >= 18.66 && Number(style.fontWeight) >= 700;
+        if (contrast < (large ? 3 : 4.5)) result.push(`Low text contrast: ${node.parentElement.className} > ${node.className || node.tagName} ${node.textContent.trim().slice(0, 45)} ${contrast.toFixed(2)}:1 (${style.color} on ${backdrop.join(',')})`);
+      }
     }
     return result;
   });
@@ -40,10 +66,11 @@ async function makePage(role, loggedIn = true) {
     if (path.endsWith('/payments')) { const range = paymentRange(Object.fromEntries(url.searchParams)); ranges.push(range); return route.fulfill({ json: paymentSummary(role === 'teachers' ? bookings.filter(row => row.teacher_id === users.teachers.id) : bookings, range) }); }
     if (path.endsWith('/catalog')) return route.fulfill({ json: { categories } });
     if (path.endsWith('/reminders')) return route.fulfill({ json: { bookings: [] } });
+    if (/\/bookings\/[^/]+\/messages$/.test(path)) return route.fulfill({ json: { messages: [] } });
     if (path.includes('/chat/')) return route.fulfill({ json: { threads: [], settings: { readReceipts: true, showPresence: true, notifications: false, sounds: false }, unread: 0, messages: [] } });
     return route.fulfill({ json: { user: users[role], bookings: role === 'teachers' ? bookings.filter(row => row.teacher_id === users.teachers.id) : bookings, slots, users: Object.values(users), events: [] } });
   });
-  await page.goto(`${base}/${role}`);
+  await page.goto(`${base}/${role}`, { waitUntil: 'domcontentloaded' });
   await page.locator(loggedIn ? '.workspace-content' : '.auth-form').waitFor();
   return { page, context, mutations, ranges };
 }
@@ -62,7 +89,28 @@ try {
         for (let index = 0; index < navigation; index++) {
           await page.locator('.nav-list button').nth(index).click();
           await page.locator('.workspace-skeleton,.payment-loading').waitFor({ state: 'detached' });
-          await layout(page, `${role} ${language} ${theme} view ${index}`);
+          for (const width of [1440, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `${role} ${language} ${theme} view ${index} ${width}`); }
+        }
+        if (theme === 'dark') {
+          await page.setViewportSize({ width: 1440, height: 1000 });
+          await page.locator('.account-menu > summary').click(); await layout(page, `${role} dark account menu`); await page.locator('.account-menu > summary').click();
+          if (role === 'students') {
+            await page.locator('.nav-list button').nth(0).click(); await page.locator('.category-card').first().click(); await layout(page, 'Dark study levels');
+            await page.locator('.choice-grid button').first().click(); await layout(page, 'Dark study subjects');
+            await page.locator('.choice-grid button').first().click(); await layout(page, 'Dark tutor results');
+            await page.locator('.back-to-categories').click();
+            await page.locator('.nav-list button').nth(5).click(); await page.locator('.history-list .secondary-button').first().click(); await page.locator('.detail-dialog').waitFor();
+            await layout(page, 'Dark lesson detail dialog'); await page.locator('.detail-dialog .section-heading .icon-button').click();
+          } else if (role === 'teachers') {
+            await page.locator('.nav-list button').nth(0).click(); await page.locator('.teaching-category-card > summary').first().click();
+            await page.locator('.teaching-level-picker > summary').first().click(); await layout(page, 'Dark teaching levels');
+            await page.locator('.nav-list button').nth(4).click(); await page.locator('.week-board button').first().click(); await layout(page, 'Dark available slot details');
+          } else {
+            await page.locator('.nav-list button').nth(1).click(); await page.locator('.account-row .row-actions').first().locator('button').last().click(); await page.locator('.detail-dialog').waitFor();
+            await layout(page, 'Dark account credential dialog'); await page.locator('.detail-dialog .section-heading .icon-button').click();
+            await page.locator('.nav-list button').nth(4).click(); await page.locator('.booking-row .lucide-pencil').first().locator('..').click();
+            await layout(page, 'Dark catalogue editor'); await page.locator('.work-form .row-actions button[type=button]').click();
+          }
         }
       }
     }
@@ -73,10 +121,11 @@ try {
       assert.equal(await page.locator('select[name=subject]').inputValue(), 'رياضيات', 'Translated labels must not change submitted subject IDs');
     }
     assert.equal(mutations.some(row => /profile|slots/.test(row.path)), false, 'Appearance changes must never write user records');
-    await page.reload(); await page.locator('.workspace-content').waitFor();
+    await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('.workspace-content').waitFor();
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
     assert.equal(await page.locator('html').getAttribute('lang'), role === 'teachers' ? 'en' : 'ar');
     await context.close();
+    console.log(`${role}: both themes and languages, surfaces, contrast and layouts passed.`);
   }
   for (const role of ['admin', 'teachers']) {
     const { page, context, ranges } = await makePage(role);
@@ -104,6 +153,8 @@ try {
     assert.equal(await page.locator('.payment-calendar-dialog').getByRole('alert').textContent(), 'Select one day or a range of up to 31 days.');
     await page.locator('.payment-calendar-dialog').getByRole('button', { name: 'Today', exact: true }).click(); await page.getByRole('button', { name: 'Apply dates', exact: true }).click(); await page.locator('.payment-loading').waitFor({ state: 'detached' }); assert.equal(ranges.at(-1).start, ranges.at(-1).end);
     await page.getByTitle('Previous week').click(); await page.locator('.payment-loading').waitFor({ state: 'detached' }); assert.equal(await page.locator('.payment-lessons-toggle').count(), 0); assert.equal(await page.locator('.payment-total .payment-amount').textContent(), new Intl.NumberFormat('en-JO', { style: 'currency', currency: 'JOD' }).format(0));
+    await page.getByTitle('Back to summary').click(); await page.locator('.language-control select').selectOption('ar');
+    for (const width of [1440, 390]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `${role} dark empty summary ${width}`); await page.screenshot({ path: `.private/payments-${role}-ar-dark-empty-${width}.png`, fullPage: true }); }
     await context.close();
   }
   for (const role of ['students', 'teachers', 'admin']) {
@@ -112,7 +163,7 @@ try {
     assert.equal(await page.locator('.auth-form h1').textContent(), 'Sign in');
     await page.locator('input[name=email]').fill('test@example.test'); await page.locator('input[name=password]').fill('not-a-real-password'); await page.locator('.auth-submit').click(); assert.equal(await page.getByRole('alert').textContent(), 'Incorrect sign-in details for this portal.');
     for (const width of [1440, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `${role} English dark sign in ${width}`); }
-    await page.reload(); await page.locator('.auth-form').waitFor(); assert.equal(await page.locator('html').getAttribute('lang'), 'en'); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('.auth-form').waitFor(); assert.equal(await page.locator('html').getAttribute('lang'), 'en'); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
     await page.screenshot({ path: `.private/auth-${role}-en-dark.png`, fullPage: true }); await context.close();
   }
   assert.deepEqual(failures, []);
