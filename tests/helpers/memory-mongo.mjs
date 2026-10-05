@@ -8,6 +8,7 @@ function matches(item, filter) {
     const current = get(item, key);
     if (value && typeof value === 'object' && !Array.isArray(value)) return Object.entries(value).every(([operator, expected]) => {
       if (operator === '$gt') return current > expected;
+      if (operator === '$gte') return current >= expected;
       if (operator === '$lt') return current < expected;
       if (operator === '$ne') return current !== expected;
       if (operator === '$in') return expected.includes(current);

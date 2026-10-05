@@ -1,3 +1,4 @@
+import { t, direction, usePreferences } from '../../i18n/preferences';
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, ExternalLink, FlaskConical } from 'lucide-react';
 import { VideoRoom } from './VideoRoom';
@@ -12,6 +13,7 @@ function newToken() {
 }
 
 export function VideoTestPage() {
+  usePreferences();
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const role: VideoRole = params.get('role') === 'student' ? 'student' : 'teacher';
   const [token] = useState(() => cleanToken(params.get('room')) || newToken());
@@ -32,20 +34,19 @@ export function VideoTestPage() {
   }
 
   return (
-    <main className="video-test-page" dir="rtl">
+    <main className="video-test-page" dir={direction()}>
       <header className="video-test-bar">
         <div>
-          <span><FlaskConical size={17} /> وضع اختبار الفيديو</span>
-          <strong>أنت داخل بدور {role === 'teacher' ? 'المعلّم' : 'الطالب'}</strong>
-          <small>لا تحتاج حصة أو حساب. افتح رابط الطرف الثاني على جهاز أو متصفح آخر.</small>
+          <span><FlaskConical size={17} />{t(" وضع اختبار الفيديو")}</span>
+          <strong>{t("أنت داخل بدور ")}{role === 'teacher' ? t("المعلّم") : t("الطالب")}</strong>
+          <small>{t("لا تحتاج حصة أو حساب. افتح رابط الطرف الثاني على جهاز أو متصفح آخر.")}</small>
         </div>
         <div className="video-test-actions">
           <button className="secondary-button" type="button" onClick={copyOtherLink}>
-            <Copy size={17} />{copied ? 'تم نسخ الرابط' : `نسخ رابط ${otherRole === 'teacher' ? 'المعلّم' : 'الطالب'}`}
+            <Copy size={17} />{copied ? t("تم نسخ الرابط") : t("نسخ رابط {v0}", { v0: t(otherRole === 'teacher' ? 'المعلّم' : 'الطالب') })}
           </button>
           <a className="secondary-button" href={otherUrl} target="_blank" rel="noreferrer">
-            <ExternalLink size={17} />فتح الطرف الثاني
-          </a>
+            <ExternalLink size={17} />{t("فتح الطرف الثاني\r\n          ")}</a>
         </div>
       </header>
       <VideoRoom

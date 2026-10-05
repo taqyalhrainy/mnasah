@@ -66,6 +66,10 @@ try {
   await callNavigation.getByRole('button', { name: 'المحفظة', exact: true }).click();
   await page.locator('.floating-call-shell').waitFor();
   await page.locator('.wallet-page').waitFor();
+  await page.locator('.language-control select').selectOption('en');
+  await page.locator('.theme-control').click();
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('video')].some(video => video.srcObject === window.callStreamBeforeBrowsing)), true, 'Changing language and theme must not restart the camera or microphone');
+  await page.locator('.language-control select').selectOption('ar');
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('video')].some(video => video.srcObject === window.callStreamBeforeBrowsing)), true, 'browsing portal pages must preserve the active call stream');
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('call-active')), false);
   await page.screenshot({ path: '.private/call-browse-floating.png', fullPage: true });

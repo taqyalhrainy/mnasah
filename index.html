@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffffff" />
+    <script>
+      try {
+        var lang = localStorage.getItem('mansah-language') === 'en' ? 'en' : 'ar';
+        var theme = localStorage.getItem('mansah-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.lang = lang;
+        document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+      } catch (_) { document.documentElement.dataset.theme = 'light'; }
+    </script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Mansah | منصة تعليم خصوصي</title>

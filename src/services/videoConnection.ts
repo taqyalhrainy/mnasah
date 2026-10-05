@@ -1,3 +1,4 @@
+import { t } from '../i18n/preferences';
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
 
 type PeerCallbacks = {
@@ -51,10 +52,10 @@ export class VideoConnection {
     this.closed = false;
     const cleanRoomId = normalizeRoomId(this.roomId);
     if (!cleanRoomId) {
-      throw new Error('اكتب رقم غرفة صحيح');
+      throw new Error(t("اكتب رقم غرفة صحيح"));
     }
 
-    this.callbacks.onStatus('جاري تشغيل الكاميرا والمايك');
+    this.callbacks.onStatus(t("جاري تشغيل الكاميرا والمايك"));
     this.localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -88,11 +89,11 @@ export class VideoConnection {
 
   async startScreenShare() {
     if (!this.localStream) {
-      throw new Error('ابدأ الجلسة قبل مشاركة الشاشة');
+      throw new Error(t("ابدأ الجلسة قبل مشاركة الشاشة"));
     }
 
     if (!navigator.mediaDevices.getDisplayMedia) {
-      throw new Error('مشاركة الشاشة غير مدعومة على هذا المتصفح');
+      throw new Error(t("مشاركة الشاشة غير مدعومة على هذا المتصفح"));
     }
 
     const screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -101,7 +102,7 @@ export class VideoConnection {
     });
     const [screenTrack] = screenStream.getVideoTracks();
     if (!screenTrack) {
-      throw new Error('لم يتم اختيار شاشة للمشاركة');
+      throw new Error(t("لم يتم اختيار شاشة للمشاركة"));
     }
 
     this.screenTrack = screenTrack;
@@ -110,7 +111,7 @@ export class VideoConnection {
     this.replaceLocalPreviewTrack(screenTrack);
     this.callbacks.onLocalVideoSource('screen');
     this.sendVideoSource();
-    this.callbacks.onStatus('مشاركة الشاشة تعمل الآن');
+    this.callbacks.onStatus(t("مشاركة الشاشة تعمل الآن"));
 
     screenTrack.onended = () => {
       void this.stopScreenShare();
@@ -129,7 +130,7 @@ export class VideoConnection {
     this.replaceLocalPreviewTrack(this.cameraTrack);
     this.callbacks.onLocalVideoSource('camera');
     this.sendVideoSource();
-    this.callbacks.onStatus(this.hasRemoteStream ? 'الاتصال مباشر' : 'بانتظار دخول الطرف الثاني بنفس كود الغرفة');
+    this.callbacks.onStatus(this.hasRemoteStream ? t("الاتصال مباشر") : t("بانتظار دخول الطرف الثاني بنفس كود الغرفة"));
     if (screenTrack) {
       screenTrack.onended = null;
       screenTrack.stop();
@@ -176,7 +177,7 @@ export class VideoConnection {
     peer.on('open', (peerId) => {
       if (this.closed || this.peer !== peer) return;
       void this.callbacks.onLocalPeerId?.(peerId);
-      this.callbacks.onStatus('بانتظار دخول الطرف الثاني بنفس كود الغرفة');
+      this.callbacks.onStatus(t("بانتظار دخول الطرف الثاني بنفس كود الغرفة"));
       this.startPeerSearch();
     });
 
@@ -194,7 +195,7 @@ export class VideoConnection {
         return;
       }
 
-      this.callbacks.onStatus('جاري قبول الاتصال');
+      this.callbacks.onStatus(t("جاري قبول الاتصال"));
       call.answer(this.localStream!);
       this.bindCallEvents(call);
       const peerChanged = this.remotePeerId !== call.peer;
@@ -218,21 +219,21 @@ export class VideoConnection {
     peer.on('error', (error) => {
       if (this.closed || this.peer !== peer) return;
       if (error.type === 'unavailable-id') {
-        this.callbacks.onStatus('تعذر إنشاء معرّف جديد للجلسة');
+        this.callbacks.onStatus(t("تعذر إنشاء معرّف جديد للجلسة"));
         return;
       }
 
       if (error.type === 'peer-unavailable') {
-        if (!this.hasRemoteStream) this.callbacks.onStatus('بانتظار دخول الطرف الثاني بنفس كود الغرفة');
+        if (!this.hasRemoteStream) this.callbacks.onStatus(t("بانتظار دخول الطرف الثاني بنفس كود الغرفة"));
         return;
       }
 
-      this.callbacks.onStatus(error.message || 'تعذر إنشاء الاتصال');
+      this.callbacks.onStatus(error.message || t("تعذر إنشاء الاتصال"));
     });
 
     peer.on('disconnected', () => {
       if (this.closed || this.peer !== peer) return;
-      this.callbacks.onStatus('انقطع اتصال الإشارة، حاول بدء الجلسة مرة أخرى');
+      this.callbacks.onStatus(t("انقطع اتصال الإشارة، حاول بدء الجلسة مرة أخرى"));
       this.reconnectSignaling();
     });
   }
@@ -257,9 +258,9 @@ export class VideoConnection {
 
     try {
       this.peer.reconnect();
-      this.callbacks.onStatus(this.hasRemoteStream ? 'الاتصال مباشر' : 'جاري إعادة الاتصال');
+      this.callbacks.onStatus(this.hasRemoteStream ? t("الاتصال مباشر") : t("جاري إعادة الاتصال"));
     } catch {
-      this.callbacks.onStatus('تعذر إعادة الاتصال تلقائياً');
+      this.callbacks.onStatus(t("تعذر إعادة الاتصال تلقائياً"));
     }
   }
 
@@ -301,7 +302,7 @@ export class VideoConnection {
           this.ensureStudentDataConnection(discoveredPeerId, peerChanged);
         }
       } catch {
-        if (!this.hasRemoteStream) this.callbacks.onStatus('جاري إعادة الاتصال');
+        if (!this.hasRemoteStream) this.callbacks.onStatus(t("جاري إعادة الاتصال"));
       } finally {
         this.discoveryInFlight = false;
       }
@@ -325,7 +326,7 @@ export class VideoConnection {
       this.callbacks.onPeerLeft();
     }
 
-    this.callbacks.onStatus('جاري البحث عن الطالب');
+    this.callbacks.onStatus(t("جاري البحث عن الطالب"));
     this.bindCallEvents(this.peer.call(targetPeerId, this.localStream));
   }
 
@@ -357,7 +358,7 @@ export class VideoConnection {
       this.pendingCalls.clear();
       if (previousCall && previousCall !== call) previousCall.close();
       this.callbacks.onRemoteStream(remoteStream);
-      this.callbacks.onStatus('الاتصال مباشر');
+      this.callbacks.onStatus(t("الاتصال مباشر"));
 
       remoteStream.getTracks().forEach((track) => {
         track.addEventListener('ended', () => this.handleCallEnded(call), { once: true });
@@ -375,7 +376,7 @@ export class VideoConnection {
       this.hasRemoteStream = false;
       this.activeCall = undefined;
       this.callbacks.onPeerLeft();
-      this.callbacks.onStatus(error.message || 'تعذر إكمال المكالمة');
+      this.callbacks.onStatus(error.message || t("تعذر إكمال المكالمة"));
       this.startPeerSearch();
     });
   }
@@ -386,7 +387,7 @@ export class VideoConnection {
     this.hasRemoteStream = false;
     this.activeCall = undefined;
     this.callbacks.onPeerLeft();
-    this.callbacks.onStatus('غادر الطرف الآخر الجلسة، بانتظار عودته');
+    this.callbacks.onStatus(t("غادر الطرف الآخر الجلسة، بانتظار عودته"));
     this.startPeerSearch();
   }
 

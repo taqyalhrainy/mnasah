@@ -1,3 +1,4 @@
+import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import { Camera, CameraOff, Download, Grid2X2, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
@@ -48,7 +49,8 @@ const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { st
 declare global { interface Window { mansahCallActive?: boolean } }
 
 export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, onLeave, navigationItems = [], onNavigate, compact = false, onExpand }: VideoRoomProps) {
-  const [status, setStatus] = useState('جاهز للانضمام');
+  usePreferences();
+  const [status, setStatus] = useState(t("جاهز للانضمام"));
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -97,8 +99,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const localPeerIdRef = useRef<string | null>(null);
   const localTypingTimerRef = useRef<number | null>(null);
   const remoteTypingTimerRef = useRef<number | null>(null);
-  const localName = role === 'teacher' ? 'الأستاذ' : 'الطالب';
-  const remoteName = role === 'teacher' ? 'الطالب' : 'الأستاذ';
+  const localName = role === 'teacher' ? t("الأستاذ") : t("الطالب");
+  const remoteName = role === 'teacher' ? t("الطالب") : t("الأستاذ");
 
   useEffect(() => { presenceRef.current = onPresenceChange; }, [onPresenceChange]);
 
@@ -196,7 +198,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const startCall = async () => {
     if (isJoining) return;
     setIsJoining(true);
-    setStatus('جار الانضمام للغرفة');
+    setStatus(t("جار الانضمام للغرفة"));
     try {
       await authorize();
       connectionRef.current?.close();
@@ -213,7 +215,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           remoteStreamRef.current = stream;
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
           setHasRemoteStream(true);
-          setStatus('متصل');
+          setStatus(t("متصل"));
         },
         onRemoteVideoSource: (source) => {
           setRemoteVideoSource(source);
@@ -259,7 +261,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
       setIsConnected(true);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'تعذر بدء المكالمة');
+      setStatus(error instanceof Error ? error.message : t("تعذر بدء المكالمة"));
       setIsConnected(false);
     } finally {
       setIsJoining(false);
@@ -287,7 +289,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setSidePanel(null);
     setShowMore(false);
     setRemoteTyping(false);
-    setStatus('تم إنهاء الجلسة');
+    setStatus(t("تم إنهاء الجلسة"));
     window.mansahCallActive = false;
     const presenceUpdate = onPresenceChange?.(false);
     if (presenceUpdate) void presenceUpdate.catch(() => undefined);
@@ -352,7 +354,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       if (mobileOS) {
         setScreenShareMobileOS(mobileOS);
         setShowAndroidAppPrompt(true);
-        setStatus('مشاركة شاشة الهاتف تحتاج تنزيل التطبيق');
+        setStatus(t("مشاركة شاشة الهاتف تحتاج تنزيل التطبيق"));
         return;
       }
       const screenStream = await connectionRef.current.startScreenShare();
@@ -363,10 +365,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setStageMode('video');
       setFocusedParticipant('local');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'تعذر مشاركة الشاشة';
-      if (message.includes('غير مدعومة')) {
+      const message = error instanceof Error ? error.message : t("تعذر مشاركة الشاشة");
+      if (message.includes(t("غير مدعومة"))) {
         setShowAndroidAppPrompt(true);
-        setStatus('مشاركة شاشة الهاتف تحتاج تطبيق أندرويد');
+        setStatus(t("مشاركة شاشة الهاتف تحتاج تطبيق أندرويد"));
       } else setStatus(message);
       setIsScreenSharing(false);
     }
@@ -408,7 +410,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       await targetVideo.requestPictureInPicture();
       setIsPictureInPicture(true);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'تعذر فتح النافذة العائمة');
+      setStatus(error instanceof Error ? error.message : t("تعذر فتح النافذة العائمة"));
       setIsPictureInPicture(false);
     }
   };
@@ -684,14 +686,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const renderWhiteboard = () => (
     <div className="whiteboard-panel">
       <div className="whiteboard-tools">
-        <button className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'pan' ? 'draw' : 'pan')} aria-label="تحريك اللوح">✋</button>
-        {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardStroke} aria-label="تراجع خطوة" title="تراجع خطوة"><Undo2 size={17} /></button>}
-        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label="تكبير">+</button>
-        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label="تصغير">-</button>
-        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToStrokes(whiteboardStrokesRef.current); }} aria-label="إظهار كامل الرسم">Fit</button>
-        {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label="لون القلم" />)}
-        <input aria-label="حجم القلم" min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
-        {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title="مسح اللوح"><Trash2 size={17} /></button>}
+        <button className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'pan' ? 'draw' : 'pan')} aria-label={t("تحريك اللوح")}>✋</button>
+        {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardStroke} aria-label={t("تراجع خطوة")} title={t("تراجع خطوة")}><Undo2 size={17} /></button>}
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label={t("تصغير")}>-</button>
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToStrokes(whiteboardStrokesRef.current); }} aria-label={t("إظهار كامل الرسم")} title={t("إظهار كامل الرسم")}><Maximize2 size={17} /></button>
+        {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label={t("لون القلم")} />)}
+        <input aria-label={t("حجم القلم")} min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
+        {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
       </div>
       <svg ref={whiteboardSvgRef} className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}
@@ -707,10 +709,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const showVideo = hasStream && (isLocal ? videoEnabled || isScreenSharing : true);
     const ratio = videoRatios[id];
     return (
-      <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(id); }} aria-label={`تكبير ${name}`} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
+      <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(id); }} aria-label={t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
         <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted={isLocal} playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={source === 'camera' ? 'mirrored-video' : undefined} />
-        {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}</span><strong>{hasStream ? name : 'بانتظار الدخول'}</strong><small>{hasStream ? 'الكاميرا مغلقة' : `${remoteName} لم يدخل بعد`}</small></div>}
-        <div className="participant-meta"><span>{name}{isLocal ? ' - أنت' : ''}</span>{isLocal && !audioEnabled && <MicOff size={15} aria-label="المايك مغلق" />}{!showVideo && <CameraOff size={15} aria-label="الكاميرا مغلقة" />}{source === 'screen' && <ScreenShare size={15} aria-label="مشاركة شاشة" />}</div>
+        {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
+        <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{isLocal && !audioEnabled && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
       </button>
     );
   };
@@ -733,18 +735,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
-      {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label="فتح صفحات المنصة" aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label="صفحات المنصة"><strong>تصفح المنصة</strong>{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
+      {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
       <div className="video-header call-header">
-        <div><h2>الحصة المباشرة</h2><p>{status}{hasRemoteStream ? ` • ${localName} مع ${remoteName}` : ` • بانتظار ${remoteName}`}</p></div>
-        <div className="call-header-actions">{compact && <button className="call-expand-button" type="button" onClick={onExpand} title="العودة إلى المكالمة الكاملة"><Maximize2 size={17} />تكبير</button>}<div className="status-pill"><RadioTower size={17} />{isJoining ? 'جار الانضمام' : status}</div></div>
+        <div><h2>{t("الحصة المباشرة")}</h2><p>{t(status)}{hasRemoteStream ? t(" • {v0} مع {v1}", { v0: localName, v1: remoteName }) : t(" • بانتظار {v0}", { v0: remoteName })}</p></div>
+        <div className="call-header-actions">{compact && <button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button>}<div className="status-pill"><RadioTower size={17} />{isJoining ? t("جار الانضمام") : t(status)}</div></div>
       </div>
 
       <div className="session-controls call-start">
-        {isJoining && <span className="call-joining"><RefreshCw size={16} />جار الانضمام</span>}
-        {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />إعادة المحاولة</button>}
+        {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
+        {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
       </div>
 
-      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>مشاركة شاشة الهاتف تحتاج التطبيق</strong><p>متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. اختر التطبيق المناسب لجهازك.</p></div><div className="mobile-app-actions"><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />تطبيق أندرويد</a><button className="download-app-button pending" type="button" disabled>{screenShareMobileOS === 'ios' ? 'تطبيق iOS غير متوفر حالياً' : 'تطبيق iOS قريباً'}</button></div></div>}
+      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>{t("مشاركة شاشة الهاتف تحتاج التطبيق")}</strong><p>{t("متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. اختر التطبيق المناسب لجهازك.")}</p></div><div className="mobile-app-actions"><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />{t("تطبيق أندرويد")}</a><button className="download-app-button pending" type="button" disabled>{screenShareMobileOS === 'ios' ? t("تطبيق iOS غير متوفر حالياً") : t("تطبيق iOS قريباً")}</button></div></div>}
 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (
@@ -753,34 +755,34 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
             {renderWhiteboard()}
           </div>
         ) : (
-          <div className="video-grid" aria-label="المشاركون">
+          <div className="video-grid" aria-label={t("المشاركون")}>
             {focusedParticipant ? <>{renderTile(focusedParticipant, 'focus')}<div className="floating-preview" style={{ '--video-ratio': String(videoRatios[focusedParticipant === 'local' ? 'remote' : 'local']) } as CSSProperties}>{renderTile(focusedParticipant === 'local' ? 'remote' : 'local', 'pip')}</div></> : <>{renderTile('remote')}{renderTile('local')}</>}
           </div>
         )}
-        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label="المشاركون"><div className="panel-title"><strong>المشاركون</strong><button type="button" onClick={() => setSidePanel(null)} aria-label="إغلاق">×</button></div><div className="participant-list"><span>{localName} - أنت</span><span>{hasRemoteStream ? remoteName : `${remoteName} بانتظار الدخول`}</span></div></aside>}
+        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}</span><span>{hasRemoteStream ? remoteName : t("{v0} بانتظار الدخول", { v0: remoteName })}</span></div></aside>}
       </div>
 
-      <div className="call-toolbar" aria-label="أدوات المكالمة">
-        <button className={audioEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleAudioToggle} title={audioEnabled ? 'إيقاف المايك' : 'تشغيل المايك'} type="button">{audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button>
-        <button className={videoEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleVideoToggle} title={videoEnabled ? 'إيقاف الكاميرا' : 'تشغيل الكاميرا'} type="button">{videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}</button>
-        <button className={isScreenSharing ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handleScreenShareToggle} title={isScreenSharing ? 'إيقاف مشاركة الشاشة' : 'مشاركة الشاشة'} type="button">{isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}</button>
-        <button className={stageMode === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} disabled={role !== 'teacher'} onClick={toggleWhiteboard} title={role === 'teacher' ? 'اللوح المشترك' : 'اللوح بتحكم الأستاذ'} type="button"><Grid2X2 size={20} /></button>
-        <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => { if (sidePanel === 'chat') updateLocalTyping(false); setSidePanel(sidePanel === 'chat' ? null : 'chat'); setShowMore(false); }} title="المحادثة" type="button"><MessageSquare size={20} /></button>
-        {installPrompt && <button className="tool-button" onClick={handleInstallApp} title="تثبيت كتطبيق" type="button"><Download size={20} /></button>}
-        <button className={showMore ? 'tool-button active-share' : 'tool-button'} onClick={() => setShowMore(!showMore)} title="خيارات أكثر" type="button"><MoreHorizontal size={20} /></button>
-        <button className="tool-button danger" onClick={endCall} title="إنهاء المكالمة والخروج" type="button"><PhoneOff size={20} /></button>
-        {showMore && <div className="call-more-menu"><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />المشاركون</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />عرض الفيديو</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? 'Fill frame' : 'Fit video'}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />نافذة عائمة</button></div>}
+      <div className="call-toolbar" aria-label={t("أدوات المكالمة")}>
+        <button className={audioEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleAudioToggle} title={audioEnabled ? t("إيقاف المايك") : t("تشغيل المايك")} type="button">{audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button>
+        <button className={videoEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleVideoToggle} title={videoEnabled ? t("إيقاف الكاميرا") : t("تشغيل الكاميرا")} type="button">{videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}</button>
+        <button className={isScreenSharing ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handleScreenShareToggle} title={isScreenSharing ? t("إيقاف مشاركة الشاشة") : t("مشاركة الشاشة")} type="button">{isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}</button>
+        <button className={stageMode === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} disabled={role !== 'teacher'} onClick={toggleWhiteboard} title={role === 'teacher' ? t("اللوح المشترك") : t("اللوح بتحكم الأستاذ")} type="button"><Grid2X2 size={20} /></button>
+        <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => { if (sidePanel === 'chat') updateLocalTyping(false); setSidePanel(sidePanel === 'chat' ? null : 'chat'); setShowMore(false); }} title={t("المحادثة")} type="button"><MessageSquare size={20} /></button>
+        {installPrompt && <button className="tool-button" onClick={handleInstallApp} title={t("تثبيت كتطبيق")} type="button"><Download size={20} /></button>}
+        <button className={showMore ? 'tool-button active-share' : 'tool-button'} onClick={() => setShowMore(!showMore)} title={t("خيارات أكثر")} type="button"><MoreHorizontal size={20} /></button>
+        <button className="tool-button danger" onClick={endCall} title={t("إنهاء المكالمة والخروج")} type="button"><PhoneOff size={20} /></button>
+        {showMore && <div className="call-more-menu"><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />{t("المشاركون")}</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />{t("عرض الفيديو")}</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? t('ملء إطار الفيديو') : t('احتواء الفيديو')}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />{t("نافذة عائمة")}</button></div>}
       </div>
 
-      {sidePanel === 'chat' && <aside className="call-chat-drawer" aria-label="المحادثة">
-        <div className="call-chat-head"><div><MessageSquare size={18} /><strong>محادثة الحصة</strong><span>تصل للطرف الآخر مباشرة</span></div><button type="button" onClick={() => { updateLocalTyping(false); setSidePanel(null); }} aria-label="إغلاق المحادثة">×</button></div>
+      {sidePanel === 'chat' && <aside className="call-chat-drawer" aria-label={t("المحادثة")}>
+        <div className="call-chat-head"><div><MessageSquare size={18} /><strong>{t("محادثة الحصة")}</strong><span>{t("تصل للطرف الآخر مباشرة")}</span></div><button type="button" onClick={() => { updateLocalTyping(false); setSidePanel(null); }} aria-label={t("إغلاق المحادثة")}>×</button></div>
         <div className="call-chat-messages">
-          {!messages.length && !remoteTyping && <p className="call-chat-empty">ابدأ المحادثة أثناء المكالمة.</p>}
-          {messages.map(message => <article key={message.id}><header><strong>{message.name}</strong><time>{new Date(message.created).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</time></header><p>{message.body}</p></article>)}
-          {remoteTyping && <div className="call-typing-indicator" role="status" aria-label={`${remoteName} يكتب`}><span /><span /><span /></div>}
+          {!messages.length && !remoteTyping && <p className="call-chat-empty">{t("ابدأ المحادثة أثناء المكالمة.")}</p>}
+          {messages.map(message => <article key={message.id}><header><strong>{message.name}</strong><time>{new Date(message.created).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}</time></header><p>{message.body}</p></article>)}
+          {remoteTyping && <div className="call-typing-indicator" role="status" aria-label={t("{v0} يكتب", { v0: remoteName })}><span /><span /><span /></div>}
           <div ref={chatEndRef} />
         </div>
-        <form className="call-chat-compose" onSubmit={sendChatMessage}><input aria-label="رسالة جديدة" value={chatDraft} onChange={event => { setChatDraft(event.target.value); updateLocalTyping(Boolean(event.target.value.trim())); }} onBlur={() => updateLocalTyping(false)} placeholder="اكتب رسالة…" maxLength={2000} disabled={!onSendMessage || chatSending} /><button type="submit" disabled={!chatDraft.trim() || !onSendMessage || chatSending} aria-label="إرسال الرسالة"><MessageSquare size={18} /></button></form>
+        <form className="call-chat-compose" onSubmit={sendChatMessage}><input aria-label={t("رسالة جديدة")} value={chatDraft} onChange={event => { setChatDraft(event.target.value); updateLocalTyping(Boolean(event.target.value.trim())); }} onBlur={() => updateLocalTyping(false)} placeholder={t("اكتب رسالة…")} maxLength={2000} disabled={!onSendMessage || chatSending} /><button type="submit" disabled={!chatDraft.trim() || !onSendMessage || chatSending} aria-label={t("إرسال الرسالة")}><MessageSquare size={18} /></button></form>
       </aside>}
     </section>
   );

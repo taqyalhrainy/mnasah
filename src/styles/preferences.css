@@ -1,0 +1,61 @@
+:root { --surface: #fff; --surface-soft: #f4f5f7; --focus-ring: #2764d7; color-scheme: light; }
+:root[data-theme=dark] { --surface: #2a1f35; --surface-soft: #34253f; --focus-ring: #e8cd78; }
+.preference-controls { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.language-control { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); }
+.language-control select { width: 81px; padding: 3px 0; color: inherit; background: transparent; border: 0; font-size: 12px; }
+.language-control option { color: var(--ink); background: var(--surface); }
+.preference-controls .theme-control { width: 36px; height: 36px; background: var(--surface); color: var(--ink); }
+.auth-masthead-actions { display: flex; gap: 18px; align-items: center; }
+.wake-page > .preference-controls { position: absolute; inset-block-start: 20px; inset-inline-end: 24px; }
+.password-change-page > .preference-controls { position: absolute; inset-block-start: 20px; inset-inline-end: 24px; }
+.call-site-navigation .preference-controls { padding: 8px 12px; }
+.call-site-navigation .preference-controls .theme-control { padding: 0; width: 36px; height: 36px; }
+[dir=ltr] .lucide-arrow-left,[dir=ltr] .lucide-arrow-right,[dir=ltr] .lucide-chevron-left,[dir=ltr] .lucide-chevron-right { transform: scaleX(-1); }
+[dir=ltr] .redesigned-shell { font-family: 'Segoe UI', 'Plex Arabic', sans-serif; }
+[dir=ltr] .redesigned-shell .nav-button { font-size: 12px; }
+[dir=ltr] .auth-form { margin-inline: 0 auto; }
+[dir=ltr] .auth-visual { transform: scaleX(-1); }
+[dir=ltr] .auth-masthead { direction: ltr; }
+[dir=ltr] .account-menu > div { right: 0; left: auto; }
+:root[data-theme=dark] .wake-spinner { border-color: var(--line); border-top-color: var(--yellow); }
+:root[data-theme=dark] .redesigned-shell .topbar { background: var(--canvas); }
+:root[data-theme=dark] .detail-dialog,:root[data-theme=dark] .password-change-page .work-form { background: var(--surface); color: var(--ink); }
+:root[data-theme=dark] .detail-dialog h2,:root[data-theme=dark] .detail-dialog h3 { color: var(--ink); }
+:root[data-theme=dark] .password-change-page { background: var(--canvas); color: var(--ink); }
+:root[data-theme=dark] .detail-dialog input,:root[data-theme=dark] .detail-dialog textarea,:root[data-theme=dark] .password-change-page input { background: var(--canvas); color: var(--ink); border-color: var(--line); }
+:root[data-theme=dark] .auth-visual > img { opacity: .35; filter: none; }
+@media (min-width: 1101px) and (max-width: 1420px) {
+  .redesigned-shell.portal-admin .sidebar { gap: 16px; padding-inline: 24px; }
+  .redesigned-shell.portal-admin .sidebar .nav-button { gap: 6px; padding-inline: 10px; }
+}
+@media (min-width:768px) and (max-width:950px) {
+  [dir=ltr] .redesigned-shell .sidebar .nav-button { font-size: 12px; padding-inline: 9px; }
+  .redesigned-shell .metric-band strong { font-size: 25px; white-space: nowrap; }
+}
+@media(max-width:768px) {
+  .auth-masthead-actions { gap: 0; }.auth-masthead-portal { display: none; }
+  .auth-masthead .language-control { padding-inline: 5px; gap: 4px; }.auth-masthead .language-control select { width: 70px; }
+  .auth-masthead { gap: 12px; }.auth-brand strong { font-size: 24px; }
+  .redesigned-shell .topbar { gap: 10px; flex-wrap: wrap; }
+  .redesigned-shell .topbar-actions { gap: 7px; }
+  .redesigned-shell .topbar-location { min-width: 0; }
+  .redesigned-shell .topbar h1 { font-size: 13px; }
+  .redesigned-shell .account-menu .account-name { display: none; }
+  .redesigned-shell .language-control { padding-inline: 5px; gap: 4px; }
+  .redesigned-shell .language-control select { width: 70px; }
+  .redesigned-shell .preference-controls { gap: 5px; }
+  .redesigned-shell .quick-action { width: 34px; height: 36px; }
+  .redesigned-shell .topbar-date { display: none; }
+  [dir=ltr] .redesigned-shell .sidebar .nav-button .nav-label-short { font-size: 9px; line-height: 1.3; }
+}
+@media(max-width:767px) {
+  .redesigned-shell.portal-admin .nav-list { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .redesigned-shell.learning-shell .nav-list { grid-template-columns: repeat(7,minmax(0,1fr)); }
+  .redesigned-shell .metric-band strong { font-size: 25px; white-space: nowrap; }
+  .redesigned-shell .metric-band { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .redesigned-shell .metric-band > div:nth-child(3) { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+}
+@media(max-width:360px) {
+  .redesigned-shell .topbar-actions { gap: 5px; }.redesigned-shell .topbar h1 { max-width: 75px; overflow-wrap: anywhere; }
+  .auth-brand .brand-monogram { width: 30px; height: 30px; }.redesigned-auth .auth-brand { gap: 6px; }.auth-brand strong { font-size: 22px; }
+}

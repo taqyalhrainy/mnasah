@@ -1,5 +1,6 @@
 import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
+import { paymentRange, paymentSummary } from '../shared/payments.js';
 
 const base = process.env.UI_BASE_URL || 'http://127.0.0.1:5173';
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -39,6 +40,7 @@ async function makePage(role, loggedIn = true) {
     if (/\/auth\/(login|register)$/.test(path)) return route.fulfill({ json: { user } });
     if (path.endsWith('/reminders')) return route.fulfill({ json: { bookings: [] } });
     if (path.endsWith('/catalog')) return route.fulfill({ json: { categories } });
+    if (path.endsWith('/payments')) return route.fulfill({ json: paymentSummary(bookings, paymentRange(Object.fromEntries(new URL(request.url()).searchParams))) });
     if (path.endsWith('/messages')) return route.fulfill({ json: { messages: [{ id: 'message-ui', name: teacher.name, body: 'أهلاً، جاهزين للحصة.', created: now }] } });
     return route.fulfill({ json: { user, bookings, slots, users: [teacher, student], events: [{ id: 'audit-ui', name: owner.name, action: 'user:active', target: teacher.id, created: now }] } });
   });

@@ -1,3 +1,4 @@
+import { t, locale, usePreferences, catalogText } from '../../i18n/preferences';
 import { useState } from 'react';
 import { ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronDown, Clock3, GraduationCap, Video } from 'lucide-react';
 import { date, type Booking, type Portal, type User } from '../../services/platformApi';
@@ -5,6 +6,7 @@ import { date, type Booking, type Portal, type User } from '../../services/platf
 export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, compact = false }: {
   user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; compact?: boolean;
 }) {
+  usePreferences();
   const [weekExpanded, setWeekExpanded] = useState(false);
   const now = Date.now();
   const upcoming = bookings.filter(booking => booking.status === 'confirmed' && booking.start + booking.minutes * 60000 > now).sort((a, b) => a.start - b.start);
@@ -24,24 +26,25 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     onView(next ? 'rooms' : 'available');
   }
   const metrics = [
-    { label: teacher ? 'حصص اليوم' : 'حصص قادمة', value: teacher ? upcoming.filter(booking => new Date(booking.start).toDateString() === today.toDateString()).length : upcoming.length, icon: CalendarDays },
-    { label: 'حصص مكتملة', value: completed, icon: CheckCheck },
-    { label: teacher ? 'مواعيد متاحة' : 'أساتذة متاحون', value: availableCount, icon: teacher ? Clock3 : GraduationCap },
+    { label: teacher ? t("حصص اليوم") : t("حصص قادمة"), value: teacher ? upcoming.filter(booking => new Date(booking.start).toDateString() === today.toDateString()).length : upcoming.length, icon: CalendarDays },
+    { label: t("حصص مكتملة"), value: completed, icon: CheckCheck },
+    { label: teacher ? t("مواعيد متاحة") : t("أساتذة متاحون"), value: availableCount, icon: teacher ? Clock3 : GraduationCap },
   ];
-  return <section className={`workspace-overview ${compact ? 'overview-rail' : ''}`} aria-label="ملخص حسابك">
-    {!compact && <div className="welcome-heading"><div><span className="overview-kicker">{teacher ? 'جدولك اليوم' : 'رحلتك التعليمية'}</span><h2>أهلاً، {user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>{teacher ? 'حصصك ومواعيدك، في مكان واحد.' : 'جاهز لخطوتك القادمة؟'}</p></div><button className="primary-button" onClick={() => onView(teacher ? 'available' : 'rooms')}>{teacher ? <CalendarDays size={17} /> : <Video size={17} />}{teacher ? 'إضافة موعد' : 'غرف حصصي'}<ArrowLeft size={16} /></button></div>}
-    <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{label}</span><strong>{value.toLocaleString('ar-JO')}</strong></div></div>)}</div>
+  return <section className={`workspace-overview ${compact ? 'overview-rail' : ''}`} aria-label={t("ملخص حسابك")}>
+    {!compact && <div className="welcome-heading"><div><span className="overview-kicker">{teacher ? t("جدولك اليوم") : t("رحلتك التعليمية")}</span><h2>{t("أهلاً، ")}{user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>{teacher ? t("حصصك ومواعيدك، في مكان واحد.") : t("جاهز لخطوتك القادمة؟")}</p></div><button className="primary-button" onClick={() => onView(teacher ? 'available' : 'rooms')}>{teacher ? <CalendarDays size={17} /> : <Video size={17} />}{teacher ? t("إضافة موعد") : t("غرف حصصي")}<ArrowLeft size={16} /></button></div>}
+    <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{t(label)}</span><strong>{value.toLocaleString(locale())}</strong></div></div>)}</div>
     <div className="overview-schedule">
       <article className={`next-lesson ${!next ? 'no-next-lesson' : ''}`}>
-        <div className="next-lesson-body"><span className="next-lesson-kicker"><span />{next ? next.start <= now ? 'حصة جارية' : 'على جدولك' : 'جدولك مفتوح'}</span><h3>{next?.subject || 'لا توجد حصص قادمة'}</h3><p>{next ? `${teacher ? next.student_name : next.teacher_name} · ${date(next.start)}` : teacher ? 'مواعيد متاحة: ' + availableCount : 'أساتذة متاحون: ' + availableCount}</p></div>
-        <div className="next-lesson-mark" aria-hidden="true">{next ? <><strong>{new Date(next.start).toLocaleDateString('ar-JO', { day: 'numeric' })}</strong><span>{new Date(next.start).toLocaleDateString('ar-JO', { month: 'short' })}</span><small>{next.minutes} دقيقة</small></> : <GraduationCap size={72} strokeWidth={1} />}</div>
-        <button className="primary-button" onClick={openNext}>{next ? <Video size={18} /> : <BookOpen size={18} />}{next ? 'عرض الغرفة' : teacher ? 'إضافة موعد' : 'استكشف المجالات'}<ArrowLeft size={17} /></button>
+        <div className="next-lesson-body"><span className="next-lesson-kicker"><span />{next ? next.start <= now ? t("حصة جارية") : t("على جدولك") : t("جدولك مفتوح")}</span><h3>{next ? catalogText(next.subject) : t("لا توجد حصص قادمة")}</h3><p>{next ? `${teacher ? next.student_name : next.teacher_name} · ${date(next.start)}` : teacher ? t("مواعيد متاحة: ") + availableCount : t("أساتذة متاحون: ") + availableCount}</p></div>
+        <div className="next-lesson-mark" aria-hidden="true">{next ? <><strong>{new Date(next.start).toLocaleDateString(locale(), { day: 'numeric' })}</strong><span>{new Date(next.start).toLocaleDateString(locale(), { month: 'short' })}</span><small>{next.minutes}{t(" دقيقة")}</small></> : <GraduationCap size={72} strokeWidth={1} />}</div>
+        <button className="primary-button" onClick={openNext}>{next ? <Video size={18} /> : <BookOpen size={18} />}{next ? t("عرض الغرفة") : teacher ? t("إضافة موعد") : t("استكشف المجالات")}<ArrowLeft size={17} /></button>
       </article>
-      <section className={`week-agenda ${weekExpanded ? 'expanded' : ''}`} aria-label="حصص الأسبوع"><div className="section-heading"><h3>أسبوعك</h3><div className="agenda-actions"><button className="icon-button agenda-toggle" title={weekExpanded ? 'طي ملخّص الأسبوع' : 'عرض ملخّص الأسبوع'} aria-expanded={weekExpanded} aria-controls={`weekly-summary-${portal} week-metrics-${portal}`} onClick={() => setWeekExpanded(value => !value)}><ChevronDown size={18} /></button><button className="icon-button" title="عرض جدول الحصص" onClick={() => onView(teacher ? 'booked' : 'rooms')}><ArrowLeft size={18} /></button></div></div><div className="agenda-days" id={`weekly-summary-${portal}`}>{days.map(({ day, count }, index) => <div className={index === 0 ? 'agenda-day today' : 'agenda-day'} key={day.getTime()}><span>{day.toLocaleDateString('ar-JO', { weekday: 'short' })}</span><strong>{day.toLocaleDateString('ar-JO', { day: 'numeric' })}</strong><i className={count ? 'has-lessons' : ''} title={`${count} حصة`} /></div>)}</div><div className="agenda-footer"><CalendarDays size={16} /><span>{upcoming.filter(booking => booking.start < days[6].day.getTime() + 86400000).length} حصص خلال الأيام السبعة القادمة</span></div></section>
+      <section className={`week-agenda ${weekExpanded ? 'expanded' : ''}`} aria-label={t("حصص الأسبوع")}><div className="section-heading"><h3>{t("أسبوعك")}</h3><div className="agenda-actions"><button className="icon-button agenda-toggle" title={weekExpanded ? t("طي ملخّص الأسبوع") : t("عرض ملخّص الأسبوع")} aria-expanded={weekExpanded} aria-controls={`weekly-summary-${portal} week-metrics-${portal}`} onClick={() => setWeekExpanded(value => !value)}><ChevronDown size={18} /></button><button className="icon-button" title={t("عرض جدول الحصص")} onClick={() => onView(teacher ? 'booked' : 'rooms')}><ArrowLeft size={18} /></button></div></div><div className="agenda-days" id={`weekly-summary-${portal}`}>{days.map(({ day, count }, index) => <div className={index === 0 ? 'agenda-day today' : 'agenda-day'} key={day.getTime()}><span>{day.toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{day.toLocaleDateString(locale(), { day: 'numeric' })}</strong><i className={count ? 'has-lessons' : ''} title={t("{v0} حصة", { v0: count })} /></div>)}</div><div className="agenda-footer"><CalendarDays size={16} /><span>{upcoming.filter(booking => booking.start < days[6].day.getTime() + 86400000).length}{t(" حصص خلال الأيام السبعة القادمة")}</span></div></section>
     </div>
   </section>;
 }
 
 export function WorkspaceSkeleton() {
-  return <div className="workspace-skeleton" role="status" aria-label="جارٍ تحميل البيانات"><span className="sr-only">جارٍ تحميل البيانات…</span><div /><div className="skeleton-row"><span /><span /><span /></div><div /><div className="skeleton-row"><span /><span /><span /></div></div>;
+  usePreferences();
+  return <div className="workspace-skeleton" role="status" aria-label={t("جارٍ تحميل البيانات")}><span className="sr-only">{t("جارٍ تحميل البيانات…")}</span><div /><div className="skeleton-row"><span /><span /><span /></div><div /><div className="skeleton-row"><span /><span /><span /></div></div>;
 }

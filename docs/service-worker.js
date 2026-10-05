@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mansah-shell-v3';
+const CACHE_NAME = 'mansah-shell-v4';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'icon.svg', 'manifest.webmanifest'].map(shellUrl);
@@ -24,7 +24,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith((async () => {

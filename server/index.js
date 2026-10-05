@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
+import { paymentRange, paymentSummary } from '../shared/payments.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -70,6 +71,7 @@ async function connect() {
     db.collection('sessions').createIndex({ token: 1 }, { unique: true }),
     db.collection('sessions').createIndex({ expires: 1 }, { expireAfterSeconds: 0 }),
     db.collection('slots').createIndex({ teacher_id: 1, start: 1 }),
+    db.collection('slots').createIndex({ start: 1 }),
     db.collection('bookings').createIndex({ slot_id: 1 }),
     db.collection('bookings').createIndex({ student_id: 1 }),
     db.collection('messages').createIndex({ booking_id: 1, created: 1 }),
@@ -282,6 +284,12 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json(result.data);
     }
     if (path === 'catalog') return res.json(await handleCatalog(user, write, body));
+    if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
+      const range = paymentRange(req.query);
+      const slots = await db.collection('slots').find({ start: { $gte: range.from, $lt: range.until }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { id: 1 } }).toArray();
+      const bookings = await db.collection('bookings').find({ status: 'completed', slot_id: { $in: slots.map(slot => slot.id) } }, { projection: { _id: 0 } }).toArray();
+      return res.json(paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 15));
+    }
     if (path === 'users' && user.role === 'admin' && !write) return res.json({ users: (await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray()).map(publicUser) });
     if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
       const id = path.split('/')[1];

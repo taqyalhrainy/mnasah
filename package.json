@@ -18,7 +18,7 @@
     "backend": "node server/index.js",
     "dev:backend": "node --watch server/index.js",
     "start": "node server/index.js",
-    "test": "node --test tests/api.test.mjs tests/chat-server.test.mjs",
+    "test": "node --test tests/api.test.mjs tests/chat-server.test.mjs tests/payments.test.mjs",
     "preview": "vite preview",
     "server": "wrangler dev --port 8787"
   },

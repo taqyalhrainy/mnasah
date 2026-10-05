@@ -3,6 +3,7 @@ import { getUser, publicUser, passwordHash, equal, random } from './auth.js';
 import { catalog } from './catalog.js';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { sqlChatStore } from './chat-store.js';
+import { paymentRange, paymentSummary } from '../shared/payments.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
@@ -46,6 +47,11 @@ export async function api(request, env, portal, path, body) {
     return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? ORDER BY s.start DESC LIMIT 500`, user.id) };
   }
   if (path === 'catalog') return catalog(env, user, write, body);
+  if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
+    const range = paymentRange(Object.fromEntries(new URL(request.url).searchParams));
+    const rows = await all(env, `${bookingSelect} WHERE b.status='completed' AND s.start>=? AND s.start<?${user.role === 'teachers' ? ' AND s.teacher_id=?' : ''} ORDER BY s.start DESC`, range.from, range.until, ...(user.role === 'teachers' ? [user.id] : []));
+    return paymentSummary(rows, range, commissionPercent(env));
+  }
   if (user.role === 'teachers' && !write && ['home', 'booked', 'available', 'history'].includes(path)) {
     return { bookings: await all(env, `${bookingSelect} WHERE s.teacher_id=? ORDER BY s.start DESC LIMIT 500`, user.id), slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
   }

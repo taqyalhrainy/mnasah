@@ -1,3 +1,4 @@
+import { t } from '../../i18n/preferences';
 import { useEffect, useRef, useState } from 'react';
 import { request, type Booking, type Portal } from '../../services/platformApi';
 
@@ -67,8 +68,8 @@ export function useLessonReminders(portal: Portal, userId: string, revision: num
         history = Object.fromEntries(Object.entries(history).filter(([, time]) => typeof time === 'number' && time > Date.now() - 86400000));
         history[noticeKey] = Date.now();
         try { localStorage.setItem(historyKey, JSON.stringify(history)); } catch { /* Private mode may block writes. */ }
-        const title = phase === 'soon' ? 'اقترب موعد حصتك' : 'حان موعد حصتك';
-        const body = phase === 'soon' ? `${lesson.subject} تبدأ خلال ${Math.ceil((lesson.start - now) / 60000)} دقيقة.` : `${lesson.subject} بدأت الآن.`;
+        const title = phase === 'soon' ? t("اقترب موعد حصتك") : t("حان موعد حصتك");
+        const body = phase === 'soon' ? t("{v0} تبدأ خلال {v1} دقيقة.", { v0: lesson.subject, v1: Math.ceil((lesson.start - now) / 60000) }) : t("{v0} بدأت الآن.", { v0: lesson.subject });
         const context = audio.current;
         if (context?.state === 'running') {
           const oscillator = context.createOscillator(), gain = context.createGain();
@@ -85,7 +86,7 @@ export function useLessonReminders(portal: Portal, userId: string, revision: num
           try {
             const registration = await navigator.serviceWorker.getRegistration();
             if (registration && active.current) await registration.showNotification(title, { body, icon: '/icon.svg', tag: `mansah-${noticeKey}`, data: { url: `/${portal}?lesson=${encodeURIComponent(lesson.id)}` } });
-          } catch { if (active.current) setHint('تعذر عرض إشعار الجهاز؛ تنبيه الحصة ظاهر داخل الموقع.'); }
+          } catch { if (active.current) setHint(t("تعذر عرض إشعار الجهاز؛ تنبيه الحصة ظاهر داخل الموقع.")); }
         }
       };
       if (navigator.locks) void navigator.locks.request(`${key}:delivery`, send).catch(() => {});
@@ -99,7 +100,7 @@ export function useLessonReminders(portal: Portal, userId: string, revision: num
     try { if ('Notification' in window) permission = await Notification.requestPermission(); } catch {}
     if (!active.current) return;
     setEnabled(true);
-    setHint(permission === 'granted' ? 'تم تفعيل إشعارات الحصص.' : 'تنبيهات الموقع مفعلة؛ إشعارات الجهاز غير مسموحة أو غير مدعومة.');
+    setHint(permission === 'granted' ? t("تم تفعيل إشعارات الحصص.") : t("تنبيهات الموقع مفعلة؛ إشعارات الجهاز غير مسموحة أو غير مدعومة."));
     try { localStorage.setItem(key, '1'); } catch {}
   }
   return { now, upcoming, enabled, hint, toggle };

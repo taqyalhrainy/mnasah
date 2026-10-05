@@ -17,7 +17,7 @@ async function pageFor(user) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' }); contexts.push(context);
   await context.addCookies([{ name: `mansah_session_${user.role}`, value: `${user.id}-token`, url: base }]);
   const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-  await page.goto(`${base}/${user.role}`);
+  await page.goto(`${base}/${user.role}`, { waitUntil: 'domcontentloaded' });
   await page.locator('.nav-list').getByRole('button', { name: 'الرسائل', exact: true }).click();
   await page.getByRole('button', { name: `محادثة ${user.role === 'students' ? users[0].name : users[1].name}`, exact: true }).waitFor();
   return page;
