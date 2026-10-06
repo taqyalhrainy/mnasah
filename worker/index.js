@@ -8,15 +8,17 @@ export default {
     const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' };
     try {
       if (url.pathname.startsWith('/api/')) {
-        const write = request.method !== 'GET';
-        if (!['GET', 'POST'].includes(request.method)) fail(405, 'طريقة غير مدعومة.');
-        if (write && (request.headers.get('origin') !== url.origin || !request.headers.get('content-type')?.startsWith('application/json'))) fail(403, 'مصدر الطلب غير صالح.');
-        let body = {};
-        if (write) { const raw = await request.text(); if (raw.length > 16000) fail(413, 'الطلب أكبر من المسموح.'); try { body = JSON.parse(raw); } catch { fail(400, 'طلب غير صالح.'); } if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'طلب غير صالح.'); }
         const [, , portal, ...parts] = url.pathname.split('/');
         const path = parts.join('/');
+        const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path);
+        const write = request.method !== 'GET';
+        if (!['GET', 'POST'].includes(request.method)) fail(405, 'طريقة غير مدعومة.');
+        if (write && (request.headers.get('origin') !== url.origin || !request.headers.get('content-type')?.startsWith(upload ? 'application/octet-stream' : 'application/json'))) fail(403, 'مصدر الطلب غير صالح.');
+        let body = {};
+        if (write && !upload) { const raw = await request.text(); if (raw.length > 16000) fail(413, 'الطلب أكبر من المسموح.'); try { body = JSON.parse(raw); } catch { fail(400, 'طلب غير صالح.'); } if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'طلب غير صالح.'); }
         if (portal === 'auth' && ((path === 'me') !== !write)) fail(405, 'طريقة غير مدعومة.');
         const data = portal === 'auth' ? await auth(request, env, path, body) : await api(request, env, portal, path, body);
+        if (data instanceof Response) return data;
         if (data.cookie) { headers['Set-Cookie'] = data.cookie; delete data.cookie; }
         return Response.json(data, { headers });
       }

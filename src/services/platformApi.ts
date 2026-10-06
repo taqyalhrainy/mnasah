@@ -6,6 +6,7 @@ export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?
 export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string; teacher_present_until?: number; student_present_until?: number };
 export type Message = { id: string; body: string; created: number; name: string };
 const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+export const apiUrl = (path: string) => `${apiBase}/api/${path}`;
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', signal, ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
   let data;

@@ -1,3 +1,4 @@
+import { messageAttachments, resolveAttachments } from './chat-attachments.js';
 export const chatDefaults = { readReceipts: true, showPresence: true, notifications: true, sounds: false };
 export const quickReactions = ['❤️', '👍', '😂', '🔥', '👏', '🎉'];
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
@@ -48,8 +49,8 @@ async function serializeMessages(store, rows, p, user) {
   const reactions = await store.reactions(rows.map(row => row.id));
   const replies = await Promise.all(rows.map(row => row.reply_to ? store.message(row.reply_to) : null));
   return rows.map((row, index) => ({
-    id: row.id, author_id: row.author_id, body: row.body, media_url: row.media_url || '', created: row.created,
-    reply: replies[index] && replies[index].thread_id === row.thread_id && replies[index].created > (p.mine.deleted_at || 0) ? { id: replies[index].id, body: replies[index].body, media_url: replies[index].media_url, author_id: replies[index].author_id } : null,
+    id: row.id, author_id: row.author_id, body: row.body, media_url: row.media_url || '', created: row.created, attachments: messageAttachments(row),
+    reply: replies[index] && replies[index].thread_id === row.thread_id && replies[index].created > (p.mine.deleted_at || 0) ? { id: replies[index].id, body: replies[index].body, media_url: replies[index].media_url, author_id: replies[index].author_id, attachments: messageAttachments(replies[index]) } : null,
     reactions: quickReactions.flatMap(emoji => {
       const matches = reactions.filter(r => r.message_id === row.id && r.emoji === emoji);
       return matches.length ? [{ emoji, count: matches.length, mine: matches.some(r => r.user_id === user.id) }] : [];
@@ -86,7 +87,7 @@ export async function handleChat({ store, user, path, write, body = {}, query = 
     const threads = await Promise.all(rows.map(async row => {
       const p = await participants(store, row, user);
       const summary = await store.summary(row.id, user.id, Math.max(p.mine.deleted_at || 0, p.mine.read_at || 0), p.mine.deleted_at || 0);
-      return { ...threadInfo(row, p), unread: summary.unread, lastMessage: summary.last ? { id: summary.last.id, body: summary.last.body, media_url: summary.last.media_url, created: summary.last.created, author_id: summary.last.author_id } : null };
+      return { ...threadInfo(row, p), unread: summary.unread, lastMessage: summary.last ? { id: summary.last.id, body: summary.last.body, media_url: summary.last.media_url, created: summary.last.created, author_id: summary.last.author_id, attachments: messageAttachments(summary.last) } : null };
     }));
     threads.sort((a, b) => (b.lastMessage?.created || b.created) - (a.lastMessage?.created || a.created));
     return { data: { threads, settings: await settings() }, notify: [] };
@@ -156,14 +157,16 @@ export async function handleChat({ store, user, path, write, body = {}, query = 
     }
     const messageBody = text(body.body || '');
     const media = body.media_url ? gifUrl(text(body.media_url, 1000)) : '';
-    if (!messageBody && !media) fail(400, 'اكتب رسالة أو اختر GIF.');
+    const attachments = await resolveAttachments(store, user, id, messageId, body.attachments || []);
+    if (!messageBody && !media && !attachments.length) fail(400, 'اكتب رسالة أو اختر ملفاً أو GIF.');
     const replyId = text(body.reply_to || '', 100);
     if (replyId) {
       const reply = await store.message(replyId);
       if (!reply || reply.thread_id !== id || reply.created <= (p.mine.deleted_at || 0)) fail(404, 'الرسالة الأصلية غير موجودة.');
     }
-    const message = { id: messageId, thread_id: id, author_id: user.id, body: messageBody, media_url: media, reply_to: replyId, created: Math.max(Date.now(), (p.mine.deleted_at || 0) + 1, (p.theirs.deleted_at || 0) + 1) };
+    const message = { id: messageId, thread_id: id, author_id: user.id, body: messageBody, media_url: media, attachments, reply_to: replyId, created: Math.max(Date.now(), (p.mine.deleted_at || 0) + 1, (p.theirs.deleted_at || 0) + 1) };
     await store.insertMessage(message);
+    if (attachments.length) await store.finalizeAttachments(attachments.map(file => file.id));
     await Promise.all([store.updateMember(id, user.id, { hidden: 0, typing_until: 0 }), store.updateMember(id, p.peerId, { hidden: 0 })]);
     return { data: { message: (await serializeMessages(store, [message], p, user))[0] }, notify, threadId: id };
   }

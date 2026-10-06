@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, blob, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(), email: text('email').notNull().unique(), name: text('name').notNull(),
@@ -49,8 +49,18 @@ export const chatMembers = sqliteTable('chat_members', {
 export const chatSettings = sqliteTable('chat_settings', { userId: text('user_id').primaryKey().references(() => users.id), value: text('value').notNull().default('{}') });
 export const directMessages = sqliteTable('direct_messages', {
   id: text('id').primaryKey(), threadId: text('thread_id').notNull().references(() => conversations.id), authorId: text('author_id').notNull().references(() => users.id),
-  body: text('body').notNull().default(''), mediaUrl: text('media_url').notNull().default(''), replyTo: text('reply_to').notNull().default(''), created: integer('created').notNull(),
+  body: text('body').notNull().default(''), mediaUrl: text('media_url').notNull().default(''), attachments: text('attachments').notNull().default('[]'), replyTo: text('reply_to').notNull().default(''), created: integer('created').notNull(),
 }, t => [index('direct_messages_thread_created').on(t.threadId, t.created, t.id)]);
 export const chatReactions = sqliteTable('chat_reactions', {
   messageId: text('message_id').notNull().references(() => directMessages.id), userId: text('user_id').notNull().references(() => users.id), emoji: text('emoji').notNull(),
 }, t => [primaryKey({ columns: [t.messageId, t.userId, t.emoji] })]);
+export const chatAttachments = sqliteTable('chat_attachments', {
+  id: text('id').primaryKey(), threadId: text('thread_id').notNull().references(() => conversations.id),
+  authorId: text('author_id').notNull().references(() => users.id), messageId: text('message_id').notNull(),
+  name: text('name').notNull(), size: integer('size').notNull(), previewType: text('preview_type').notNull().default(''),
+  ready: integer('ready').notNull().default(0), created: integer('created').notNull(), expiresAt: integer('expires_at').notNull(),
+}, t => [index('chat_attachments_author_created').on(t.authorId, t.created), index('chat_attachments_expires').on(t.expiresAt)]);
+export const chatFileChunks = sqliteTable('chat_file_chunks', {
+  attachmentId: text('attachment_id').notNull().references(() => chatAttachments.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(), data: blob('data', { mode: 'buffer' }).notNull(),
+}, t => [primaryKey({ columns: [t.attachmentId, t.position] })]);

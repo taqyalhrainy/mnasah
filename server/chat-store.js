@@ -35,6 +35,13 @@ export function mongoChatStore(db) {
     messages: (threadId, deletedAt, before, beforeId) => messages.find({ thread_id: threadId, created: { $gt: deletedAt }, ...(before ? { $or: [{ created: { $lt: before, $gt: deletedAt } }, { created: before, id: { $lt: beforeId } }] } : {}) }, { projection: { _id: 0 } }).sort({ created: -1, id: -1 }).limit(51).toArray(),
     message: id => messages.findOne({ id }, { projection: { _id: 0 } }),
     insertMessage: message => messages.insertOne(message),
+    attachment: id => db.collection('chat_attachments').findOne({ id }, { projection: { _id: 0 } }),
+    saveAttachment: file => db.collection('chat_attachments').insertOne(file),
+    updateAttachment: (id, changes) => db.collection('chat_attachments').updateOne({ id }, { $set: changes }),
+    removeAttachment: id => db.collection('chat_attachments').deleteOne({ id }),
+    recentAttachments: (userId, since) => db.collection('chat_attachments').find({ author_id: userId, created: { $gt: since } }).limit(201).toArray(),
+    expiredAttachments: now => db.collection('chat_attachments').find({ expires_at: { $gt: 0, $lt: now } }).limit(50).toArray(),
+    finalizeAttachments: ids => Promise.all(ids.map(id => db.collection('chat_attachments').updateOne({ id }, { $set: { expires_at: 0 } }))),
     reactions: ids => db.collection('chat_reactions').find({ message_id: { $in: ids } }, { projection: { _id: 0 } }).toArray(),
     setReaction: (messageId, userId, emoji, active) => active
       ? db.collection('chat_reactions').updateOne({ message_id: messageId, user_id: userId, emoji }, { $setOnInsert: { message_id: messageId, user_id: userId, emoji } }, { upsert: true })

@@ -9,6 +9,7 @@ import { Server } from 'socket.io';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
+import { serveChatAttachment } from './chat-attachments.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -59,6 +60,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 let db;
 let client;
+let attachmentBytes;
 async function connect() {
   if (db) return db;
   if (!MONGODB_URI) fail(500, 'MongoDB غير مضبوط على الخادم.');
@@ -83,6 +85,9 @@ async function connect() {
     db.collection('direct_messages').createIndex({ id: 1 }, { unique: true }),
     db.collection('direct_messages').createIndex({ thread_id: 1, created: -1, id: -1 }),
     db.collection('chat_reactions').createIndex({ message_id: 1, user_id: 1, emoji: 1 }, { unique: true }),
+    db.collection('chat_attachments').createIndex({ id: 1 }, { unique: true }),
+    db.collection('chat_attachments').createIndex({ author_id: 1, created: 1 }),
+    db.collection('chat_attachments').createIndex({ expires_at: 1 }),
     db.collection('catalog').createIndex({ kind: 1, position: 1 }),
   ]);
   await seedCatalog();
@@ -276,6 +281,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (user.status !== 'active') fail(403, 'هذا الحساب بانتظار موافقة الإدارة.');
     if (path.startsWith('chat/')) {
       if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
+      if (await serveChatAttachment(req, res, { db, user, path, ...(attachmentBytes ? { bytes: attachmentBytes } : {}) })) return;
       const result = await handleChat({ store: mongoChatStore(db), user, path, write, body, query: req.query });
       for (const userId of result.notify) {
         if (path.endsWith('/typing')) io.to(`chat:${userId}`).emit('chat:typing', { threadId: path.split('/')[2], authorId: user.id, active: body.active === true });
@@ -436,8 +442,9 @@ app.use((error, _req, res, _next) => {
   res.status(error.status || 500).json({ error: error.status ? error.message : 'تعذر تنفيذ الطلب الآن. حاول مجدداً.' });
 });
 
-export function startPlatformServer({ database, port = PORT } = {}) {
+export function startPlatformServer({ database, attachmentStore, port = PORT } = {}) {
   if (database) db = database;
+  if (attachmentStore) attachmentBytes = attachmentStore;
   return new Promise(resolve => httpServer.listen(port, () => {
     console.log(`Mansah backend listening on port ${httpServer.address().port}`);
     connect().then(() => console.log('MongoDB connection warmed.')).catch(error => {

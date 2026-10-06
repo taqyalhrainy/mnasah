@@ -29,7 +29,12 @@ export function sqlChatStore(env) {
     },
     messages: (threadId, deletedAt, before, beforeId) => all(env, `SELECT * FROM direct_messages WHERE thread_id=? AND created>? ${before ? 'AND (created<? OR (created=? AND id<?))' : ''} ORDER BY created DESC,id DESC LIMIT 51`, threadId, deletedAt, ...(before ? [before, before, beforeId] : [])),
     message: id => one(env, 'SELECT * FROM direct_messages WHERE id=?', id),
-    insertMessage: m => run(env, 'INSERT INTO direct_messages (id,thread_id,author_id,body,media_url,reply_to,created) VALUES (?,?,?,?,?,?,?)', m.id, m.thread_id, m.author_id, m.body, m.media_url, m.reply_to, m.created),
+    insertMessage: m => run(env, 'INSERT INTO direct_messages (id,thread_id,author_id,body,media_url,reply_to,created,attachments) VALUES (?,?,?,?,?,?,?,?)', m.id, m.thread_id, m.author_id, m.body, m.media_url, m.reply_to, m.created, JSON.stringify(m.attachments || [])),
+    attachment: id => one(env, 'SELECT * FROM chat_attachments WHERE id=?', id),
+    recentAttachments: (userId, since) => all(env, 'SELECT * FROM chat_attachments WHERE author_id=? AND created>? LIMIT 201', userId, since),
+    expiredAttachments: now => all(env, 'SELECT * FROM chat_attachments WHERE expires_at>0 AND expires_at<? LIMIT 5', now),
+    removeAttachment: id => run(env, 'DELETE FROM chat_attachments WHERE id=?', id),
+    finalizeAttachments: ids => ids.length && run(env, `UPDATE chat_attachments SET expires_at=0 WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids),
     reactions: ids => ids.length ? all(env, `SELECT * FROM chat_reactions WHERE message_id IN (${ids.map(() => '?').join(',')})`, ...ids) : [],
     setReaction: (messageId, userId, emoji, active) => active
       ? run(env, 'INSERT OR IGNORE INTO chat_reactions (message_id,user_id,emoji) VALUES (?,?,?)', messageId, userId, emoji)

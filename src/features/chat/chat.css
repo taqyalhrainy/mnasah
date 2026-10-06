@@ -45,7 +45,7 @@
 .dm-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; text-align: start; border: 0; border-radius: 5px; color: var(--ink); background: none; font-size: 12px; }
 .dm-menu button:hover { background: var(--dm-hover,#efebf6); }
 .dm-menu button:last-child { color: #e397a2; }
-.dm-timeline { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 28px; scrollbar-width: thin; overscroll-behavior: contain; }
+.dm-timeline { flex: 1 1 0; height: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 28px; scrollbar-width: thin; overscroll-behavior: contain; }
 .dm-day { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 5px 0 20px; font-size: 10px; color: var(--muted); }
 .dm-day::before,.dm-day::after { content: ''; width: 45px; height: 1px; background: var(--line); }
 .dm-message { position: relative; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; width: fit-content; max-width: 85%; margin: 0 0 18px; }
@@ -69,12 +69,27 @@
 .dm-reply-quote { display: flex; align-items: center; gap: 5px; max-width: 100%; margin: 0 0 8px; padding: 7px 8px; border: 0; border-inline-start: 2px solid var(--yellow); border-radius: 4px; background: #08041612; color: var(--muted); font-size: 11px; }
 .dm-reply-quote span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dm-gif { display: block; width: min(240px,100%); max-height: 190px; object-fit: contain; border-radius: 8px; margin-bottom: 6px; }
+.dm-attachments { display: grid; gap: 7px; min-width: min(280px,70vw); margin: 4px 0 8px; }
+.dm-attachment { overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--dm-input,#fff); }
+.dm-attachment > img { display: block; width: 100%; max-height: 220px; object-fit: contain; background: #08070c; }
+.dm-attachment > div { display: flex; align-items: center; gap: 8px; padding: 9px; }
+.dm-attachment > div > span { display: grid; flex: 1; min-width: 0; }
+.dm-attachment b,.dm-upload-list b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; font-weight: 600; }
+.dm-attachment small,.dm-upload-list small { color: var(--muted); font-size: 9px; }
+.dm-attachment button { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 7px; background: var(--dm-hover,#eee8f7); color: var(--ink); }
 .dm-typing-line { display: flex; align-items: center; gap: 8px; min-height: 25px; padding: 0 27px; color: var(--muted); font-size: 10px; }
 .dm-typing-dots { display: inline-flex; align-items: center; gap: 4px; height: 18px; }
 .dm-typing-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: dm-dot 1s infinite; }
 .dm-typing-dots i:nth-child(2) { animation-delay: .15s; }.dm-typing-dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes dm-dot { 0%,60%,100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-3px); opacity: 1; } }
 .dm-composer { display: flex; align-items: center; gap: 7px; padding: 10px; margin: 0 18px; min-width: 0; border: 1px solid var(--dm-selected-line,#d4c5ed); border-radius: 11px; background: var(--dm-input,#fff); }
+.dm-file-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.dm-upload-list { display: flex; gap: 8px; overflow-x: auto; margin: 0 18px 8px; padding: 3px 1px; }
+.dm-upload-list > div { display: flex; position: relative; align-items: center; gap: 7px; flex: 0 0 210px; min-width: 0; padding: 7px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--dm-input,#fff); }
+.dm-upload-list img { width: 38px; height: 38px; flex: 0 0 38px; object-fit: cover; border-radius: 6px; }
+.dm-upload-list > div > span { display: grid; flex: 1; min-width: 0; }
+.dm-upload-list i { position: absolute; bottom: 0; inset-inline-start: 0; height: 2px; background: var(--yellow); transition: width .15s; }
+.dm-upload-list .icon-button { flex: 0 0 26px; width: 26px; height: 26px; border: 0; }
 .dm-composer .icon-button { width: 32px; height: 32px; border: 0; background: none; color: var(--muted); }
 .dm-composer textarea { flex: 1; min-width: 0; max-height: 100px; min-height: 32px; padding: 6px 0; border: 0; outline: 0; resize: vertical; color: var(--ink); background: none; font-size: 13px; }
 .dm-send { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--yellow); color: #201a13; }

@@ -1,6 +1,7 @@
 import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
@@ -9,7 +10,13 @@ const users = [
   { id: 'student-ui', name: 'سارة أحمد', email: 'student@example.test', role: 'students', status: 'active', subject: '', bio: '' },
 ];
 const db = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(`${user.id}-token`).digest('hex'), expires: Date.now() + 3600000 })), slots: [{ id: 'slot-ui', teacher_id: users[0].id, start: Date.now() - 86400000, minutes: 60, price: 1000, subject: 'رياضيات', status: 'booked' }], bookings: [{ id: 'booking-ui', slot_id: 'slot-ui', student_id: users[1].id, status: 'completed', notes: '', resource: '', paid: 1, created: Date.now() - 86400000 }], catalog: [{ id: 'math', kind: 'category', name: 'رياضيات', levels: [], subjects: ['رياضيات'] }] });
-const { httpServer, io } = await startPlatformServer({ database: db, port: 0 });
+const storedFiles = new Map();
+const attachmentStore = {
+  async write(id, _name, source) { const parts = []; for await (const part of source) parts.push(Buffer.from(part)); storedFiles.set(id, Buffer.concat(parts)); },
+  read: id => Readable.from(storedFiles.get(id) || []),
+  async remove(id) { storedFiles.delete(id); },
+};
+const { httpServer, io } = await startPlatformServer({ database: db, attachmentStore, port: 0 });
 const base = `http://127.0.0.1:${httpServer.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const contexts = []; const errors = [];
@@ -58,6 +65,18 @@ try {
   await student.getByRole('button', { name: 'صور GIF', exact: true }).click();
   await student.getByRole('button', { name: 'إرسال GIF رائع', exact: true }).click();
   await teacher.locator('.dm-message .dm-gif').waitFor();
+  await student.getByLabel('اختيار ملفات').setInputFiles([
+    { name: 'واجب-الرياضيات.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7 Mansah') },
+    { name: 'رسم.png', mimeType: 'image/png', buffer: Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]) },
+  ]);
+  await student.getByText('واجب-الرياضيات.pdf', { exact: true }).waitFor();
+  await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
+  await teacher.getByRole('button', { name: 'تنزيل واجب-الرياضيات.pdf', exact: true }).waitFor({ timeout: 3000 });
+  await teacher.locator('.dm-attachment img').waitFor();
+  const downloadEvent = teacher.waitForEvent('download');
+  await teacher.getByRole('button', { name: 'تنزيل واجب-الرياضيات.pdf', exact: true }).click();
+  const downloaded = await downloadEvent;
+  assert.equal(downloaded.suggestedFilename(), 'واجب-الرياضيات.pdf');
   await teacher.getByRole('button', { name: 'إعدادات الرسائل', exact: true }).click();
   await teacher.getByRole('checkbox', { name: /إظهار تمت القراءة/ }).uncheck();
   await teacher.getByRole('checkbox', { name: /إظهار حالة الاتصال/ }).uncheck();
@@ -71,7 +90,9 @@ try {
   await layout(student);
   await student.screenshot({ path: '.private/chat-conversation-desktop.png', fullPage: true });
   for (const width of [1024, 768, 390, 320]) {
-    await student.setViewportSize({ width, height: width < 768 ? 844 : 1000 }); await layout(student);
+    await student.setViewportSize({ width, height: width < 768 ? 844 : 1000 });
+    await student.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await layout(student);
     if (width === 390) await student.screenshot({ path: '.private/chat-conversation-mobile.png', fullPage: true });
   }
   await student.getByRole('button', { name: 'العودة للمحادثات', exact: true }).click();

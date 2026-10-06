@@ -30,6 +30,12 @@ test('authorization and the full reservation lifecycle', async () => {
     if (response.headers.has('set-cookie')) clients[who] = response.headers.get('set-cookie').split(';')[0];
     return body;
   }
+  async function uploadFile(who, path, messageId, name, bytes, expected = 200) {
+    const query = new URLSearchParams({ messageId, name, size: String(bytes.length) });
+    const request = new Request(`https://mansah.test/api/${path}?${query}`, { method: 'POST', headers: { cookie: clients[who] || '', origin: 'https://mansah.test', 'content-type': 'application/octet-stream' }, body: bytes });
+    const response = await worker.fetch(request, env); const body = await response.json();
+    assert.equal(response.status, expected, `${path}: ${JSON.stringify(body)}`); return body;
+  }
   const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role });
   await call('guest', 'admin/users', undefined, 401);
   await call('guest', 'auth/register', credentials('evil@test.com', 'admin'), 403);
@@ -173,6 +179,15 @@ test('authorization and the full reservation lifecycle', async () => {
   await new Promise(resolve => setTimeout(resolve, 2));
   await call('teacher', `${teacherDmPath}/messages`, { id: crypto.randomUUID(), body: 'رسالة جديدة' });
   assert.equal((await call('student', dmPath)).messages.length, 1);
+  const fileMessageId = crypto.randomUUID();
+  const fileBytes = new TextEncoder().encode('%PDF-1.7 worker attachment');
+  const uploadedFile = (await uploadFile('student', `${dmPath}/attachments`, fileMessageId, 'worksheet.pdf', fileBytes)).attachment;
+  let attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${uploadedFile.id}`, { headers: { cookie: clients.teacher } }), env);
+  assert.equal(attachmentResponse.status, 404, 'A pending attachment is private until its message is committed');
+  await call('student', `${dmPath}/messages`, { id: fileMessageId, attachments: [uploadedFile.id] });
+  attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${uploadedFile.id}`, { headers: { cookie: clients.teacher } }), env);
+  assert.equal(attachmentResponse.status, 200); assert.deepEqual(new Uint8Array(await attachmentResponse.arrayBuffer()), fileBytes);
+  assert.match(attachmentResponse.headers.get('content-disposition'), /^attachment;/);
   await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
   await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);
   await call('student', `students/bookings/${reservation.id}/cancel`, {});
