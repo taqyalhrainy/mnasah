@@ -139,7 +139,7 @@ try {
     const legacyIntro = page.locator('.teacher-legacy-lockup');
     await legacyIntro.waitFor();
     assert.equal(await legacyIntro.getAttribute('aria-label'), 'نحن امتداد لمعلمينا');
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1750);
     const desktopBounds = await legacyIntro.boundingBox();
     const desktopShowcaseBounds = await page.locator('.home-showcase').boundingBox();
     assert(desktopBounds && desktopShowcaseBounds && desktopBounds.x >= desktopShowcaseBounds.x && desktopBounds.x + desktopBounds.width <= desktopShowcaseBounds.x + desktopShowcaseBounds.width, 'Teacher intro must stay inside the desktop showcase');
@@ -149,7 +149,7 @@ try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('.teacher-legacy-lockup').waitFor();
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1750);
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(mobileOverflow <= 1, `Teacher intro created ${mobileOverflow}px of horizontal overflow on mobile`);
     await page.screenshot({ path: '.private/teacher-legacy-ar-390.png', fullPage: true });

@@ -18,7 +18,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     greetedDuringThisVisit.add(greetingKey);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setStage('ready'); return; }
     const timers = teacher
-      ? [window.setTimeout(() => setStage('hello'), 1400), window.setTimeout(() => setStage('question'), 2700), window.setTimeout(() => setStage('ready'), 4050)]
+      ? [window.setTimeout(() => setStage('hello'), 1950), window.setTimeout(() => setStage('question'), 3250), window.setTimeout(() => setStage('ready'), 4600)]
       : [window.setTimeout(() => setStage('question'), 1350), window.setTimeout(() => setStage('ready'), 2700)];
     return () => timers.forEach(timer => window.clearTimeout(timer));
   }, [greetingKey, teacher]);
