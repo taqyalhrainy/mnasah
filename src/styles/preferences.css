@@ -51,7 +51,10 @@
 }
 @media(max-width:767px) {
   .redesigned-shell.portal-admin .nav-list { grid-template-columns: repeat(6,minmax(0,1fr)); }
-  .redesigned-shell.learning-shell .nav-list { grid-template-columns: repeat(7,minmax(0,1fr)); }
+  .redesigned-shell.learning-shell .nav-list { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .redesigned-shell.learning-shell .sidebar-account { display: none !important; }
+  .redesigned-shell.learning-shell > .mobile-account { position: fixed; z-index: 115; top: 18px; bottom: auto; left: 18px; right: auto; display: block; width: auto; margin: 0; }
+  .redesigned-shell.learning-shell > .mobile-account .account-dropdown { top: calc(100% + 8px); left: 0; right: auto; }
   .redesigned-shell .metric-band strong { font-size: 25px; white-space: nowrap; }
   .redesigned-shell .metric-band { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .redesigned-shell .metric-band > div:nth-child(3) { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }

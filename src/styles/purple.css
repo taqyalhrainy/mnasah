@@ -57,6 +57,15 @@
 :root[data-theme=dark] .account-menu > div { background: #241a2f; color: var(--ink); border-color: var(--line); }
 :root[data-theme=dark] .account-menu button,:root[data-theme=dark] .account-menu a { color: var(--ink); }
 :root[data-theme=dark] .account-menu button:hover,:root[data-theme=dark] .account-menu a:hover { background: #392645; }
+:root[data-theme=dark] .learning-shell .sidebar-account > summary:hover { background: #2c2137; }
+:root[data-theme=dark] .account-dropdown .account-preferences { border-color: var(--line); }
+:root[data-theme=dark] .account-dropdown .account-logout { color: #ffaaa1; }
+:root[data-theme=dark] .home-showcase { color: #211d17; background: linear-gradient(135deg,#f2d56c,#e8cd78 52%,#eed781); background-color: #e8cd78; }
+:root[data-theme=dark] .home-showcase .muted { color: #625a38; }
+:root[data-theme=dark] .home-showcase .showcase-flow h3 { color: #211d17; }
+:root[data-theme=dark] .home-showcase .tutor-info p,:root[data-theme=dark] .home-showcase .tutor-actions b { color: #211d17; }
+:root[data-theme=dark] .home-showcase .tutor-info small,:root[data-theme=dark] .home-showcase .tutor-info time,:root[data-theme=dark] .home-showcase .tutor-actions small { color: #514619; }
+@media (max-width:767px) { :root[data-theme=dark] .learning-shell > .mobile-account > summary { background: #241a2f; } }
 :root[data-theme=dark] .greeting-dot { color: var(--yellow); }
 :root[data-theme=dark] .metric-icon,:root[data-theme=dark] .metric-1 .metric-icon,:root[data-theme=dark] .metric-2 .metric-icon { background: #392847; color: #ddc0fa; }
 :root[data-theme=dark] .metric-1 .metric-icon { background: #38302a; color: var(--yellow); }

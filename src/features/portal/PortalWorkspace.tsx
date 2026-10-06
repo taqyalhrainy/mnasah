@@ -1,7 +1,7 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
-import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
-import { BookOpen, CalendarPlus, Check, ChevronLeft, CreditCard, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight } from 'lucide-react';
-import { request, date, money, statusNames, type Booking, type Slot, type Portal, type User, type Message } from '../../services/platformApi';
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { BookOpen, CalendarPlus, Check, ChevronLeft, CreditCard, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2 } from 'lucide-react';
+import { request, date, money, statusNames, type Booking, type Slot, type Portal, type User, type Message, type CustomPackage } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
@@ -76,6 +76,9 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [studentLevel, setStudentLevel] = useState('');
   const [studentSubject, setStudentSubject] = useState('');
   const [teachingChoices, setTeachingChoices] = useState<TeachingChoice[]>([]);
+  const [customPackages, setCustomPackages] = useState<CustomPackage[]>(() => user.custom_packages || []);
+  const [teacherPackageKey, setTeacherPackageKey] = useState('');
+  const [buildingCustomPackage, setBuildingCustomPackage] = useState(false);
   const [availabilityDay, setAvailabilityDay] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); });
   const [availabilityMode, setAvailabilityMode] = useState<'range' | 'custom'>('range');
   const [selected, setSelected] = useState<string | null>(null);
@@ -156,6 +159,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   useEffect(() => {
     if (catalog.length) setTeachingChoices(parseTeachingChoices(user.subject, catalog));
   }, [catalog, user.subject]);
+  useEffect(() => { setCustomPackages(user.custom_packages || []); }, [user.custom_packages]);
   useEffect(() => {
     if (!selected) return;
     let alive = true; setMessages([]);
@@ -218,7 +222,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const myTutors = [...teacherMap.values()];
   const categories = catalog.map(category => [category.id, category.name, category.description, category.icon] as const);
   const catalogSubjects = [...new Set(catalog.flatMap(category => category.subjects))];
-  const teacherSubjects = [...new Set(teachingChoices.map(choice => choice.subject))];
+  const teacherSubjects = [...new Set([...teachingChoices.map(choice => choice.subject), ...customPackages.map(item => item.name)])];
   const activeCategory = catalog.find(category => category.id === categoryId);
   const levels = activeCategory?.levels || [];
   const subjects = activeCategory?.subjects || [];
@@ -241,6 +245,37 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       const without = current.filter(choice => teachingChoiceKey(choice.categoryId, choice.subject) !== key);
       return levels.length ? uniqueTeachingChoices([...without, { categoryId: category.id, categoryName: category.name, subject, levels: category.levels.filter(item => levels.includes(item)) }]) : without;
     });
+  }
+  const builtInPackages = catalog.flatMap(category => category.subjects.map(subject => ({ key: teachingChoiceKey(category.id, subject), category, subject })));
+  const selectedBuiltInPackage = builtInPackages.find(item => item.key === teacherPackageKey);
+  const selectedCustomPackage = teacherPackageKey.startsWith('custom:') ? customPackages.find(item => `custom:${item.id}` === teacherPackageKey) : undefined;
+  const commonLevels = [...new Set(catalog.flatMap(category => category.levels))];
+  async function saveTeacherProfile(nextChoices = teachingChoices, nextPackages = customPackages, message = t('تم حفظ المواد والمستويات التي تدرسها.')) {
+    await act(async () => {
+      const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject: serializeTeachingChoices(nextChoices), custom_packages: nextPackages });
+      setCustomPackages(result.user.custom_packages || nextPackages);
+      onUser(result.user);
+    }, message);
+  }
+  async function createCustomPackage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const name = String(data.get('name') || '').trim();
+    if (!name) { setError(t('اكتب اسم الباقة أولاً.')); return; }
+    const typedLevels = String(data.get('custom_levels') || '').split(/[،,\n]/).map(value => value.trim()).filter(Boolean);
+    const levels = [...new Set([...data.getAll('level').map(String), ...typedLevels])];
+    const item: CustomPackage = { id: crypto.randomUUID?.() || `custom-${Date.now()}`, name, description: String(data.get('description') || '').trim(), levels };
+    const nextPackages = [...customPackages, item];
+    setCustomPackages(nextPackages);
+    setBuildingCustomPackage(false);
+    setTeacherPackageKey(`custom:${item.id}`);
+    await saveTeacherProfile(teachingChoices, nextPackages, t('تم إنشاء باقتك الخاصة وحفظها.'));
+  }
+  async function deleteCustomPackage(item: CustomPackage) {
+    if (!window.confirm(t('حذف الباقة الخاصة {v0}؟', { v0: item.name }))) return;
+    const nextPackages = customPackages.filter(value => value.id !== item.id);
+    setCustomPackages(nextPackages); setTeacherPackageKey('');
+    await saveTeacherProfile(teachingChoices, nextPackages, t('تم حذف الباقة الخاصة.'));
   }
   const subjectSlots = openSlots.filter(s => {
     if (!studentSubject) return true;
@@ -267,6 +302,23 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     if (availabilityMode === 'custom' && start <= Date.now()) { setError(t("اختر وقتاً مخصصاً بعد الوقت الحالي.")); return; }
     if (await act(() => post('slots', { subject: data.subject, start, minutes, available_until: availabilityMode === 'range' ? end : start + minutes * 60000, price: Math.round(Number(data.price) * 100) }), t("تم نشر الموعد."))) form.reset();
   }}><div className="availability-form-head"><h3>{t("إضافة توفر")}</h3><p>{weekDays.find(d => d.value === availabilityDay)?.name} · {weekDays.find(d => d.value === availabilityDay)?.label}</p></div><label>{t("المادة")}<select name="subject" defaultValue={studentSubject || 'كل المواد المختارة'}>{teacherSubjects.length > 1 && <option value="كل المواد المختارة">{t("كل المواد المختارة")}</option>}{(teacherSubjects.length ? teacherSubjects : [user.subject || studentSubject || studentCategory]).map(subject => <option key={subject} value={subject}>{catalogText(subject)}</option>)}</select></label><label>{t("السعر بالدينار")}<input name="price" type="number" min="0" max="1000" step="0.01" required /></label><div className="availability-mode" role="tablist"><button type="button" className={availabilityMode === 'range' ? 'selected' : ''} onClick={() => setAvailabilityMode('range')}>{t("فترة زمنية")}</button><button type="button" className={availabilityMode === 'custom' ? 'selected' : ''} onClick={() => setAvailabilityMode('custom')}>{t("وقت مخصص")}</button></div>{availabilityMode === 'range' ? <><div className="availability-time-row"><label>{t("متاح من")}<input name="from" type="time" defaultValue="16:00" required /></label><label>{t("متاح إلى")}<input name="to" type="time" defaultValue="22:00" required /></label></div><label>{t("مدة الحصة")}<select name="minutes" defaultValue="60">{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n}{t(" دقيقة")}</option>)}</select></label></> : <div className="availability-time-row"><label>{t("الوقت")}<input name="time" type="time" defaultValue="16:00" required /></label><label>{t("مدة الحصة")}<select name="minutes" defaultValue="60">{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n}{t(" دقيقة")}</option>)}</select></label></div>}<button className="primary-button" disabled={busy}><CalendarPlus size={17} />{t("نشر التوفر")}</button></form>;
+  const teacherPackageExplorer = <div className="package-explorer">
+    {!teacherPackageKey && !buildingCustomPackage && <>
+      <div className="showcase-heading"><div><span>{t('ملفك التعليمي')}</span><h2>{t('شو حاب تدرّس؟')}</h2><p>{t('اختر مادة وعدّل المستويات، أو اصنع باقتك الخاصة من الصفر.')}</p></div><small>{t('{v0} باقات محفوظة', { v0: teachingChoices.length + customPackages.length })}</small></div>
+      <div className="package-grid">{builtInPackages.map(({ key, category, subject }, index) => {
+        const chosen = teachingChoices.some(choice => teachingChoiceKey(choice.categoryId, choice.subject) === key);
+        return <button type="button" className={`package-card ${chosen ? 'chosen' : ''}`} style={{ '--package-delay': `${Math.min(index, 12) * 45}ms` } as CSSProperties} key={key} onClick={() => setTeacherPackageKey(key)}><span className="package-icon"><CategoryIcon value={category.icon} /></span><strong>{catalogText(subject)}</strong><small>{t(category.name)}</small>{chosen && <Check size={16} />}</button>;
+      })}<button type="button" className="package-card custom-package-card" onClick={() => setBuildingCustomPackage(true)}><span className="package-icon"><Plus size={23} /></span><strong>{t('أخرى')}</strong><small>{t('اصنع باقتك')}</small></button>{customPackages.map((item, index) => <button type="button" className="package-card chosen custom-saved-package" style={{ '--package-delay': `${Math.min(index + builtInPackages.length, 12) * 45}ms` } as CSSProperties} key={item.id} onClick={() => setTeacherPackageKey(`custom:${item.id}`)}><span className="package-icon"><Sparkles size={22} /></span><strong>{item.name}</strong><small>{t('باقة خاصة')}</small><Check size={16} /></button>)}</div>
+    </>}
+    {selectedBuiltInPackage && (() => {
+      const { category, subject } = selectedBuiltInPackage;
+      const choice = teachingChoices.find(item => item.categoryId === category.id && item.subject === subject);
+      const allLevels = Boolean(choice && category.levels.length && category.levels.every(level => choice.levels.includes(level)));
+      return <div className="package-detail"><button type="button" className="package-back" onClick={() => setTeacherPackageKey('')}><ArrowRight size={18} />{t('كل المواد')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('أووه، عنا وحش {v0} جديد!', { v0: catalogText(subject) })}</h2><p>{t(category.description)}</p></div>{category.levels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{category.levels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void saveTeacherProfile()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
+    })()}
+    {selectedCustomPackage && <div className="package-detail custom-package-detail"><button type="button" className="package-back" onClick={() => setTeacherPackageKey('')}><ArrowRight size={18} />{t('كل المواد')}</button><div className="package-detail-copy"><span>{t('باقتك الخاصة')}</span><h2>{selectedCustomPackage.name}</h2><p>{selectedCustomPackage.description || t('باقة مرنة صنعتها بطريقتك.')}</p></div><div className="package-levels static-levels">{selectedCustomPackage.levels.length ? selectedCustomPackage.levels.map(level => <span key={level}>{level}</span>) : <span>{t('مناسبة لجميع المستويات')}</span>}</div><div className="package-actions"><button type="button" className="secondary-button danger-action" disabled={busy} onClick={() => void deleteCustomPackage(selectedCustomPackage)}><Trash2 size={17} />{t('حذف الباقة')}</button></div></div>}
+    {buildingCustomPackage && <form className="custom-package-builder" onSubmit={createCustomPackage}><button type="button" className="package-back" onClick={() => setBuildingCustomPackage(false)}><ArrowRight size={18} />{t('كل المواد')}</button><div className="package-detail-copy"><span>{t('صمّمها على كيفك')}</span><h2>{t('باقة جديدة باسمك')}</h2><p>{t('اكتب المادة وحدد المستويات التي تناسبك؛ ستظهر لاحقاً ضمن موادك ومواعيدك.')}</p></div><div className="custom-package-fields"><label>{t('اسم المادة أو الباقة')}<input name="name" maxLength={80} required placeholder={t('مثلاً: روبوتكس للمبتدئين')} /></label><label>{t('وصف قصير')}<textarea name="description" maxLength={240} rows={2} placeholder={t('ما الذي يميز هذه الباقة؟')} /></label></div><fieldset className="custom-level-picker"><legend>{t('اختر المستويات')}</legend>{commonLevels.map(level => <label key={level}><input type="checkbox" name="level" value={level} />{t(level)}</label>)}</fieldset><label className="custom-levels-input">{t('مستويات أخرى (افصل بينها بفاصلة أو سطر)')}<textarea name="custom_levels" rows={2} placeholder={t('مبتدئ، متوسط، متقدم')} /></label><button className="primary-button" disabled={busy}><Plus size={17} />{t('إنشاء الباقة وحفظها')}</button></form>}
+  </div>;
   const lessonDetails = current && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelected(null)} className="detail-dialog" aria-labelledby="lesson-title"><div className="section-heading"><h2 id="lesson-title">{catalogText(current.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelected(null)}><X size={20} /></button></div>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<p>{current.teacher_name} · {current.student_name}</p><p>{date(current.start)} · {money(current.price)}</p><span className={`badge ${current.status}`}>{t(statusNames[current.status])}</span>
     <div className="lesson-notes"><h3>{t("ملخص الحصة والواجب")}</h3><p>{current.notes || t("لا يوجد ملخص بعد.")}</p>{current.resource && <a href={current.resource} target="_blank" rel="noopener noreferrer">{t("فتح المادة التعليمية")}</a>}</div>
     {portal === 'admin' && <form className="work-form" key={`payment-${current.id}-${current.paid}`} onSubmit={e => { e.preventDefault(); const data = formData(e.currentTarget); void act(() => post(`bookings/${current.id}/payment`, { paid: current.paid ? 0 : 1, reference: data.reference || '' })); }}><h3>{current.paid ? t("الدفعة مسجلة") : t("تسجيل دفعة مستلمة")}</h3><label>{t("مرجع الحوالة أو الإيصال")}<input name="reference" defaultValue={current.payment_ref} maxLength={200} required={!current.paid} /></label><button className="secondary-button" disabled={busy}>{current.paid ? t("عكس تسجيل الدفعة") : t("تأكيد الاستلام اليدوي")}</button></form>}
@@ -305,13 +357,14 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
       {view === 'home' && <section className="student-home">
-        <div className="welcome-heading student-welcome"><div><span className="overview-kicker">{t("مساحتك التعليمية")}</span><h2>{t("أهلاً، ")}{user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>{t("جاهز لخطوتك الجاية؟")}</p></div><button className="secondary-button" onClick={() => onView('rooms')}><Video size={18} />{t("غرف حصصي")}<ChevronLeft size={16} /></button></div>
-        <WorkspaceOverview compact user={user} portal={portal} bookings={bookings} availableCount={new Set(openSlots.map(slot => slot.teacher_id)).size} onView={onView} />
-        <div className="student-home-grid"><div className="discovery-workspace">
-        <div className="student-hero" id="learning-path"><div><span className="section-kicker">{t("مجالات التعلّم")}</span><h2>{t("شو بدك تتعلّم؟")}</h2></div>{studentSearch}</div>
-        {studentStep === 'categories' && <div className="category-grid">{categories.map(([id, title, desc, icon], index) => <button key={id} className="category-card" onClick={() => chooseCategory(id, title)}><span className="category-icon"><CategoryIcon value={icon} /></span><span className="category-copy"><small className="category-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</small><strong>{t(title)}</strong><p>{t(desc)}</p></span><ChevronLeft size={21} /></button>)}</div>}
-        {studentStep !== 'categories' && <div className="student-flow"><div className="discovery-path"><button className="text-button back-to-categories" onClick={() => { setStudentStep('categories'); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}><ArrowRight size={16} />{t("العودة للتصنيفات")}</button><ChevronLeft size={15} /><button className="text-button" onClick={() => { setStudentStep(levels.length ? 'levels' : subjects.length ? 'subjects' : 'tutors'); setStudentLevel(''); setStudentSubject(''); }}>{t(studentCategory)}</button>{studentLevel && <><ChevronLeft size={15} /><button className="text-button" onClick={() => { setStudentStep('subjects'); setStudentSubject(''); }}>{t(studentLevel)}</button></>}{studentSubject && <><ChevronLeft size={15} /><span>{catalogText(studentSubject)}</span></>}</div><h3>{studentStep === 'levels' ? t("اختر مستواك الدراسي") : studentStep === 'subjects' ? t("اختر المادة") : t("موعدك مع التعلّم")}</h3>{studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{t(level)}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'subjects' && <div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentStep('tutors'); }} key={subject}>{catalogText(subject)}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'tutors' && <TutorList slots={subjectSlots} busy={busy} bookSlot={bookSlot} />}</div>}
-        </div><section className="available-tutors"><div className="section-heading"><div><span className="section-kicker">{t("أقرب المواعيد")}</span><h3>{t("احجز حصتك القادمة")}</h3></div><button className="text-button" onClick={() => { setStudentStep('tutors'); setStudentSubject(''); setStudentCategory(''); setStudentLevel(''); setCategoryId(''); }}>{t("الكل")}<ChevronLeft size={16} /></button></div><TutorList slots={openSlots.slice(0, 6)} busy={busy} bookSlot={bookSlot} compact /></section></div>
+        <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={new Set(openSlots.map(slot => slot.teacher_id)).size} onView={onView}>
+          <div className="student-package-explorer" id="learning-path">
+            <div className="showcase-heading"><div><span>{t('مساحتك التعليمية')}</span><h2>{studentStep === 'categories' ? t('شو حاب تتعلّم؟') : t(studentCategory)}</h2><p>{studentStep === 'categories' ? t('اختار المجال، وإحنا بنوصلك للأستاذ والموعد المناسب.') : t(activeCategory?.description || 'كل سؤال، بداية جديدة.')}</p></div>{studentSearch}</div>
+            {studentStep === 'categories' && <div className="package-grid student-package-grid">{categories.map(([id, title, desc, icon], index) => <button key={id} className="package-card" style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} onClick={() => chooseCategory(id, title)}><span className="package-icon"><CategoryIcon value={icon} /></span><strong>{t(title)}</strong><small>{t(desc)}</small><ChevronLeft size={18} /></button>)}</div>}
+            {studentStep !== 'categories' && <div className="student-flow showcase-flow"><button className="package-back" onClick={() => { setStudentStep('categories'); setStudentCategory(''); setStudentLevel(''); setStudentSubject(''); }}><ArrowRight size={18} />{t('كل المجالات')}</button><h3>{studentStep === 'levels' ? t('اختر مستواك الدراسي') : studentStep === 'subjects' ? t('اختر المادة') : t('المواعيد المناسبة إلك')}</h3>{studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{t(level)}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'subjects' && <div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentStep('tutors'); }} key={subject}>{catalogText(subject)}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'tutors' && <TutorList slots={subjectSlots} busy={busy} bookSlot={bookSlot} />}</div>}
+          </div>
+        </WorkspaceOverview>
+        <section className="available-tutors home-nearest-tutors"><div className="section-heading"><div><span className="section-kicker">{t('أقرب المواعيد')}</span><h3>{t('احجز حصتك القادمة')}</h3></div><button className="text-button" onClick={() => { setStudentStep('tutors'); setStudentSubject(''); setStudentCategory(''); setStudentLevel(''); setCategoryId(''); }}>{t('الكل')}<ChevronLeft size={16} /></button></div><TutorList slots={openSlots.slice(0, 6)} busy={busy} bookSlot={bookSlot} compact /></section>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} />}
       {view === 'tutors' && <section className="student-page"><h2>{t("أساتذتي")}</h2>{!myTutors.length && <Empty text="لم تحجز مع أي أستاذ بعد." />}<div className="student-list">{myTutors.map(b => <article className="saved-tutor" key={b.teacher_id}><div className="avatar"><UserRound size={24} /></div><div><strong>{b.teacher_name}</strong><p>{catalogText(b.subject)}{t(" · آخر حصة ")}{date(b.start)}</p></div><button className="primary-button" onClick={() => onView('home')}>{t("احجز مجدداً")}</button></article>)}</div></section>}
@@ -327,19 +380,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
       {view === 'home' && <section className="tutor-home">
-        <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={openSlots.length} onView={onView} />
-        <form className="teaching-picker" onSubmit={async e => { e.preventDefault(); const subject = serializeTeachingChoices(teachingChoices); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject }); onUser(result.user); }, t("تم حفظ المواد والمستويات التي تدرسها.")); }}>
-          <div className="section-heading"><div><span className="section-kicker">{t("ملفك التعليمي")}</span><h3>{t("مجالاتك وموادك")}</h3></div><button className="primary-button" disabled={busy}><Save size={17} />{t("حفظ")}</button></div>
-          <div className="category-grid teaching-category-grid">{catalog.map(category => <details className="category-card teaching-category-card" key={category.id}><summary><span><CategoryIcon value={category.icon} /></span><strong>{t(category.name)}</strong><p>{t(category.description)}</p><ChevronLeft size={18} /></summary><div className="teaching-subjects">{category.subjects.map(subject => {
-            const choice = teachingChoices.find(item => item.categoryId === category.id && item.subject === subject);
-            const allLevels = Boolean(choice && category.levels.length && category.levels.every(level => choice.levels.includes(level)));
-            const subjectCheckbox = <label className="teaching-subject-main" onClick={event => event.stopPropagation()}><input type="checkbox" aria-label={t("تدريس {v0}", { v0: catalogText(subject) })} checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{catalogText(subject)}</label>;
-            if (!category.levels.length) return <div className="teaching-subject-row no-levels" key={subject}>{subjectCheckbox}</div>;
-            const selectionSummary = !choice ? t("اختيار المستويات") : allLevels ? t("كل المستويات") : choice.levels.length === 1 ? t("مستوى واحد مختار") : t("{v0} مستويات مختارة", { v0: choice.levels.length });
-            return <details className="teaching-subject-row teaching-level-picker" key={subject}><summary>{subjectCheckbox}<span className="teaching-level-summary">{t(selectionSummary)}</span><ChevronLeft size={17} /></summary><div className="teaching-levels" aria-label={t("مستويات {v0}", { v0: catalogText(subject) })}><label className="teaching-level-option all-levels"><input type="checkbox" aria-label={t("كل مستويات {v0}", { v0: catalogText(subject) })} checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t("كل المستويات")}</label>{category.levels.map(level => <label className="teaching-level-option" key={level}><input type="checkbox" aria-label={`${catalogText(subject)} - ${t(level)}`} checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div></details>;
-          })}</div></details>)}</div>
-          <div className="selected-teaching"><strong>{t("المواد والمستويات المختارة")}</strong>{teachingChoices.length ? <div>{teachingChoices.map(choice => <span key={teachingChoiceKey(choice.categoryId, choice.subject)}>{teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))}</span>)}</div> : <p className="muted">{t("لم تختر مواد بعد.")}</p>}</div>
-        </form>
+        <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={openSlots.length} onView={onView}>{teacherPackageExplorer}</WorkspaceOverview>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} />}
       {view === 'booked' && <section className="student-page"><div className="section-heading"><h2>{t("المواعيد المحجوزة")}</h2><div className="history-tabs"><button onClick={() => setFilter('today')}>{t("اليوم")}</button><button onClick={() => setFilter('tomorrow')}>{t("غداً")}</button><button onClick={() => setFilter('week')}>{t("الأسبوع")}</button></div></div>{!teacherBooked.length && <Empty text="لا توجد حصص محجوزة حالياً." />}<div className="history-list">{teacherBooked.map((b, i) => <article className={i === 0 ? 'next-booking' : ''} key={b.id}><BookOpen size={20} /><div><strong>{catalogText(b.subject)}</strong><p>{b.student_name} · {date(b.start)} · {b.minutes}{t(" دقيقة")}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>{t("التفاصيل")}</button></article>)}</div></section>}

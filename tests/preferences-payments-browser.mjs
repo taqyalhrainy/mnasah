@@ -54,8 +54,8 @@ async function layout(page, name) {
   if (issues.length) await page.screenshot({ path: '.private/preferences-failure.png', fullPage: true });
   assert.deepEqual(issues, [], name);
 }
-async function makePage(role, loggedIn = true) {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block', timezoneId: 'Asia/Amman', colorScheme: 'light' });
+async function makePage(role, loggedIn = true, reducedMotion = 'reduce') {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion, serviceWorkers: 'block', timezoneId: 'Asia/Amman', colorScheme: 'light' });
   const page = await context.newPage(), mutations = [], ranges = [];
   page.on('pageerror', error => failures.push(error.message));
   await page.route('**/api/**', async route => {
@@ -78,13 +78,18 @@ try {
   for (const role of ['admin', 'teachers', 'students']) {
     const { page, context, mutations } = await makePage(role);
     for (const language of ['en', 'ar']) {
-      await page.locator('.language-control select').selectOption(language);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      if (role !== 'admin' && await page.locator('.sidebar-account').getAttribute('open') === null) await page.locator('.sidebar-account summary').click();
+      await page.locator('.language-control select:visible').selectOption(language);
       assert.equal(await page.locator('html').getAttribute('lang'), language);
       assert.equal(await page.locator('html').getAttribute('dir'), language === 'ar' ? 'rtl' : 'ltr');
       for (const theme of ['dark', 'light']) {
-        if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('.theme-control').click();
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        if (role !== 'admin' && await page.locator('.sidebar-account').getAttribute('open') === null) await page.locator('.sidebar-account summary').click();
+        if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('.theme-control:visible').click();
         assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
         for (const width of [1440, 1024, 768, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `${role} ${language} ${theme} ${width}`); }
+        if (role !== 'admin' && await page.locator('.sidebar-account').getAttribute('open') !== null) await page.locator('.sidebar-account').evaluate(node => node.removeAttribute('open'));
         const navigation = await page.locator('.nav-list button').count();
         for (let index = 0; index < navigation; index++) {
           await page.locator('.nav-list button').nth(index).click();
@@ -93,17 +98,18 @@ try {
         }
         if (theme === 'dark') {
           await page.setViewportSize({ width: 1440, height: 1000 });
-          await page.locator('.account-menu > summary').click(); await layout(page, `${role} dark account menu`); await page.locator('.account-menu > summary').click();
+          await page.locator('.account-menu > summary:visible').click(); await layout(page, `${role} dark account menu`); await page.locator('.account-menu > summary:visible').click();
           if (role === 'students') {
-            await page.locator('.nav-list button').nth(0).click(); await page.locator('.category-card').first().click(); await layout(page, 'Dark study levels');
+            await page.locator('.nav-list button').nth(0).click(); await page.locator('.student-package-grid .package-card').first().click(); await layout(page, 'Dark study levels');
             await page.locator('.choice-grid button').first().click(); await layout(page, 'Dark study subjects');
             await page.locator('.choice-grid button').first().click(); await layout(page, 'Dark tutor results');
-            await page.locator('.back-to-categories').click();
+            await page.locator('.package-back').click();
             await page.locator('.nav-list button').nth(5).click(); await page.locator('.history-list .secondary-button').first().click(); await page.locator('.detail-dialog').waitFor();
             await layout(page, 'Dark lesson detail dialog'); await page.locator('.detail-dialog .section-heading .icon-button').click();
           } else if (role === 'teachers') {
-            await page.locator('.nav-list button').nth(0).click(); await page.locator('.teaching-category-card > summary').first().click();
-            await page.locator('.teaching-level-picker > summary').first().click(); await layout(page, 'Dark teaching levels');
+            await page.locator('.nav-list button').nth(0).click(); await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
+            if (await page.locator('.package-grid .package-card').count()) await page.locator('.package-grid .package-card').first().click();
+            await layout(page, 'Dark teaching levels');
             await page.locator('.nav-list button').nth(4).click(); await page.locator('.week-board button').first().click(); await layout(page, 'Dark available slot details');
           } else {
             await page.locator('.nav-list button').nth(1).click(); await page.locator('.account-row .row-actions').first().locator('button').last().click(); await page.locator('.detail-dialog').waitFor();
@@ -115,7 +121,8 @@ try {
       }
     }
     if (role === 'teachers') {
-      await page.locator('.language-control select').selectOption('en');
+      await page.setViewportSize({ width: 1440, height: 1000 }); await page.locator('.sidebar-account summary').click();
+      await page.locator('.language-control select:visible').selectOption('en');
       await page.locator('.nav-list').getByRole('button', { name: 'Available', exact: true }).click();
       await page.locator('select[name=subject]').selectOption('رياضيات');
       assert.equal(await page.locator('select[name=subject]').inputValue(), 'رياضيات', 'Translated labels must not change submitted subject IDs');
@@ -127,6 +134,18 @@ try {
     await context.close();
     console.log(`${role}: both themes and languages, surfaces, contrast and layouts passed.`);
   }
+  {
+    const { page, context } = await makePage('teachers', true, 'no-preference');
+    await page.locator('.home-intro').waitFor();
+    await page.locator('.package-grid').waitFor({ timeout: 5000 });
+    await page.locator('.nav-list').getByRole('button', { name: 'الغرف', exact: true }).click();
+    await page.locator('.nav-list').getByRole('button', { name: 'الرئيسية', exact: true }).click();
+    await page.locator('.package-grid').waitFor();
+    assert.equal(await page.locator('.home-intro').count(), 0, 'greeting does not replay during in-app navigation');
+    await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('.workspace-content').waitFor();
+    await page.locator('.home-intro').waitFor();
+    await context.close();
+  }
   for (const role of ['admin', 'teachers']) {
     const { page, context, ranges } = await makePage(role);
     await page.getByRole('button', { name: 'المستحقات', exact: true }).click(); await page.locator('.payment-summary-card').waitFor();
@@ -136,7 +155,8 @@ try {
     if (role === 'admin') { await page.getByLabel('فلترة حسب الأستاذ').selectOption('teacher'); assert.equal(await page.locator('.payment-total .payment-amount').textContent(), new Intl.NumberFormat('ar-JO', { style: 'currency', currency: 'JOD' }).format(15)); await page.getByLabel('فلترة حسب الأستاذ').selectOption('all'); }
     await page.locator('.payment-lessons-toggle').click(); assert.equal(await page.locator('.payment-lesson-row').count(), role === 'admin' ? 2 : 1);
     const download = page.waitForEvent('download'); await page.getByTitle('تنزيل التقرير CSV').click(); const file = await download; assert.match(file.suggestedFilename(), /mansah-payments-.*\.csv/); const csv = await readFile(await file.path(), 'utf8'); assert.match(csv, /رياضيات/); assert.doesNotMatch(csv, /cancelled|990\.000/);
-    await page.locator('.language-control select').selectOption('en'); await page.locator('.theme-control').click();
+    if (role === 'teachers') await page.locator('.sidebar-account summary').click();
+    await page.locator('.language-control select:visible').selectOption('en'); await page.locator('.theme-control:visible').click();
     for (const width of [1440, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `Payments details ${role} ${width}`); if (width !== 320) await page.screenshot({ path: `.private/payments-${role}-en-dark-${width}.png`, fullPage: true }); }
     await page.getByTitle('Select dates').click(); await page.locator('.payment-calendar-dialog').waitFor();
     for (const width of [1440, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `Calendar ${role} ${width}`); }
@@ -153,13 +173,13 @@ try {
     assert.equal(await page.locator('.payment-calendar-dialog').getByRole('alert').textContent(), 'Select one day or a range of up to 31 days.');
     await page.locator('.payment-calendar-dialog').getByRole('button', { name: 'Today', exact: true }).click(); await page.getByRole('button', { name: 'Apply dates', exact: true }).click(); await page.locator('.payment-loading').waitFor({ state: 'detached' }); assert.equal(ranges.at(-1).start, ranges.at(-1).end);
     await page.getByTitle('Previous week').click(); await page.locator('.payment-loading').waitFor({ state: 'detached' }); assert.equal(await page.locator('.payment-lessons-toggle').count(), 0); assert.equal(await page.locator('.payment-total .payment-amount').textContent(), new Intl.NumberFormat('en-JO', { style: 'currency', currency: 'JOD' }).format(0));
-    await page.getByTitle('Back to summary').click(); await page.locator('.language-control select').selectOption('ar');
+    await page.getByTitle('Back to summary').click(); await page.setViewportSize({ width: 1440, height: 1000 }); await page.locator('.language-control select:visible').selectOption('ar');
     for (const width of [1440, 390]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `${role} dark empty summary ${width}`); await page.screenshot({ path: `.private/payments-${role}-ar-dark-empty-${width}.png`, fullPage: true }); }
     await context.close();
   }
   for (const role of ['students', 'teachers', 'admin']) {
     const { page, context } = await makePage(role, false);
-    await page.locator('.language-control select').selectOption('en'); await page.locator('.theme-control').click();
+    await page.locator('.language-control select:visible').selectOption('en'); await page.locator('.theme-control:visible').click();
     assert.equal(await page.locator('.auth-form h1').textContent(), 'Sign in');
     await page.locator('input[name=email]').fill('test@example.test'); await page.locator('input[name=password]').fill('not-a-real-password'); await page.locator('.auth-submit').click(); assert.equal(await page.getByRole('alert').textContent(), 'Incorrect sign-in details for this portal.');
     for (const width of [1440, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `${role} English dark sign in ${width}`); }

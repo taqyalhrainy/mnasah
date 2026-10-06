@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN custom_packages TEXT NOT NULL DEFAULT '[]';

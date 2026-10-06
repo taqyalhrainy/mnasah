@@ -5,6 +5,7 @@ import { handleChat, ensureChat } from '../shared/chat.js';
 import { sqlChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
 import { workerChatAttachment } from './chat-attachments.js';
+import { serializeCustomPackages } from '../shared/custom-packages.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
@@ -26,7 +27,7 @@ export async function api(request, env, portal, path, body) {
   if (!user.development_access && user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'انتهت صلاحية كلمة المرور المؤقتة. راجع الإدارة.');
   if (!user.development_access && user.must_change_password && path !== 'password') fail(403, 'يجب تغيير كلمة المرور المؤقتة أولاً.');
   if (path === 'profile') {
-    if (write) await run(env, 'UPDATE users SET name=?,subject=?,bio=?,academic_level=?,phone=? WHERE id=?', field(body.name, 100), field(body.subject || '', 4000, 0), field(body.bio || '', 2000, 0), field(body.academic_level || '', 100, 0), field(body.phone || '', 40, 0), user.id);
+    if (write) await run(env, 'UPDATE users SET name=?,subject=?,bio=?,academic_level=?,phone=?,custom_packages=? WHERE id=?', field(body.name, 100), field(body.subject || '', 4000, 0), field(body.bio || '', 2000, 0), field(body.academic_level || '', 100, 0), field(body.phone || '', 40, 0), body.custom_packages === undefined ? (user.custom_packages || '[]') : serializeCustomPackages(body.custom_packages), user.id);
     return { user: publicUser({ ...await one(env, 'SELECT * FROM users WHERE id=?', user.id), development_access: user.development_access }) };
   }
   if (path === 'password' && write) {

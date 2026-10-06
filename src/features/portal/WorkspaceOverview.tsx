@@ -1,13 +1,25 @@
 import { t, locale, usePreferences, catalogText } from '../../i18n/preferences';
-import { useState } from 'react';
-import { ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronDown, Clock3, GraduationCap, Video } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ArrowLeft, BookOpen, CalendarDays, CheckCheck, ChevronDown, Clock3, GraduationCap, Sparkles, Video } from 'lucide-react';
 import { date, type Booking, type Portal, type User } from '../../services/platformApi';
 
-export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, compact = false }: {
-  user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; compact?: boolean;
+const greetedDuringThisVisit = new Set<string>();
+
+export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, compact = false, children }: {
+  user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; compact?: boolean; children?: ReactNode;
 }) {
   usePreferences();
   const [weekExpanded, setWeekExpanded] = useState(false);
+  const greetingKey = `${portal}:${user.id}`;
+  const [stage, setStage] = useState<'hello' | 'question' | 'ready'>(() => greetedDuringThisVisit.has(greetingKey) ? 'ready' : 'hello');
+  useEffect(() => {
+    if (stage === 'ready') return;
+    greetedDuringThisVisit.add(greetingKey);
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setStage('ready'); return; }
+    const questionTimer = window.setTimeout(() => setStage(current => current === 'ready' ? 'ready' : 'question'), 1350);
+    const readyTimer = window.setTimeout(() => setStage('ready'), 2700);
+    return () => { window.clearTimeout(questionTimer); window.clearTimeout(readyTimer); };
+  }, [greetingKey]);
   const now = Date.now();
   const upcoming = bookings.filter(booking => booking.status === 'confirmed' && booking.start + booking.minutes * 60000 > now).sort((a, b) => a.start - b.start);
   const next = upcoming[0];
@@ -31,7 +43,13 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     { label: teacher ? t("مواعيد متاحة") : t("أساتذة متاحون"), value: availableCount, icon: teacher ? Clock3 : GraduationCap },
   ];
   return <section className={`workspace-overview ${compact ? 'overview-rail' : ''}`} aria-label={t("ملخص حسابك")}>
-    {!compact && <div className="welcome-heading"><div><span className="overview-kicker">{teacher ? t("جدولك اليوم") : t("رحلتك التعليمية")}</span><h2>{t("أهلاً، ")}{user.name.trim().split(/\s+/)[0]}<span className="greeting-dot">.</span></h2><p>{teacher ? t("حصصك ومواعيدك، في مكان واحد.") : t("جاهز لخطوتك القادمة؟")}</p></div><button className="primary-button" onClick={() => onView(teacher ? 'available' : 'rooms')}>{teacher ? <CalendarDays size={17} /> : <Video size={17} />}{teacher ? t("إضافة موعد") : t("غرف حصصي")}<ArrowLeft size={16} /></button></div>}
+    <section className={`home-showcase stage-${stage}`} aria-live="polite">
+      {stage !== 'ready' ? <div className="home-intro" key={stage}>
+        <Sparkles className="home-intro-spark" size={27} aria-hidden="true" />
+        {stage === 'hello' ? <h2><span>{teacher ? t('أهلاً يا أستاذ') : t('أهلاً يا')}</span><strong>{user.name.trim().split(/\s+/)[0]}</strong></h2> : <h2><span>{t('نورتنا')}</span><strong>{teacher ? t('شو حاب تدرّس؟') : t('شو حاب تتعلّم؟')}</strong></h2>}
+        <button type="button" className="home-skip" onClick={() => setStage('ready')}>{t('تخطي')}</button>
+      </div> : <div className="home-stage-content">{children}</div>}
+    </section>
     <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{t(label)}</span><strong>{value.toLocaleString(locale())}</strong></div></div>)}</div>
     <div className="overview-schedule">
       <article className={`next-lesson ${!next ? 'no-next-lesson' : ''}`}>

@@ -10,6 +10,7 @@ import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
 import { serveChatAttachment } from './chat-attachments.js';
+import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-packages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -115,7 +116,7 @@ function cookie(req, name) {
   return raw.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))?.[1] || '';
 }
 function publicUser(u) {
-  return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', mustChangePassword: Boolean(u.must_change_password) } : null;
+  return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', custom_packages: parseCustomPackages(u.custom_packages), mustChangePassword: Boolean(u.must_change_password) } : null;
 }
 function setSession(res, role, token, expires) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure; SameSite=None' : '; SameSite=Lax';
@@ -268,7 +269,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
 
     if (path === 'profile') {
-      if (write) await db.collection('users').updateOne({ id: user.id }, { $set: { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: field(body.phone || '', 40, 0) } });
+      if (write) {
+        const profile = { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: field(body.phone || '', 40, 0) };
+        if (body.custom_packages !== undefined) profile.custom_packages = serializeCustomPackages(body.custom_packages);
+        await db.collection('users').updateOne({ id: user.id }, { $set: profile });
+      }
       return res.json({ user: publicUser(await db.collection('users').findOne({ id: user.id })) });
     }
     if (path === 'password' && write) {

@@ -46,7 +46,11 @@ test('authorization and the full reservation lifecycle', async () => {
   const student = (await call('student', 'auth/register', credentials('student@test.com', 'students'))).user;
   await call('other', 'auth/register', credentials('other@test.com', 'students'));
   await call('teacher', 'teachers/slots', undefined, 403);
-  await call('teacher', 'teachers/profile', { name: 'Teacher', subject: 'Math', bio: 'Algebra tutor' });
+  const customPackages = [{ id: 'robotics', name: 'روبوتكس', description: 'برمجة الروبوت', levels: ['مبتدئ', 'متقدم'] }];
+  const savedProfile = await call('teacher', 'teachers/profile', { name: 'Teacher', subject: 'Math', bio: 'Algebra tutor', custom_packages: customPackages });
+  assert.deepEqual(savedProfile.user.custom_packages, customPackages, 'teacher custom packages are saved on the account');
+  const preservedProfile = await call('teacher', 'teachers/profile', { name: 'Teacher', subject: 'Math', bio: 'Updated bio' });
+  assert.deepEqual(preservedProfile.user.custom_packages, customPackages, 'ordinary profile changes preserve custom packages');
   await call('student', 'admin/users', undefined, 401);
   await call('student', 'teachers/slots', undefined, 401);
   await call('owner', `admin/users/${teacher.id}`, { status: 'active' });

@@ -1,4 +1,5 @@
 import { one, run, statement, field, fail, auditEntry } from './db.js';
+import { parseCustomPackages } from '../shared/custom-packages.js';
 const encoder = new TextEncoder();
 const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 export const random = () => hex(crypto.getRandomValues(new Uint8Array(32)));
@@ -13,7 +14,7 @@ export function equal(a, b) {
   let diff = 0; for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-export const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject, bio: u.bio, academic_level: u.academic_level || '', phone: u.phone || '', mustChangePassword: Boolean(u.must_change_password && !u.development_access) });
+export const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject, bio: u.bio, academic_level: u.academic_level || '', phone: u.phone || '', custom_packages: parseCustomPackages(u.custom_packages), mustChangePassword: Boolean(u.must_change_password && !u.development_access) });
 const sessionCookie = role => role && ['admin', 'teachers', 'students'].includes(role) ? `mansah_session_${role}` : 'mansah_session';
 function developmentEnabled(env) {
   return typeof env.DEVELOPMENT_LOGIN_HASH === 'string' && /^[a-f0-9]{64}:[a-f0-9]{64}$/.test(env.DEVELOPMENT_LOGIN_HASH) && Number(env.DEVELOPMENT_LOGIN_EXPIRES) > Date.now();
