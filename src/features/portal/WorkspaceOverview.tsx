@@ -18,7 +18,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     greetedDuringThisVisit.add(greetingKey);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setStage('ready'); return; }
     const timers = teacher
-      ? [window.setTimeout(() => setStage('hello'), 4050), window.setTimeout(() => setStage('question'), 5350), window.setTimeout(() => setStage('ready'), 6700)]
+      ? [window.setTimeout(() => setStage('hello'), 1400), window.setTimeout(() => setStage('question'), 2700), window.setTimeout(() => setStage('ready'), 4050)]
       : [window.setTimeout(() => setStage('question'), 1350), window.setTimeout(() => setStage('ready'), 2700)];
     return () => timers.forEach(timer => window.clearTimeout(timer));
   }, [greetingKey, teacher]);
@@ -72,7 +72,7 @@ function TeacherLegacyIntro({ language }: { language: 'ar' | 'en' }) {
     <span className="teacher-legacy-top" aria-hidden="true">{t('نحن')}</span>
     <span className="teacher-legacy-script" aria-hidden="true">
       <span className="teacher-legacy-row teacher-legacy-row-imt">
-        <span className="teacher-legacy-imt">{arabic ? 'امتـ' : 'an'}</span>
+        <span className="teacher-legacy-imt">{arabic ? 'امتــــ' : 'an'}</span>
         <span className="teacher-legacy-stretch teacher-legacy-stretch-first">{kashida}</span>
       </span>
       <span className="teacher-legacy-row teacher-legacy-row-dad">
