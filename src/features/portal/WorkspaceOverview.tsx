@@ -67,15 +67,16 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
 
 function TeacherLegacyIntro({ language }: { language: 'ar' | 'en' }) {
   const arabic = language === 'ar';
+  const kashida = arabic ? 'ـ'.repeat(120) : '—'.repeat(80);
   return <div className={`teacher-legacy-lockup ${arabic ? 'is-arabic' : 'is-english'}`} role="img" aria-label={t('نحن امتداد لمعلمينا')}>
     <span className="teacher-legacy-top" aria-hidden="true">{t('نحن')}</span>
     <span className="teacher-legacy-script" aria-hidden="true">
       <span className="teacher-legacy-row teacher-legacy-row-imt">
         <span className="teacher-legacy-imt">{arabic ? 'امتـ' : 'an'}</span>
-        <span className="teacher-legacy-stretch teacher-legacy-stretch-first" />
+        <span className="teacher-legacy-stretch teacher-legacy-stretch-first">{kashida}</span>
       </span>
       <span className="teacher-legacy-row teacher-legacy-row-dad">
-        <span className="teacher-legacy-stretch teacher-legacy-stretch-second" />
+        <span className="teacher-legacy-stretch teacher-legacy-stretch-second">{kashida}</span>
         <span className="teacher-legacy-dad">{arabic ? 'ـداد' : 'extension'}</span>
       </span>
     </span>
