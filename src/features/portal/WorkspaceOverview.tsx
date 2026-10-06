@@ -8,18 +8,20 @@ const greetedDuringThisVisit = new Set<string>();
 export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, compact = false, children }: {
   user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; compact?: boolean; children?: ReactNode;
 }) {
-  usePreferences();
+  const { language } = usePreferences();
   const [weekExpanded, setWeekExpanded] = useState(false);
+  const teacher = portal === 'teachers';
   const greetingKey = `${portal}:${user.id}`;
-  const [stage, setStage] = useState<'hello' | 'question' | 'ready'>(() => greetedDuringThisVisit.has(greetingKey) ? 'ready' : 'hello');
+  const [stage, setStage] = useState<'legacy' | 'hello' | 'question' | 'ready'>(() => greetedDuringThisVisit.has(greetingKey) ? 'ready' : teacher ? 'legacy' : 'hello');
   useEffect(() => {
     if (stage === 'ready') return;
     greetedDuringThisVisit.add(greetingKey);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setStage('ready'); return; }
-    const questionTimer = window.setTimeout(() => setStage(current => current === 'ready' ? 'ready' : 'question'), 1350);
-    const readyTimer = window.setTimeout(() => setStage('ready'), 2700);
-    return () => { window.clearTimeout(questionTimer); window.clearTimeout(readyTimer); };
-  }, [greetingKey]);
+    const timers = teacher
+      ? [window.setTimeout(() => setStage('hello'), 3150), window.setTimeout(() => setStage('question'), 4450), window.setTimeout(() => setStage('ready'), 5750)]
+      : [window.setTimeout(() => setStage('question'), 1350), window.setTimeout(() => setStage('ready'), 2700)];
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [greetingKey, teacher]);
   const now = Date.now();
   const upcoming = bookings.filter(booking => booking.status === 'confirmed' && booking.start + booking.minutes * 60000 > now).sort((a, b) => a.start - b.start);
   const next = upcoming[0];
@@ -29,7 +31,6 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     return { day, count: upcoming.filter(booking => new Date(booking.start).toDateString() === day.toDateString()).length };
   });
   const completed = bookings.filter(booking => booking.status === 'completed').length;
-  const teacher = portal === 'teachers';
   function openNext() {
     if (!next && !teacher) {
       document.getElementById('learning-path')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
@@ -45,8 +46,10 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
   return <section className={`workspace-overview ${compact ? 'overview-rail' : ''}`} aria-label={t("ملخص حسابك")}>
     <section className={`home-showcase stage-${stage}`} aria-live="polite">
       {stage !== 'ready' ? <div className="home-intro" key={stage}>
-        <Sparkles className="home-intro-spark" size={27} aria-hidden="true" />
-        {stage === 'hello' ? <h2><span>{teacher ? t('أهلاً يا أستاذ') : t('أهلاً يا')}</span><strong>{user.name.trim().split(/\s+/)[0]}</strong></h2> : <h2><span>{t('نورتنا')}</span><strong>{teacher ? t('شو حاب تدرّس؟') : t('شو حاب تتعلّم؟')}</strong></h2>}
+        {stage === 'legacy' && teacher ? <TeacherLegacyIntro language={language} /> : <>
+          <Sparkles className="home-intro-spark" size={27} aria-hidden="true" />
+          {stage === 'hello' ? <h2><span>{teacher ? t('أهلاً يا أستاذ') : t('أهلاً يا')}</span><strong>{user.name.trim().split(/\s+/)[0]}</strong></h2> : <h2><span>{t('نورتنا')}</span><strong>{teacher ? t('شو حاب تدرّس؟') : t('شو حاب تتعلّم؟')}</strong></h2>}
+        </>}
         <button type="button" className="home-skip" onClick={() => setStage('ready')}>{t('تخطي')}</button>
       </div> : <div className="home-stage-content">{children}</div>}
     </section>
@@ -60,6 +63,19 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
       <section className={`week-agenda ${weekExpanded ? 'expanded' : ''}`} aria-label={t("حصص الأسبوع")}><div className="section-heading"><h3>{t("أسبوعك")}</h3><div className="agenda-actions"><button className="icon-button agenda-toggle" title={weekExpanded ? t("طي ملخّص الأسبوع") : t("عرض ملخّص الأسبوع")} aria-expanded={weekExpanded} aria-controls={`weekly-summary-${portal} week-metrics-${portal}`} onClick={() => setWeekExpanded(value => !value)}><ChevronDown size={18} /></button><button className="icon-button" title={t("عرض جدول الحصص")} onClick={() => onView(teacher ? 'booked' : 'rooms')}><ArrowLeft size={18} /></button></div></div><div className="agenda-days" id={`weekly-summary-${portal}`}>{days.map(({ day, count }, index) => <div className={index === 0 ? 'agenda-day today' : 'agenda-day'} key={day.getTime()}><span>{day.toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{day.toLocaleDateString(locale(), { day: 'numeric' })}</strong><i className={count ? 'has-lessons' : ''} title={t("{v0} حصة", { v0: count })} /></div>)}</div><div className="agenda-footer"><CalendarDays size={16} /><span>{upcoming.filter(booking => booking.start < days[6].day.getTime() + 86400000).length}{t(" حصص خلال الأيام السبعة القادمة")}</span></div></section>
     </div>
   </section>;
+}
+
+function TeacherLegacyIntro({ language }: { language: 'ar' | 'en' }) {
+  const arabic = language === 'ar';
+  return <div className={`teacher-legacy-lockup ${arabic ? 'is-arabic' : 'is-english'}`} role="img" aria-label={t('نحن امتداد لمعلمينا')}>
+    <span className="teacher-legacy-top" aria-hidden="true">{t('نحن')}</span>
+    <span className="teacher-legacy-word" aria-hidden="true">
+      <span className="teacher-legacy-imt">{arabic ? 'امت' : 'an'}</span>
+      <span className="teacher-legacy-stretch"><i /></span>
+      <span className="teacher-legacy-dad">{arabic ? 'داد' : 'extension'}</span>
+    </span>
+    <span className="teacher-legacy-bottom" aria-hidden="true">{t('لمعلمينا')}</span>
+  </div>;
 }
 
 export function WorkspaceSkeleton() {

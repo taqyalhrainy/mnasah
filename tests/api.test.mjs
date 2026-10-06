@@ -9,6 +9,7 @@ function database() {
   const db = new DatabaseSync(':memory:');
   for (const file of readdirSync(new URL('../drizzle/', import.meta.url)).filter(f => f.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(`../drizzle/${file}`, import.meta.url), 'utf8'));
   const prepare = sql => ({ bind(...args) {
+    args = args.map(value => value instanceof ArrayBuffer ? new Uint8Array(value) : value);
     const statement = db.prepare(sql);
     return { first: () => statement.get(...args) || null, all: () => ({ results: statement.all(...args) }), run: () => ({ meta: { changes: Number(statement.run(...args).changes) } }) };
   } });

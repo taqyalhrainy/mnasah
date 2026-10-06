@@ -136,14 +136,29 @@ try {
   }
   {
     const { page, context } = await makePage('teachers', true, 'no-preference');
-    await page.locator('.home-intro').waitFor();
-    await page.locator('.package-grid').waitFor({ timeout: 5000 });
+    const legacyIntro = page.locator('.teacher-legacy-lockup');
+    await legacyIntro.waitFor();
+    assert.equal(await legacyIntro.getAttribute('aria-label'), 'نحن امتداد لمعلمينا');
+    await page.waitForTimeout(2200);
+    const desktopBounds = await legacyIntro.boundingBox();
+    const desktopShowcaseBounds = await page.locator('.home-showcase').boundingBox();
+    assert(desktopBounds && desktopShowcaseBounds && desktopBounds.x >= desktopShowcaseBounds.x && desktopBounds.x + desktopBounds.width <= desktopShowcaseBounds.x + desktopShowcaseBounds.width, 'Teacher intro must stay inside the desktop showcase');
+    await page.screenshot({ path: '.private/teacher-legacy-ar-1440.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('.teacher-legacy-lockup').waitFor();
+    await page.waitForTimeout(2200);
+    const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(mobileOverflow <= 1, `Teacher intro created ${mobileOverflow}px of horizontal overflow on mobile`);
+    await page.screenshot({ path: '.private/teacher-legacy-ar-390.png', fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator('.package-grid').waitFor({ timeout: 9000 });
     await page.locator('.nav-list').getByRole('button', { name: 'الغرف', exact: true }).click();
     await page.locator('.nav-list').getByRole('button', { name: 'الرئيسية', exact: true }).click();
     await page.locator('.package-grid').waitFor();
     assert.equal(await page.locator('.home-intro').count(), 0, 'greeting does not replay during in-app navigation');
     await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('.workspace-content').waitFor();
-    await page.locator('.home-intro').waitFor();
+    await page.locator('.teacher-legacy-lockup').waitFor();
     await context.close();
   }
   for (const role of ['admin', 'teachers']) {

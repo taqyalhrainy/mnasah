@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mansah-shell-v5';
+const CACHE_NAME = 'mansah-shell-v6';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'icon.svg', 'manifest.webmanifest'].map(shellUrl);
