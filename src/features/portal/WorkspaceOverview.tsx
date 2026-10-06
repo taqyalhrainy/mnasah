@@ -18,7 +18,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
     greetedDuringThisVisit.add(greetingKey);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setStage('ready'); return; }
     const timers = teacher
-      ? [window.setTimeout(() => setStage('hello'), 3150), window.setTimeout(() => setStage('question'), 4450), window.setTimeout(() => setStage('ready'), 5750)]
+      ? [window.setTimeout(() => setStage('hello'), 4050), window.setTimeout(() => setStage('question'), 5350), window.setTimeout(() => setStage('ready'), 6700)]
       : [window.setTimeout(() => setStage('question'), 1350), window.setTimeout(() => setStage('ready'), 2700)];
     return () => timers.forEach(timer => window.clearTimeout(timer));
   }, [greetingKey, teacher]);
@@ -69,10 +69,15 @@ function TeacherLegacyIntro({ language }: { language: 'ar' | 'en' }) {
   const arabic = language === 'ar';
   return <div className={`teacher-legacy-lockup ${arabic ? 'is-arabic' : 'is-english'}`} role="img" aria-label={t('نحن امتداد لمعلمينا')}>
     <span className="teacher-legacy-top" aria-hidden="true">{t('نحن')}</span>
-    <span className="teacher-legacy-word" aria-hidden="true">
-      <span className="teacher-legacy-imt">{arabic ? 'امت' : 'an'}</span>
-      <span className="teacher-legacy-stretch"><i /></span>
-      <span className="teacher-legacy-dad">{arabic ? 'داد' : 'extension'}</span>
+    <span className="teacher-legacy-script" aria-hidden="true">
+      <span className="teacher-legacy-row teacher-legacy-row-imt">
+        <span className="teacher-legacy-imt">{arabic ? 'امت' : 'an'}</span>
+        <span className="teacher-legacy-stretch teacher-legacy-stretch-first" />
+      </span>
+      <span className="teacher-legacy-row teacher-legacy-row-dad">
+        <span className="teacher-legacy-stretch teacher-legacy-stretch-second" />
+        <span className="teacher-legacy-dad">{arabic ? 'داد' : 'extension'}</span>
+      </span>
     </span>
     <span className="teacher-legacy-bottom" aria-hidden="true">{t('لمعلمينا')}</span>
   </div>;
