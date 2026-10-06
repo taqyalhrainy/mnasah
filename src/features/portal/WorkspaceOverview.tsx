@@ -71,12 +71,12 @@ function TeacherLegacyIntro({ language }: { language: 'ar' | 'en' }) {
     <span className="teacher-legacy-top" aria-hidden="true">{t('نحن')}</span>
     <span className="teacher-legacy-script" aria-hidden="true">
       <span className="teacher-legacy-row teacher-legacy-row-imt">
-        <span className="teacher-legacy-imt">{arabic ? 'امت' : 'an'}</span>
+        <span className="teacher-legacy-imt">{arabic ? 'امتـ' : 'an'}</span>
         <span className="teacher-legacy-stretch teacher-legacy-stretch-first" />
       </span>
       <span className="teacher-legacy-row teacher-legacy-row-dad">
         <span className="teacher-legacy-stretch teacher-legacy-stretch-second" />
-        <span className="teacher-legacy-dad">{arabic ? 'داد' : 'extension'}</span>
+        <span className="teacher-legacy-dad">{arabic ? 'ـداد' : 'extension'}</span>
       </span>
     </span>
     <span className="teacher-legacy-bottom" aria-hidden="true">{t('لمعلمينا')}</span>
