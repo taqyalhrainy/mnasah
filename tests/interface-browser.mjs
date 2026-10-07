@@ -13,7 +13,7 @@ const categories = [
   { id: 'skills', name: 'مهارات وتطوير', description: 'خطوة جديدة في مسارك', icon: '✨', levels: [], subjects: ['البرمجة'] },
   { id: 'writing', name: 'اللغة العربية', description: 'بلاغة، قواعد، وتعبير', icon: '✍', levels: [], subjects: ['النحو'] },
 ];
-const teacher = { id: 'teacher-ui', name: 'أحمد الخطيب', email: 'teacher@example.test', role: 'teachers', status: 'active', bio: 'أستاذ رياضيات', subject: 'المنهاج الأردني › رياضيات › الصف الخامس، التوجيهي' };
+const teacher = { id: 'teacher-ui', name: 'أحمد الخطيب', email: 'teacher@example.test', role: 'teachers', status: 'active', bio: 'أستاذ رياضيات', subject: 'المنهاج الأردني › رياضيات › الصف الخامس، التوجيهي | المنهاج الأردني › فيزياء › الصف الخامس، التوجيهي' };
 const student = { id: 'student-ui', name: 'سارة أحمد', email: 'student@example.test', role: 'students', status: 'active', subject: '', bio: '' };
 const owner = { id: 'owner-ui', name: 'مدير المنصّة', email: 'owner@example.test', role: 'admin', status: 'active', subject: '', bio: '' };
 const slots = [
@@ -135,17 +135,20 @@ try {
       assert.equal(await page.locator('.nav-list').getByRole('button', { name: 'المحجوزة', exact: true }).count(), 0, 'booked must be merged into availability');
       await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
       await page.locator('.availability-hub').waitFor();
-      await page.locator('.availability-subjects').getByRole('button', { name: /رياضيات/ }).click();
-      const selectableDays = page.locator('.month-grid button:not(:disabled)');
-      const selectableCount = await selectableDays.count();
-      await selectableDays.nth(selectableCount - 1).click();
-      await selectableDays.nth(selectableCount - 2).click();
-      await page.getByRole('button', { name: 'التالي: تحديد الوقت', exact: true }).click();
-      await page.getByRole('button', { name: 'وقت مختلف لكل يوم', exact: true }).click();
-      assert.equal(await page.locator('.daily-schedules .schedule-row').count(), 2, 'teacher can assign a different time to every selected day');
+      await page.locator('.availability-subject-trigger').click();
+      await page.locator('.availability-subject-menu .all-subjects').click();
+      await page.getByRole('button', { name: 'تم', exact: true }).click();
+      assert.match(await page.locator('.availability-subject-trigger').innerText(), /كل المواد/);
+      await page.locator('.availability-day-strip button').nth(1).click();
+      await page.locator('.availability-inline-settings').waitFor();
+      await checkLayout(page, 'teacher availability settings mobile');
+      await page.screenshot({ path: '.private/redesign-teachers-availability-settings-mobile.png', fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await checkLayout(page, 'teacher availability settings desktop');
+      await page.screenshot({ path: '.private/redesign-teachers-availability-settings-desktop.png', fullPage: true });
       await page.getByRole('button', { name: 'نشر المواعيد', exact: true }).click();
       await page.locator('.availability-tabs [aria-selected=true]').filter({ hasText: 'جدولي والمحجوز' }).waitFor({ timeout: 3000 });
-      assert.equal(mutations.filter(item => item.path.endsWith('/teachers/slots') && item.body.subject === 'رياضيات').length, 2);
+      assert.equal(mutations.filter(item => item.path.endsWith('/teachers/slots') && item.body.subject === 'كل المواد المختارة').length, 1);
       await page.locator('.month-grid button.today').click();
       await page.locator('.day-event.booked').first().click();
       await page.getByRole('dialog').waitFor();

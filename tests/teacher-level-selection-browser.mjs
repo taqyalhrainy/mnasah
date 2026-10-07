@@ -60,7 +60,8 @@ try {
   assert.match(savedSubject, /الصف السابع/);
   assert.match(savedSubject, /توجيهي/);
   await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
-  await page.locator('.availability-subjects').getByRole('button', { name: /رياضيات/ }).waitFor();
+  await page.locator('.availability-subject-trigger').waitFor();
+  assert.match(await page.locator('.availability-subject-trigger').innerText(), /اختر مادة أو أكثر/);
   console.log('Teacher empty-state, subject linking and multi-level selection checks passed.');
 } finally {
   await browser.close();
