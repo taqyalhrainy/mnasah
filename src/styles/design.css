@@ -652,7 +652,7 @@ input[type=checkbox] { accent-color: var(--ink); }
   .metric-band span { font-size: 10px; }
   .detail-dialog { padding: 20px; }
   .floating-call-shell { bottom: calc(90px + env(safe-area-inset-bottom)); }
-  .redesigned-auth { display: block; padding: 192px 0 0; background: #fff; }
+  .redesigned-auth { display: block; padding: 192px 0 0; background: #f8d938; }
   .auth-masthead { top: 28px; inset-inline: 24px; align-items: flex-start; }
   .auth-brand strong { font-size: 28px; }
   .auth-brand .brand-monogram { width: 34px; height: 34px; font-size: 25px; }
