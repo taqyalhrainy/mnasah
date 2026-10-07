@@ -110,12 +110,13 @@ try {
   await teacher.getByRole('button', { name: 'تحميل واجب-الرياضيات.pdf', exact: true }).click();
   const downloaded = await downloadEvent;
   assert.equal(downloaded.suggestedFilename(), 'واجب-الرياضيات.pdf');
+  await teacher.getByLabel('خيارات المحادثة').click();
   await teacher.getByRole('button', { name: 'إعدادات الرسائل', exact: true }).click();
   await teacher.getByRole('checkbox', { name: /إظهار تمت القراءة/ }).uncheck();
   await teacher.getByRole('checkbox', { name: /إظهار حالة الاتصال/ }).uncheck();
   await student.getByText('الظهور مخفي', { exact: true }).waitFor({ timeout: 4500 });
   assert.equal(await student.getByText('تمت القراءة', { exact: true }).count(), 0);
-  await teacher.getByRole('button', { name: 'إعدادات الرسائل', exact: true }).click();
+  await teacher.getByRole('button', { name: 'إغلاق إعدادات الرسائل', exact: true }).click();
   await student.getByRole('button', { name: 'بحث في الرسائل', exact: true }).click();
   await student.getByLabel('بحث داخل المحادثة').fill('مرحباً');
   assert.equal(await student.locator('.dm-message').count(), 1);

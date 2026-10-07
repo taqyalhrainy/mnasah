@@ -124,7 +124,7 @@ function PortalApp() {
       {portal !== 'admin' ? learningAccountMenu('sidebar-account') : <div className="sidebar-footer"><a href={assetUrl('downloads/mansah.apk')} className="icon-button" title={t("تطبيق أندرويد")}><Download size={19} /></a><button className="icon-button" onClick={logout} title={t("تسجيل الخروج")}><LogOut size={19} /></button></div>}
     </aside>
     {portal !== 'admin' && learningAccountMenu('mobile-account')}
-    <section className="workspace"><header className="topbar">
+    <section className="workspace"><header className={`topbar ${view === 'messages' && portal !== 'admin' ? 'messages-topbar' : ''}`}>
       <div className="topbar-location"><img className="mobile-brand brand-monogram" src={assetUrl('icon.svg')} width="32" height="32" alt="Mansah" /><div><span className="eyebrow">{t(portalNames[portal])}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div>
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
         <PreferenceControls />
