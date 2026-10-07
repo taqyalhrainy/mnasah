@@ -101,22 +101,22 @@ try {
       }
     }
     if (role === 'students') {
+      await page.locator('.mobile-account > summary:visible').click();
+      await page.locator('.mobile-account').getByRole('button', { name: 'حسابي', exact: true }).click();
       const reminders = page.getByRole('checkbox', { name: 'تنبيهات الحصص', exact: true });
       assert.equal(await reminders.isChecked(), false);
       await reminders.click();
       await page.waitForFunction(() => document.querySelector('.preference-toggle input')?.checked);
       await reminders.uncheck();
       assert.equal(await reminders.isChecked(), false);
-      await page.getByTitle('البحث عن مادة أو أستاذ').click();
+      await page.locator('.nav-list').getByRole('button', { name: 'الرئيسية', exact: true }).click();
+      await page.locator('.student-search input').focus();
       await page.waitForFunction(() => document.activeElement?.matches('.student-search input'));
-      assert.equal(await page.locator('.overview-metrics').isVisible(), false);
       await page.getByTitle('عرض ملخّص الأسبوع').click();
       assert.equal(await page.locator('.agenda-days').isVisible(), true);
-      assert.equal(await page.locator('.overview-metrics').isVisible(), true);
       await page.getByTitle('طي ملخّص الأسبوع').click();
       assert.equal(await page.locator('.agenda-days').isVisible(), false);
-      assert.equal(await page.locator('.overview-metrics').isVisible(), false);
-      await page.locator('.category-card').filter({ hasText: 'المنهاج الأردني' }).click();
+      await page.locator('.student-package-grid .package-card').filter({ hasText: 'المنهاج الأردني' }).click();
       await page.locator('.choice-grid').getByRole('button', { name: 'الصف الخامس' }).click();
       await page.locator('.choice-grid').getByRole('button', { name: 'رياضيات' }).click();
       assert.equal(await page.locator('.student-flow .tutor-card').count(), 1);
@@ -132,10 +132,22 @@ try {
       await page.getByTitle('إغلاق التفاصيل').click();
     }
     if (role === 'teachers') {
-      await page.getByTitle('إضافة موعد متاح').click();
-      await page.locator('.availability-planner').waitFor();
-      await page.locator('.nav-list').getByRole('button', { name: 'المحجوزة', exact: true }).click();
-      await page.getByRole('button', { name: 'التفاصيل', exact: true }).first().click();
+      assert.equal(await page.locator('.nav-list').getByRole('button', { name: 'المحجوزة', exact: true }).count(), 0, 'booked must be merged into availability');
+      await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
+      await page.locator('.availability-hub').waitFor();
+      await page.locator('.availability-subjects').getByRole('button', { name: /رياضيات/ }).click();
+      const selectableDays = page.locator('.month-grid button:not(:disabled)');
+      const selectableCount = await selectableDays.count();
+      await selectableDays.nth(selectableCount - 1).click();
+      await selectableDays.nth(selectableCount - 2).click();
+      await page.getByRole('button', { name: 'التالي: تحديد الوقت', exact: true }).click();
+      await page.getByRole('button', { name: 'وقت مختلف لكل يوم', exact: true }).click();
+      assert.equal(await page.locator('.daily-schedules .schedule-row').count(), 2, 'teacher can assign a different time to every selected day');
+      await page.getByRole('button', { name: 'نشر المواعيد', exact: true }).click();
+      await page.locator('.availability-tabs [aria-selected=true]').filter({ hasText: 'جدولي والمحجوز' }).waitFor({ timeout: 3000 });
+      assert.equal(mutations.filter(item => item.path.endsWith('/teachers/slots') && item.body.subject === 'رياضيات').length, 2);
+      await page.locator('.month-grid button.today').click();
+      await page.locator('.day-event.booked').first().click();
       await page.getByRole('dialog').waitFor();
       await page.getByTitle('إغلاق التفاصيل').click();
     }

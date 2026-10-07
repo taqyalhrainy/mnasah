@@ -2,6 +2,7 @@ import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const base = process.env.UI_BASE_URL || 'http://127.0.0.1:5173';
 const context = await browser.newContext();
 const page = await context.newPage();
 const categories = [{
@@ -32,34 +33,25 @@ try {
     return route.fulfill({ json: {} });
   });
 
-  await page.goto('http://127.0.0.1:8787/teachers');
-  await page.locator('.teaching-category-card > summary').click();
+  await page.goto(`${base}/teachers`);
+  await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
+  await page.getByText('لتتمكن من إضافة مواعيدك، اختر مادتك أولاً من الصفحة الرئيسية.').waitFor();
+  await page.getByRole('button', { name: /الذهاب للرئيسية/ }).click();
+  await page.locator('.package-grid .package-card').filter({ hasText: 'رياضيات' }).click();
 
-  const subject = page.getByLabel('تدريس رياضيات', { exact: true });
-  const all = page.getByLabel('كل مستويات رياضيات', { exact: true });
-  const first = page.getByLabel('رياضيات - الصف الأول', { exact: true });
-  const fourth = page.getByLabel('رياضيات - الصف الرابع', { exact: true });
-  const seventh = page.getByLabel('رياضيات - الصف السابع', { exact: true });
-  const levelsPanel = page.locator('.teaching-level-picker .teaching-levels');
-
-  assert.equal(await levelsPanel.isVisible(), false, 'levels should stay collapsed until the teacher opens them');
-  await subject.check();
-  assert.equal(await all.isChecked(), true, 'selecting the subject should select all levels');
-  assert.equal(await first.isChecked(), true);
+  const all = page.getByLabel('كل المستويات', { exact: true });
+  const first = page.getByLabel('الصف الأول', { exact: true });
+  const fourth = page.getByLabel('الصف الرابع', { exact: true });
+  const seventh = page.getByLabel('الصف السابع', { exact: true });
+  await all.check();
+  assert.equal(await first.isChecked(), true, 'selecting all should select every level');
   assert.equal(await seventh.isChecked(), true);
-  assert.equal(await levelsPanel.isVisible(), false, 'selecting a subject should not force the long level list open');
-
-  await page.locator('.teaching-level-picker summary').click();
-  assert.equal(await levelsPanel.isVisible(), true, 'clicking the level arrow should reveal the levels');
-
   await first.uncheck();
   assert.equal(await all.isChecked(), false, 'removing one level should clear the all-levels checkbox');
   assert.equal(await fourth.isChecked(), true, 'other levels should remain selected');
-  assert.equal(await subject.isChecked(), true, 'the subject should remain selected while it still has levels');
-
   await fourth.uncheck();
-  await page.getByRole('button', { name: 'حفظ', exact: true }).click();
-  await page.getByText('تم حفظ المواد والمستويات التي تدرسها.').waitFor();
+  await page.getByRole('button', { name: 'حفظ اختياراتي', exact: true }).click();
+  await page.getByText('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.').waitFor();
 
   assert.match(savedSubject, /المنهاج الأردني › رياضيات/);
   assert.doesNotMatch(savedSubject, /الصف الأول/);
@@ -67,7 +59,9 @@ try {
   assert.match(savedSubject, /الصف الخامس/);
   assert.match(savedSubject, /الصف السابع/);
   assert.match(savedSubject, /توجيهي/);
-  console.log('Teacher multi-level selection check passed.');
+  await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
+  await page.locator('.availability-subjects').getByRole('button', { name: /رياضيات/ }).waitFor();
+  console.log('Teacher empty-state, subject linking and multi-level selection checks passed.');
 } finally {
   await browser.close();
 }

@@ -7,6 +7,7 @@ import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
 import { PaymentsPanel } from './PaymentsPanel';
 import { WorkspaceOverview, WorkspaceSkeleton } from './WorkspaceOverview';
+import { TeacherAvailabilityHub, type AvailabilityDraft } from './TeacherAvailabilityHub';
 import type { Category } from '../../services/platformApi';
 import { GraduationCap, Library, Languages, PenLine, Sparkles, Sprout } from 'lucide-react';
 const VideoRoom = lazy(() => import('../video/VideoRoom').then(module => ({ default: module.VideoRoom })));
@@ -79,8 +80,6 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [customPackages, setCustomPackages] = useState<CustomPackage[]>(() => user.custom_packages || []);
   const [teacherPackageKey, setTeacherPackageKey] = useState('');
   const [buildingCustomPackage, setBuildingCustomPackage] = useState(false);
-  const [availabilityDay, setAvailabilityDay] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); });
-  const [availabilityMode, setAvailabilityMode] = useState<'range' | 'custom'>('range');
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
@@ -209,14 +208,6 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   }
   const cancel = (b: Booking) => { if (window.confirm(t("إلغاء حصة {v0} بتاريخ {v1}؟", { v0: catalogText(b.subject), v1: date(b.start) }))) void act(() => post(`bookings/${b.id}/cancel`), t("تم إلغاء الحصة.")); };
   const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && matches(searchText(s.subject, s.teacher_name || '', s.teacher_subjects || '')));
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const today = todayStart.getTime(), tomorrow = today + 86400000;
-  const weekDays = Array.from({ length: 7 }, (_, index) => {
-    const d = new Date(today); d.setDate(todayStart.getDate() + index);
-    const name = d.toLocaleDateString(locale(), { weekday: 'long' });
-    return { name, value: d.getTime(), label: d.toLocaleDateString(locale(), { month: 'short', day: 'numeric' }) };
-  });
-  const teacherBooked = bookings.filter(b => b.status === 'confirmed' && (filter === 'all' || (filter === 'today' && b.start >= today && b.start < tomorrow) || (filter === 'tomorrow' && b.start >= tomorrow && b.start < tomorrow + 86400000) || (filter === 'week' && b.start >= today && b.start < today + 604800000))).sort((a, b) => a.start - b.start);
   const teacherMap = new Map<string, Booking>();
   bookings.forEach(b => { if (!teacherMap.has(b.teacher_id)) teacherMap.set(b.teacher_id, b); });
   const myTutors = [...teacherMap.values()];
@@ -250,7 +241,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const selectedBuiltInPackage = builtInPackages.find(item => item.key === teacherPackageKey);
   const selectedCustomPackage = teacherPackageKey.startsWith('custom:') ? customPackages.find(item => `custom:${item.id}` === teacherPackageKey) : undefined;
   const commonLevels = [...new Set(catalog.flatMap(category => category.levels))];
-  async function saveTeacherProfile(nextChoices = teachingChoices, nextPackages = customPackages, message = t('تم حفظ المواد والمستويات التي تدرسها.')) {
+  async function saveTeacherProfile(nextChoices = teachingChoices, nextPackages = customPackages, message = t('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.')) {
     await act(async () => {
       const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject: serializeTeachingChoices(nextChoices), custom_packages: nextPackages });
       setCustomPackages(result.user.custom_packages || nextPackages);
@@ -290,18 +281,20 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   });
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label={t("بحث")} placeholder={t("ابحث عن مادة أو أستاذ")} value={query} onChange={e => setQuery(e.target.value)} /></label>;
   const bookSlot = (s: Slot) => { if (window.confirm(t("تأكيد حجز الحصة بقيمة {v0}؟", { v0: money(s.price) }))) void act(() => post(`slots/${s.id}`), t("تم تأكيد الحجز. ستجده في السجل.")); };
-  const atTime = (day: number, time: unknown) => { const [h, m] = String(time).split(':').map(Number); const d = new Date(day); d.setHours(h || 0, m || 0, 0, 0); return d.getTime(); };
-  const addSlotForm = <form className="work-form availability-composer" onSubmit={async e => {
-    e.preventDefault(); const form = e.currentTarget; const data = formData(form);
-    const start = atTime(availabilityDay, availabilityMode === 'range' ? data.from : data.time);
-    const end = availabilityMode === 'range' ? atTime(availabilityDay, data.to) : 0;
-    const rangeMinutes = availabilityMode === 'range' ? Math.round((end - start) / 60000) : 0;
-    const minutes = Number(data.minutes);
-    if (availabilityMode === 'range' && rangeMinutes < minutes) { setError(t("الفترة المتاحة يجب أن تكون أطول من مدة الحصة أو تساويها.")); return; }
-    if (availabilityMode === 'range' && end <= Date.now()) { setError(t("انتهت الفترة التي اخترتها. اختر وقت نهاية بعد الوقت الحالي.")); return; }
-    if (availabilityMode === 'custom' && start <= Date.now()) { setError(t("اختر وقتاً مخصصاً بعد الوقت الحالي.")); return; }
-    if (await act(() => post('slots', { subject: data.subject, start, minutes, available_until: availabilityMode === 'range' ? end : start + minutes * 60000, price: Math.round(Number(data.price) * 100) }), t("تم نشر الموعد."))) form.reset();
-  }}><div className="availability-form-head"><h3>{t("إضافة توفر")}</h3><p>{weekDays.find(d => d.value === availabilityDay)?.name} · {weekDays.find(d => d.value === availabilityDay)?.label}</p></div><label>{t("المادة")}<select name="subject" defaultValue={studentSubject || 'كل المواد المختارة'}>{teacherSubjects.length > 1 && <option value="كل المواد المختارة">{t("كل المواد المختارة")}</option>}{(teacherSubjects.length ? teacherSubjects : [user.subject || studentSubject || studentCategory]).map(subject => <option key={subject} value={subject}>{catalogText(subject)}</option>)}</select></label><label>{t("السعر بالدينار")}<input name="price" type="number" min="0" max="1000" step="0.01" required /></label><div className="availability-mode" role="tablist"><button type="button" className={availabilityMode === 'range' ? 'selected' : ''} onClick={() => setAvailabilityMode('range')}>{t("فترة زمنية")}</button><button type="button" className={availabilityMode === 'custom' ? 'selected' : ''} onClick={() => setAvailabilityMode('custom')}>{t("وقت مخصص")}</button></div>{availabilityMode === 'range' ? <><div className="availability-time-row"><label>{t("متاح من")}<input name="from" type="time" defaultValue="16:00" required /></label><label>{t("متاح إلى")}<input name="to" type="time" defaultValue="22:00" required /></label></div><label>{t("مدة الحصة")}<select name="minutes" defaultValue="60">{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n}{t(" دقيقة")}</option>)}</select></label></> : <div className="availability-time-row"><label>{t("الوقت")}<input name="time" type="time" defaultValue="16:00" required /></label><label>{t("مدة الحصة")}<select name="minutes" defaultValue="60">{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n}{t(" دقيقة")}</option>)}</select></label></div>}<button className="primary-button" disabled={busy}><CalendarPlus size={17} />{t("نشر التوفر")}</button></form>;
+  async function publishAvailability(drafts: AvailabilityDraft[]) {
+    setBusy(true); setError(''); setSuccess('');
+    try {
+      for (const draft of drafts) await post('slots', { subject: draft.subject, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price });
+      setSlots(current => [...drafts.map(draft => ({ id: crypto.randomUUID?.() || `slot-${Date.now()}-${draft.start}`, teacher_id: user.id, subject: draft.subject, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, status: 'open' })), ...current]);
+      setSuccess(t('تم نشر مواعيدك وإضافتها إلى التقويم.'));
+      return true;
+    } catch (cause) {
+      setError((cause as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
   const teacherPackageExplorer = <div className="package-explorer">
     {!teacherPackageKey && !buildingCustomPackage && <>
       <div className="showcase-heading"><div><span>{t('ملفك التعليمي')}</span><h2>{t('شو حاب تدرّس؟')}</h2><p>{t('اختر مادة وعدّل المستويات، أو اصنع باقتك الخاصة من الصفر.')}</p></div><small>{t('{v0} باقات محفوظة', { v0: teachingChoices.length + customPackages.length })}</small></div>
@@ -327,7 +320,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   </dialog>;
   const callNavigation = portal === 'students'
     ? [{ id: 'home', label: t("الرئيسية") }, { id: 'rooms', label: t("الغرف") }, { id: 'messages', label: t("الرسائل") }, { id: 'tutors', label: t("أساتذتي") }, { id: 'wallet', label: t("المحفظة") }, { id: 'history', label: t("السجل") }, { id: 'profile', label: t("حسابي") }]
-    : [{ id: 'home', label: t("الرئيسية") }, { id: 'rooms', label: t("الغرف") }, { id: 'messages', label: t("الرسائل") }, { id: 'booked', label: t("المحجوزة") }, { id: 'available', label: t("المتاحة") }, { id: 'earnings', label: t("المستحقات") }, { id: 'profile', label: t("حسابي") }];
+    : [{ id: 'home', label: t("الرئيسية") }, { id: 'rooms', label: t("الغرف") }, { id: 'messages', label: t("الرسائل") }, { id: 'available', label: t("المتاحة") }, { id: 'earnings', label: t("المستحقات") }, { id: 'profile', label: t("حسابي") }];
   const callLayer = room && <div className={callCompact ? 'floating-call-shell' : 'immersive-call-shell'} dir={direction()}><Suspense fallback={<div className="call-loading" role="status"><div className="wake-spinner" /><p>{t("جارٍ تجهيز الغرفة…")}</p></div>}><VideoRoom
       key={room.id}
       assignedRole={room.role}
@@ -383,8 +376,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={openSlots.length} onView={onView}>{teacherPackageExplorer}</WorkspaceOverview>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} />}
-      {view === 'booked' && <section className="student-page"><div className="section-heading"><h2>{t("المواعيد المحجوزة")}</h2><div className="history-tabs"><button onClick={() => setFilter('today')}>{t("اليوم")}</button><button onClick={() => setFilter('tomorrow')}>{t("غداً")}</button><button onClick={() => setFilter('week')}>{t("الأسبوع")}</button></div></div>{!teacherBooked.length && <Empty text="لا توجد حصص محجوزة حالياً." />}<div className="history-list">{teacherBooked.map((b, i) => <article className={i === 0 ? 'next-booking' : ''} key={b.id}><BookOpen size={20} /><div><strong>{catalogText(b.subject)}</strong><p>{b.student_name} · {date(b.start)} · {b.minutes}{t(" دقيقة")}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>{t("التفاصيل")}</button></article>)}</div></section>}
-      {view === 'available' && <section className="student-page availability-page"><div className="section-heading"><div><h2>{t("المواعيد المتاحة")}</h2><p className="muted">{t("اختر اليوم، ثم أضف فترة كاملة أو وقت واحد.")}</p></div></div><div className="availability-planner"><div className="availability-days">{weekDays.map(day => <button key={day.value} type="button" className={availabilityDay === day.value ? 'selected' : ''} onClick={() => setAvailabilityDay(day.value)}><strong>{day.name}</strong><span>{day.label}</span><small>{slots.filter(s => s.status !== 'cancelled' && new Date(s.start).toDateString() === new Date(day.value).toDateString()).length}{t(" موعد")}</small></button>)}</div>{addSlotForm}</div><div className="week-board">{weekDays.map(day => <div key={day.value}><strong>{day.name}</strong>{slots.filter(s => s.status !== 'cancelled' && new Date(s.start).toDateString() === new Date(day.value).toDateString()).slice(0, 4).map(s => <button type="button" className={s.status === 'booked' ? 'booked' : 'available'} key={s.id} onPointerDown={() => setSelectedSlot(s.id)} onClick={() => setSelectedSlot(s.id)}>{timeOnly(s.start)} - {timeOnly(s.available_until || s.start + s.minutes * 60000)} · {s.status === 'booked' ? t("محجوز") : t("متاح")}</button>)}{!slots.filter(s => s.status !== 'cancelled' && new Date(s.start).toDateString() === new Date(day.value).toDateString()).length && <small>{t("غير محدد")}</small>}</div>)}</div>{currentSlot && <article className="slot-detail-card"><div className="section-heading"><div><span className={`badge ${currentSlot.status}`}>{t(statusNames[currentSlot.status])}</span><h3>{catalogText(currentSlot.subject)}</h3></div><button className="icon-button" type="button" onClick={() => setSelectedSlot(null)}><X size={18} /></button></div><p><strong>{t("التاريخ:")}</strong> {new Date(currentSlot.start).toLocaleDateString(locale())}</p><p><strong>{t("الفترة المتاحة:")}</strong> {timeOnly(currentSlot.start)} - {timeOnly(currentSlot.available_until || currentSlot.start + currentSlot.minutes * 60000)}</p><p><strong>{t("طول الحصة:")}</strong> {currentSlot.minutes}{t(" دقيقة")}</p><p><strong>{t("المواد المتاحة:")}</strong> {catalogText(currentSlot.subject)}</p><p><strong>{t("السعر:")}</strong> {money(currentSlot.price)}</p>{currentSlot.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => deleteSlot(currentSlot.id)}><X size={17} />{t("حذف الموعد")}</button>}</article>}</section>}
+      {view === 'available' && <TeacherAvailabilityHub subjects={teacherSubjects} slots={slots} bookings={bookings} busy={busy} onHome={() => onView('home')} onPublish={publishAvailability} onDelete={deleteSlot} onBookingDetails={setSelected} />}
       {view === 'profile' && <section className="student-page account-page"><h2>{t("حسابي")}</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>{t("ملف الأستاذ")}</h3><label>{t("الاسم الكامل")}<input name="name" defaultValue={user.name} required /></label><label>{t("البريد الإلكتروني")}<input value={user.email} readOnly dir="ltr" /></label><label>{t("المواد والمستويات")}<textarea value={teachingChoices.map(choice => teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))).join('\n')} readOnly rows={5} /></label><input type="hidden" name="subject" value={user.subject} /><label>{t("نبذة مهنية")}<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />{t("حفظ")}</button></form><div className="account-settings"><button onClick={() => setSuccess(t("حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب."))}>{t("حالة التوثيق: حسب موافقة الإدارة")}</button><button onClick={() => onView('available')}>{t("إعدادات التوفر")}</button><button onClick={() => onView('earnings')}>{t("تفاصيل المستحقات")}</button><button onClick={reminders.toggle}>{t("إعدادات الإشعارات")}</button><button onClick={() => setSuccess(t("يمكنك طلب الدعم من الإدارة عبر رسائل الحصة أو حساب المنصة."))}>{t("المساعدة والدعم")}</button></div></div></section>}
       {view === 'history' && <section className="student-page"><h2>{t("السجل")}</h2><div className="history-tabs"><button onClick={() => setFilter('all')}>{t("الكل")}</button><button onClick={() => setFilter('completed')}>{t("الحصص")}</button><button onClick={() => onView('earnings')}>{t("المستحقات")}</button></div><div className="history-list">{bookings.filter(b => filter === 'all' || b.status === filter).map(b => <article key={b.id}><HistoryIcon size={20} /><div><strong>{b.student_name}</strong><p>{catalogText(b.subject)} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b></article>)}</div></section>}
     </>}

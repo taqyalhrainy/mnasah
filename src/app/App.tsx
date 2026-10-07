@@ -110,7 +110,7 @@ function PortalApp() {
   const nav = portal === 'students'
     ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }, { id: 'history', label: t("السجل"), icon: History }]
     : portal === 'teachers'
-    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'booked', label: t("المحجوزة"), icon: CalendarDays }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
+    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
     : [{ id: 'bookings', label: t("الحصص والحجوزات"), icon: CalendarDays },
       ...(portal === 'admin' ? [{ id: 'users', label: t("الحسابات"), icon: Users }, { id: 'audit', label: t("سجل العمليات"), icon: ClipboardList }] : [{ id: 'slots', label: t("مواعيدي المتاحة"), icon: Search }]),
       { id: 'payments', label: t("المستحقات"), icon: Wallet },

@@ -501,6 +501,241 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 }
 .slot-detail-card h3,
 .slot-detail-card p { margin: 0; }
+
+/* Teacher availability studio */
+.availability-hub { display: grid; gap: 20px; }
+.availability-showcase {
+  position: relative;
+  min-height: 650px;
+  padding: clamp(22px, 3.2vw, 48px);
+  overflow: hidden;
+  border: 1px solid #ffffff24;
+  border-radius: 28px;
+  color: #f7fbff;
+  background:
+    radial-gradient(circle at 10% 8%, #40b9df35 0 2px, transparent 3px) 0 0 / 34px 34px,
+    linear-gradient(135deg, #0c3853 0%, #0b5477 48%, #07304d 100%);
+  box-shadow: 0 30px 80px #082d4838;
+  isolation: isolate;
+}
+.availability-showcase::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(115deg, transparent 0 62%, #56c9ef0d 62% 63%, transparent 63%);
+}
+.availability-orbit {
+  position: absolute;
+  z-index: -1;
+  border: 54px solid #a6e4f119;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.availability-orbit.orbit-one { width: 520px; height: 520px; inset-inline-start: -230px; bottom: -250px; }
+.availability-orbit.orbit-two { width: 230px; height: 230px; inset-inline-end: -120px; top: 65px; border-width: 30px; opacity: .55; }
+.availability-showcase-head {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #d7f3ff24;
+}
+.availability-showcase-head h2 { max-width: 720px; margin: 8px 0; color: #fff; font-size: clamp(28px, 3.2vw, 49px); line-height: 1.1; letter-spacing: -.035em; }
+.availability-showcase-head p { max-width: 660px; margin: 0; color: #cae7f2; font-size: 15px; }
+.availability-kicker { display: inline-flex; align-items: center; gap: 7px; color: #7ee3ff; font-size: 13px; font-weight: 900; }
+.availability-tabs { display: inline-flex; flex: 0 0 auto; gap: 5px; padding: 5px; border: 1px solid #d9f4ff28; border-radius: 15px; background: #052c4299; backdrop-filter: blur(12px); }
+.availability-tabs button { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 45px; padding: 0 15px; border: 0; border-radius: 11px; color: #cceaf5; background: transparent; font-weight: 900; white-space: nowrap; transition: color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease; }
+.availability-tabs button:hover { transform: translateY(-1px); color: #fff; }
+.availability-tabs button.active { color: #07304d; background: #f6c94b; box-shadow: 0 12px 30px #020e183f; }
+.availability-tabs button.electric-target { animation: availabilityTarget 1s ease both; }
+.availability-lock { display: grid; justify-items: center; align-content: center; min-height: 430px; max-width: 760px; margin: auto; text-align: center; animation: availabilityRise .55s cubic-bezier(.2,.8,.2,1) both; }
+.availability-lock > span { display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 20px; border: 1px solid #bcecff42; border-radius: 24px; color: #f8cf55; background: #07334b99; box-shadow: 0 22px 55px #020d1738; }
+.availability-lock h3 { max-width: 700px; margin: 0; color: #fff; font-size: clamp(24px, 3vw, 40px); line-height: 1.35; }
+.availability-lock p { max-width: 600px; margin: 14px auto 24px; color: #c5e4ee; }
+.availability-light-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 18px; border: 0; border-radius: 13px; color: #07304d; background: #f6cb53; font-weight: 900; box-shadow: 0 15px 35px #03172455; transition: transform .2s ease, box-shadow .2s ease; }
+.availability-light-button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 19px 42px #03172465; }
+.availability-light-button:disabled { opacity: .45; cursor: not-allowed; }
+.availability-wizard, .availability-calendar-view { position: relative; z-index: 1; padding-top: 25px; animation: availabilityRise .5s cubic-bezier(.2,.8,.2,1) both; }
+.availability-progress { display: flex; align-items: center; justify-content: center; gap: 0; max-width: 680px; margin: 0 auto 28px; }
+.availability-progress span { position: relative; display: flex; align-items: center; gap: 8px; flex: 1; color: #96bfce; font-size: 12px; font-weight: 800; }
+.availability-progress span::after { content: ''; flex: 1; height: 1px; margin-inline: 10px; background: #d9f5ff2d; }
+.availability-progress span:last-child { flex: 0 0 auto; }
+.availability-progress span:last-child::after { display: none; }
+.availability-progress b { display: grid; place-items: center; width: 29px; height: 29px; border: 1px solid #b9e8f83c; border-radius: 50%; color: #a9d6e5; }
+.availability-progress .current { color: #fff; }
+.availability-progress .current b { border-color: #f7ce57; color: #07304d; background: #f7ce57; box-shadow: 0 0 0 6px #f7ce5718; }
+.availability-progress .done b { border-color: #70dfc0; color: #073f3b; background: #70dfc0; }
+.availability-stage { animation: availabilitySlide .42s cubic-bezier(.16,.8,.2,1) both; }
+.availability-stage-copy { margin-bottom: 22px; text-align: center; }
+.availability-stage-copy > span, .availability-stage-toolbar > div > span { color: #78dbf6; font-size: 12px; font-weight: 900; }
+.availability-stage-copy h3 { margin: 7px 0; color: #fff; font-size: clamp(24px, 2.6vw, 38px); }
+.availability-stage-copy p { margin: 0; color: #badce7; }
+.availability-subjects { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; max-width: 1040px; margin: 0 auto; }
+.availability-subjects > button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 3px 12px;
+  align-items: center;
+  min-height: 105px;
+  padding: 17px;
+  border: 1px solid #bce9f52e;
+  border-radius: 18px;
+  color: #fff;
+  background: #072f4790;
+  text-align: start;
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  animation: availabilityCardIn .42s calc(var(--availability-delay, 0ms) + 80ms) cubic-bezier(.16,.8,.2,1) forwards;
+  transition: transform .2s ease, border-color .2s ease, background .2s ease;
+}
+.availability-subjects > button:hover { transform: translateY(-4px); border-color: #f5cf66a6; background: #0a4664c9; }
+.availability-subjects > button > span { grid-row: 1 / 3; display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; color: #07304d; background: #f5cb55; font-weight: 950; }
+.availability-subjects strong { font-size: 17px; }
+.availability-subjects small { color: #9ec9d8; }
+.availability-subjects svg { grid-column: 3; grid-row: 1 / 3; }
+.availability-stage-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
+.availability-stage-toolbar h3 { margin: 4px 0 0; color: #fff; font-size: clamp(23px, 2.5vw, 34px); }
+.learning-shell .availability-showcase .availability-showcase-head h2,
+.learning-shell .availability-showcase .availability-stage-copy h3,
+.learning-shell .availability-showcase .availability-stage-toolbar h3 { color: #fff !important; }
+.availability-stage-toolbar > small { padding: 7px 11px; border: 1px solid #beeafa32; border-radius: 999px; color: #d7f1f8; background: #062d4399; font-weight: 800; white-space: nowrap; }
+.availability-back { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border: 1px solid #b8e7f732; border-radius: 12px; color: #d7eff6; background: #062d4399; font-weight: 900; }
+.availability-back:hover { color: #fff; border-color: #f5cc5c87; }
+.month-calendar { padding: 17px; border: 1px solid #c2edfb2c; border-radius: 21px; background: #052d438c; backdrop-filter: blur(10px); box-shadow: 0 18px 48px #020f182d; }
+.month-calendar-head { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; gap: 10px; margin-bottom: 13px; }
+.month-calendar-head strong { color: #fff; text-align: center; font-size: 18px; }
+.month-calendar-head button { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #bfeafb2f; border-radius: 11px; color: #e8f8fc; background: #124b67a8; }
+.month-calendar-head button:hover { color: #07304d; background: #f4ca54; }
+.month-weekdays, .month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
+.month-weekdays span { padding: 7px 3px; color: #94c4d4; font-size: 11px; font-weight: 900; text-align: center; }
+.month-grid > button { position: relative; display: grid; align-content: space-between; min-height: 76px; padding: 10px; border: 1px solid #b7e9f524; border-radius: 13px; color: #eaf9fd; background: #10445d91; text-align: start; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
+.month-grid > button:hover:not(:disabled) { transform: translateY(-2px); border-color: #f5ce5e8c; background: #175975bd; }
+.month-grid > button:disabled { opacity: .25; cursor: not-allowed; }
+.month-grid > button.today { box-shadow: inset 0 0 0 1px #75d8f1; }
+.learning-shell .availability-showcase .month-grid > button.selected { color: #07304d !important; border-color: #f8d46c !important; background: #f6cd59 !important; box-shadow: 0 12px 25px #03131d55; }
+.learning-shell .availability-showcase .month-grid > button.selected > span { color: #07304d !important; }
+.month-grid > button > span { font-size: 16px; font-weight: 950; }
+.month-grid > button > svg { position: absolute; inset-inline-end: 8px; top: 8px; }
+.month-grid > button > small { display: flex; align-items: center; gap: 4px; min-height: 18px; }
+.month-grid > button > small b { display: inline-grid; place-items: center; min-width: 20px; height: 18px; padding-inline: 4px; border-radius: 999px; font-size: 10px; }
+.month-grid .open-dot { color: #044238; background: #64dfbd; }
+.month-grid .booked-dot { color: #5b3900; background: #ffd166; }
+.selected-date-strip { display: flex; gap: 7px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
+.selected-date-strip button { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; padding: 7px 10px; border: 1px solid #caeffa33; border-radius: 999px; color: #e8f8fc; background: #0b405a; font-weight: 800; }
+.selected-date-strip span { color: #ffd669; font-size: 17px; }
+.availability-next, .availability-publish { display: flex; align-items: center; justify-content: center; gap: 8px; width: min(360px, 100%); min-height: 50px; margin: 20px auto 0; border: 0; border-radius: 14px; color: #07304d; background: #f6cc57; font-weight: 950; box-shadow: 0 16px 34px #02121d4f; }
+.availability-next:hover, .availability-publish:hover:not(:disabled) { transform: translateY(-2px); }
+.schedule-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; max-width: 650px; margin: 0 auto 18px; padding: 5px; border: 1px solid #c5edf930; border-radius: 15px; background: #052d438c; }
+.schedule-choice button { min-height: 43px; border: 0; border-radius: 11px; color: #a9d2df; background: transparent; font-weight: 900; }
+.schedule-choice button.active { color: #07304d; background: #f5cc59; box-shadow: 0 9px 24px #020d1742; }
+.daily-schedules { display: grid; gap: 9px; max-height: 285px; overflow: auto; padding-inline-end: 4px; }
+.schedule-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, .55fr) auto minmax(120px, .55fr); gap: 11px; align-items: end; padding: 14px; border: 1px solid #c5edf92b; border-radius: 17px; background: #062f4790; }
+.schedule-row > div { display: flex; align-items: center; gap: 8px; align-self: center; color: #fff; }
+.schedule-row > div svg { color: #f8cf59; }
+.schedule-row label, .availability-publish-settings label { display: grid; gap: 6px; color: #aed4df; font-size: 12px; font-weight: 900; }
+.schedule-row input, .availability-publish-settings input, .availability-publish-settings select { min-height: 43px; padding: 0 11px; border: 1px solid #bfe8f437; border-radius: 11px; color: #fff; background: #0a405a; color-scheme: dark; }
+.schedule-row > span { align-self: center; color: #71d9f3; direction: ltr; }
+.availability-publish-settings { display: grid; grid-template-columns: minmax(150px, .6fr) minmax(150px, .6fr) minmax(220px, 1fr); gap: 12px; margin-top: 14px; }
+.publish-summary { display: grid; align-content: center; gap: 3px; padding: 11px 14px; border: 1px solid #c5edf92b; border-radius: 14px; background: #062f4790; }
+.publish-summary span { color: #70dff8; font-size: 11px; font-weight: 900; }
+.publish-summary strong { color: #fff; }
+.publish-summary small { color: #a7ceda; }
+.availability-publish { position: relative; overflow: hidden; }
+.availability-publish > span { position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; }
+.availability-publish > i { position: absolute; inset: -50%; background: linear-gradient(90deg, transparent 30%, #fff8 50%, transparent 70%); transform: translateX(-70%) rotate(12deg); transition: transform .65s ease; }
+.availability-publish:hover > i { transform: translateX(70%) rotate(12deg); }
+.availability-local-error { max-width: 700px; margin: 14px auto 0; padding: 10px 13px; border: 1px solid #ffb3b35c; border-radius: 12px; color: #ffe1e1; background: #7d263b66; text-align: center; }
+.availability-electric-path { position: absolute; z-index: 5; top: 132px; inset-inline-end: clamp(180px, 19vw, 280px); width: clamp(90px, 16vw, 220px); height: 4px; filter: drop-shadow(0 0 8px #8cf3ff); transform-origin: right; animation: electricTravel .9s ease both; }
+.availability-electric-path i { position: absolute; inset: 0; border-radius: 99px; background: linear-gradient(90deg, transparent, #7deaff, #fff3a0); }
+.availability-electric-path i:nth-child(2) { transform: translateY(-5px) scaleX(.72); opacity: .65; }
+.availability-electric-path i:nth-child(3) { transform: translateY(5px) scaleX(.48); opacity: .4; }
+.availability-calendar-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(285px, .65fr); gap: 15px; align-items: start; }
+.calendar-legend { display: flex; align-items: center; gap: 8px; }
+.calendar-legend span { display: inline-flex; align-items: center; gap: 6px; color: #d9f0f6; font-size: 12px; font-weight: 900; }
+.calendar-legend span::before { content: ''; width: 9px; height: 9px; border-radius: 50%; }
+.calendar-legend .open::before { background: #64dfbd; }
+.calendar-legend .booked::before { background: #ffd166; }
+.calendar-day-panel { display: grid; gap: 13px; min-height: 100%; padding: 18px; border: 1px solid #c4edfa2d; border-radius: 21px; background: #052d43a6; backdrop-filter: blur(10px); }
+.calendar-day-panel > span { color: #71daf5; font-size: 11px; font-weight: 900; }
+.calendar-day-panel > h3 { margin: -7px 0 0; color: #fff; font-size: 20px; }
+.day-capacity { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.day-capacity > div { display: grid; gap: 2px; padding: 10px; border: 1px solid #bce8f32a; border-radius: 13px; background: #10475f90; }
+.day-capacity strong { color: #fff; font-size: 20px; }
+.day-capacity small { color: #a7ceda; }
+.day-free-windows { display: grid; gap: 7px; padding: 11px; border: 1px solid #bce8f32a; border-radius: 13px; background: #062f4780; }
+.day-free-windows > strong { color: #dff7fc; font-size: 12px; }
+.day-free-windows > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.day-free-windows span { padding: 5px 7px; border-radius: 8px; color: #073b34; background: #75e3c4; font-size: 10px; font-weight: 950; }
+.day-free-windows small { color: #aacfd9; font-size: 11px; }
+.free-day { display: grid; justify-items: center; gap: 4px; padding: 23px 12px; border: 1px dashed #bbe8f23c; border-radius: 15px; color: #b9dce6; text-align: center; }
+.free-day svg { color: #f5cd5d; }
+.free-day p { margin: 0; font-size: 12px; }
+.calendar-day-events { display: grid; gap: 8px; max-height: 300px; overflow: auto; }
+.day-event { display: grid; grid-template-columns: auto 1fr auto; gap: 9px; align-items: center; width: 100%; padding: 10px; border: 1px solid transparent; border-radius: 13px; color: #fff; text-align: start; }
+button.day-event { font: inherit; }
+.day-event.booked { border-color: #ffd16645; background: #70571948; }
+.day-event.open { border-color: #64dfbd45; background: #14645148; }
+.day-event > span { min-width: 47px; font-weight: 950; direction: ltr; }
+.day-event > div { display: grid; gap: 2px; }
+.day-event small { color: #b8d9e2; }
+.day-event > button { display: grid; place-items: center; width: 31px; height: 31px; border: 0; border-radius: 9px; color: #ffd3d3; background: #7a263b7a; }
+.availability-quick-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--line); }
+.availability-quick-stats > div { display: grid; gap: 5px; padding: 17px 20px; background: var(--surface); }
+.availability-quick-stats span { color: var(--muted); font-size: 12px; }
+.availability-quick-stats strong { color: var(--ink); font-size: 27px; }
+@keyframes availabilityRise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes availabilitySlide { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes availabilityCardIn { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes electricTravel { 0% { opacity: 0; transform: scaleX(.05); } 35% { opacity: 1; } 100% { opacity: 0; transform: translateX(-70%) scaleX(1.15); } }
+@keyframes availabilityTarget { 0%, 100% { box-shadow: none; } 35% { color: #07304d; background: #bff7ff; box-shadow: 0 0 0 8px #73eafa1a, 0 0 35px #7cecff; } }
+
+@media (max-width: 900px) {
+  .availability-showcase { min-height: 600px; border-radius: 22px; }
+  .availability-showcase-head { align-items: stretch; flex-direction: column; }
+  .availability-tabs { align-self: stretch; }
+  .availability-tabs button { flex: 1; }
+  .availability-calendar-layout { grid-template-columns: 1fr; }
+  .calendar-day-panel { min-height: 0; }
+  .availability-publish-settings { grid-template-columns: repeat(2, 1fr); }
+  .publish-summary { grid-column: 1 / -1; }
+  .schedule-row { grid-template-columns: 1fr 1fr; }
+  .schedule-row > div { grid-column: 1 / -1; }
+  .schedule-row > span { display: none; }
+}
+@media (max-width: 560px) {
+  .availability-showcase { min-height: 560px; margin-inline: -4px; padding: 18px 12px 24px; border-radius: 18px; }
+  .availability-showcase-head h2 { font-size: 29px; }
+  .availability-showcase-head p { font-size: 13px; }
+  .availability-tabs button { min-width: 0; padding-inline: 8px; font-size: 12px; }
+  .availability-progress { margin-bottom: 22px; }
+  .availability-progress span { gap: 4px; font-size: 10px; }
+  .availability-progress span::after { margin-inline: 5px; }
+  .availability-progress b { width: 25px; height: 25px; }
+  .availability-stage-toolbar { display: grid; grid-template-columns: 1fr auto; }
+  .availability-stage-toolbar .availability-back { grid-column: 1 / -1; justify-self: start; }
+  .availability-subjects { grid-template-columns: 1fr; }
+  .month-calendar { padding: 10px 7px; }
+  .month-weekdays, .month-grid { gap: 3px; }
+  .month-weekdays span { font-size: 9px; }
+  .month-grid > button { min-height: 53px; padding: 6px; border-radius: 9px; }
+  .month-grid > button > span { font-size: 13px; }
+  .month-grid > button > small b { min-width: 15px; height: 14px; font-size: 8px; }
+  .month-grid > button > svg { width: 11px; height: 11px; inset-inline-end: 5px; top: 5px; }
+  .schedule-choice { grid-template-columns: 1fr; }
+  .schedule-row { grid-template-columns: 1fr 1fr; padding: 11px; gap: 8px; }
+  .availability-publish-settings { grid-template-columns: 1fr; }
+  .publish-summary { grid-column: auto; }
+  .availability-quick-stats { grid-template-columns: 1fr; }
+  .availability-quick-stats > div { grid-template-columns: 1fr auto; align-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .availability-stage, .availability-wizard, .availability-calendar-view, .availability-lock, .availability-subjects > button, .availability-tabs button.electric-target, .availability-electric-path { animation: none !important; opacity: 1; }
+}
 .earnings-week {
   display: grid;
   gap: 8px;
