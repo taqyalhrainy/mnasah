@@ -25,6 +25,8 @@
 :root[data-theme=dark] .password-change-page { background: var(--canvas); color: var(--ink); }
 :root[data-theme=dark] .detail-dialog input,:root[data-theme=dark] .detail-dialog textarea,:root[data-theme=dark] .password-change-page input { background: var(--canvas); color: var(--ink); border-color: var(--line); }
 :root[data-theme=dark] .auth-visual > img { opacity: 1; filter: none; }
+:root[data-theme=light] .redesigned-shell .sidebar .nav-button.active { color: #211d17; background: var(--yellow); }
+:root[data-theme=light] .redesigned-shell .sidebar .nav-button.active::after { background: #b7820d; }
 @media (min-width: 1101px) and (max-width: 1420px) {
   .redesigned-shell.portal-admin .sidebar { gap: 16px; padding-inline: 24px; }
   .redesigned-shell.portal-admin .sidebar .nav-button { gap: 6px; padding-inline: 10px; }
