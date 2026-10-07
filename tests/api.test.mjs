@@ -193,6 +193,14 @@ test('authorization and the full reservation lifecycle', async () => {
   attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${uploadedFile.id}`, { headers: { cookie: clients.teacher } }), env);
   assert.equal(attachmentResponse.status, 200); assert.deepEqual(new Uint8Array(await attachmentResponse.arrayBuffer()), fileBytes);
   assert.match(attachmentResponse.headers.get('content-disposition'), /^attachment;/);
+  const voiceMessageId = crypto.randomUUID();
+  const voiceBytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01]);
+  const voiceFile = (await uploadFile('student', `${dmPath}/attachments`, voiceMessageId, 'voice-note.webm', voiceBytes)).attachment;
+  assert.equal(voiceFile.preview_type, 'audio/webm');
+  await call('student', `${dmPath}/messages`, { id: voiceMessageId, attachments: [voiceFile.id] });
+  attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${voiceFile.id}?preview=1`, { headers: { cookie: clients.teacher } }), env);
+  assert.equal(attachmentResponse.headers.get('content-type'), 'audio/webm');
+  assert.match(attachmentResponse.headers.get('content-disposition'), /^inline;/);
   await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
   await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);
   await call('student', `students/bookings/${reservation.id}/cancel`, {});

@@ -1,6 +1,6 @@
 import { t, locale, usePreferences } from '../../i18n/preferences';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, BellOff, Check, CheckCheck, ChevronDown, Download, File, ImagePlay, MessageCircle, MoreHorizontal, Paperclip, Reply, Search, Send, Settings2, ShieldOff, Smile, Trash2, X } from 'lucide-react';
+import { ArrowRight, BellOff, Check, CheckCheck, ChevronDown, Download, File, ImagePlay, MessageCircle, Mic, MoreHorizontal, Paperclip, Reply, Search, Send, Settings2, ShieldOff, Smile, Square, Trash2, X } from 'lucide-react';
 import { apiUrl, request, type Portal, type User } from '../../services/platformApi';
 import type { ChatAttachment, ChatMessage, ChatThread, ThreadResult } from './chatTypes';
 import type { DirectChatState } from './useDirectChat';
@@ -16,6 +16,8 @@ const gifs = [
 const clock = (time: number) => new Date(time).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 const day = (time: number) => new Date(time).toLocaleDateString(locale(), { day: 'numeric', month: 'long' });
 const sizeLabel = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} ${t('ك.ب')}` : `${(bytes / 1024 / 1024).toFixed(1)} ${t('م.ب')}`;
+const recordingTime = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+const isAudio = (file: Pick<ChatAttachment, 'preview_type'>) => file.preview_type.startsWith('audio/');
 type QueuedFile = { key: string; file: globalThis.File; url: string; progress: number; attachmentId?: string };
 function presenceText(peer: ChatThread['peer']) {
   return peer.status === 'online' ? t("متاح الآن") : peer.status === 'away' ? t("كان هنا قبل قليل") : peer.status === 'hidden' ? t("الظهور مخفي") : peer.lastSeen ? t("آخر ظهور {v0}، {v1}", { v0: day(peer.lastSeen), v1: clock(peer.lastSeen) }) : t("غير متصل");
@@ -42,9 +44,17 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [files, setFiles] = useState<QueuedFile[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const timeline = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const recorderStream = useRef<MediaStream | null>(null);
+  const recorderChunks = useRef<Blob[]>([]);
+  const recorderTimer = useRef<number | null>(null);
+  const recorderStarted = useRef(0);
+  const discardRecording = useRef(false);
   const selectedRef = useRef(chat.selected); selectedRef.current = chat.selected;
   const bottomRef = useRef(true);
   const requestVersion = useRef(0);
@@ -84,6 +94,7 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
     finally { if (selectedRef.current === threadId) setFetching(false); }
   }
   useEffect(() => {
+    cancelRecording();
     setDetail(null); setError(''); setReply(null); setPicker(null); setMessageQuery(''); setSearching(false); setReactionTarget(null); readMessage.current = '';
     setFiles(previous => { previous.forEach(row => URL.revokeObjectURL(row.url)); return []; }); pendingSend.current = null;
     bottomRef.current = true; setAtBottom(true);
@@ -107,7 +118,7 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
     readMessage.current = last.id;
     void request(messagePath(id, 'read'), { messageId: last.id }).then(() => chat.refresh()).catch(() => { readMessage.current = ''; });
   }, [detail, id, active, atBottom]);
-  useEffect(() => () => { clearTimeout(typing.current.timer); }, []);
+  useEffect(() => () => { clearTimeout(typing.current.timer); cancelRecording(); }, []);
   useEffect(() => { if (!active) stopTyping(); }, [active]);
   async function mutate(action: string, body: unknown, threadId = id) {
     if (!threadId) return;
@@ -131,9 +142,7 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
     const target = id;
     typing.current.timer = window.setTimeout(() => stopTyping(target), 1600);
   }
-  function chooseFiles(selected: FileList | null) {
-    if (!selected) return;
-    const selectedFiles = Array.from(selected);
+  function queueFiles(selectedFiles: globalThis.File[]) {
     setError('');
     setFiles(previous => {
       const next = [...previous];
@@ -142,13 +151,65 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
         if (!file.size) { setError(t('لا يمكن إرسال ملف فارغ.')); continue; }
         if (file.size > 25 * 1024 * 1024) { setError(t('الملف {v0} أكبر من 25 ميغابايت.', { v0: file.name })); continue; }
         if (next.some(row => row.file.name === file.name && row.file.size === file.size && row.file.lastModified === file.lastModified)) continue;
-        next.push({ key: crypto.randomUUID(), file, url: /^(image\/(png|jpeg|gif|webp))$/.test(file.type) ? URL.createObjectURL(file) : '', progress: 0 });
+        next.push({ key: crypto.randomUUID(), file, url: /^(image\/(png|jpeg|gif|webp)|audio\/(webm|ogg|wav|mp4|mpeg))$/.test(file.type) ? URL.createObjectURL(file) : '', progress: 0 });
       }
       if (next.reduce((sum, row) => sum + row.file.size, 0) > 100 * 1024 * 1024) { next.slice(previous.length).forEach(row => row.url && URL.revokeObjectURL(row.url)); setError(t('حجم مرفقات الرسالة يجب ألا يتجاوز 100 ميغابايت.')); return previous; }
       pendingSend.current = null;
       return next;
     });
+  }
+  function chooseFiles(selected: FileList | null) {
+    if (!selected) return;
+    queueFiles(Array.from(selected));
     if (fileInput.current) fileInput.current.value = '';
+  }
+  function releaseRecorder() {
+    if (recorderTimer.current !== null) window.clearInterval(recorderTimer.current);
+    recorderTimer.current = null;
+    recorderStream.current?.getTracks().forEach(track => track.stop());
+    recorderStream.current = null;
+    recorder.current = null;
+    setRecording(false);
+  }
+  function cancelRecording() {
+    discardRecording.current = true;
+    const activeRecorder = recorder.current;
+    if (activeRecorder && activeRecorder.state !== 'inactive') activeRecorder.stop();
+    else releaseRecorder();
+  }
+  function stopRecording() {
+    discardRecording.current = false;
+    if (recorder.current?.state !== 'inactive') recorder.current?.stop();
+  }
+  async function startRecording() {
+    if (recording || busy || files.length >= 10) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { setError(t('التسجيل الصوتي غير مدعوم في هذا المتصفح.')); return; }
+    try {
+      setError(''); setPicker(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferred = typeof MediaRecorder.isTypeSupported === 'function' ? ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(type => MediaRecorder.isTypeSupported(type)) : undefined;
+      const activeRecorder = new MediaRecorder(stream, preferred ? { mimeType: preferred } : undefined);
+      recorder.current = activeRecorder; recorderStream.current = stream; recorderChunks.current = []; discardRecording.current = false;
+      activeRecorder.ondataavailable = event => { if (event.data.size) recorderChunks.current.push(event.data); };
+      activeRecorder.onerror = () => { setError(t('تعذر تسجيل الصوت. حاول مجدداً.')); cancelRecording(); };
+      activeRecorder.onstop = () => {
+        const discard = discardRecording.current;
+        const chunks = recorderChunks.current; recorderChunks.current = [];
+        const mime = activeRecorder.mimeType.split(';')[0] || chunks[0]?.type.split(';')[0] || 'audio/webm';
+        releaseRecorder();
+        if (discard || !chunks.length) return;
+        const blob = new Blob(chunks, { type: mime });
+        if (!blob.size) { setError(t('التسجيل الصوتي فارغ. حاول مجدداً.')); return; }
+        const extension = mime === 'audio/mp4' ? 'm4a' : mime === 'audio/ogg' ? 'ogg' : mime === 'audio/wav' ? 'wav' : 'webm';
+        queueFiles([new globalThis.File([blob], `voice-note-${Date.now()}.${extension}`, { type: mime })]);
+      };
+      activeRecorder.start(250);
+      recorderStarted.current = Date.now(); setRecordingSeconds(0); setRecording(true);
+      recorderTimer.current = window.setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recorderStarted.current) / 1000); setRecordingSeconds(elapsed);
+        if (elapsed >= 120) stopRecording();
+      }, 250);
+    } catch { releaseRecorder(); setError(t('لم نتمكن من استخدام الميكروفون. اسمح بالوصول ثم حاول مجدداً.')); }
   }
   function removeFile(key: string) {
     if (busy) return;
@@ -218,7 +279,7 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
     }} /></label>)}{'Notification' in window && chat.settings.notifications && Notification.permission !== 'granted' && <p className="dm-permission">{t("تنبيهات الجهاز تحتاج إذن المتصفح.")}<button className="text-button" onClick={() => void Notification.requestPermission()}>{t("السماح بالتنبيهات")}</button></p>}</section>}
     {(chat.error || error) && <p className="notice error" role="alert">{error || chat.error}<button className="text-button" onClick={() => { void chat.refresh(); if (id) void load(id); }}>{t("إعادة المحاولة")}</button></p>}
     <div className={`dm-layout ${id ? 'has-selection' : ''}`}>
-      <aside className="dm-inbox" aria-label={t("المحادثات")}><div className="dm-inbox-title"><h3>{t("المحادثات ")}<span>{visibleThreads.length}</span></h3><button className="icon-button" aria-label={showHidden ? t("عرض المحادثات") : t("المحادثات المحذوفة")} onClick={() => setShowHidden(!showHidden)} aria-pressed={showHidden}><Trash2 size={16} /></button></div><label className="dm-search"><Search size={17} /><input aria-label={t("بحث في المحادثات")} placeholder={t("ابحث عن اسم…")} value={query} onChange={e => setQuery(e.target.value)} /></label>{showHidden && <p className="dm-list-hint">{t("المحادثات المحذوفة من قائمتك. الاستعادة تفتح محادثة فارغة؛ لا تعيد السجل المحذوف.")}</p>}<div className="dm-thread-list">{chat.loading ? <p className="dm-empty-small" role="status">{t("جارٍ تحميل المحادثات…")}</p> : !visibleThreads.length ? <div className="dm-empty-small"><MessageCircle size={25} /><p>{query ? t("لا توجد نتائج مطابقة.") : showHidden ? t("لا توجد محادثات محذوفة.") : t("تظهر محادثاتك تلقائياً بعد أول حجز.")}</p></div> : visibleThreads.map(row => <button className={`dm-thread ${id === row.id ? 'selected' : ''}`} key={row.id} onClick={() => { stopTyping(); chat.select(row.id); }} aria-label={t("محادثة {v0}", { v0: row.peer.name })} aria-pressed={id === row.id}><PeerAvatar thread={row} /><span className="dm-thread-copy"><strong>{row.peer.name}{row.muted && <BellOff size={13} />}{row.blocked && <ShieldOff size={13} />}</strong><small>{row.typing ? <TypingDots /> : row.lastMessage?.media_url ? t("صورة GIF") : row.lastMessage?.body || (row.lastMessage?.attachments?.length ? `📎 ${row.lastMessage.attachments[0].name}` : t("ابدأ محادثة جديدة"))}</small></span><span className="dm-thread-meta">{row.lastMessage && <time>{clock(row.lastMessage.created)}</time>}{row.unread > 0 && !row.hidden && <b>{row.unread > 99 ? '99+' : row.unread}</b>}</span></button>)}</div><div className="dm-inbox-footer"><span className="dm-mini-dot" />{t("محادثات خاصة مرتبطة بحجوزاتك")}</div></aside>
+      <aside className="dm-inbox" aria-label={t("المحادثات")}><div className="dm-inbox-title"><h3>{t("المحادثات ")}<span>{visibleThreads.length}</span></h3><button className="icon-button" aria-label={showHidden ? t("عرض المحادثات") : t("المحادثات المحذوفة")} onClick={() => setShowHidden(!showHidden)} aria-pressed={showHidden}><Trash2 size={16} /></button></div><label className="dm-search"><Search size={17} /><input aria-label={t("بحث في المحادثات")} placeholder={t("ابحث عن اسم…")} value={query} onChange={e => setQuery(e.target.value)} /></label>{showHidden && <p className="dm-list-hint">{t("المحادثات المحذوفة من قائمتك. الاستعادة تفتح محادثة فارغة؛ لا تعيد السجل المحذوف.")}</p>}<div className="dm-thread-list">{chat.loading ? <p className="dm-empty-small" role="status">{t("جارٍ تحميل المحادثات…")}</p> : !visibleThreads.length ? <div className="dm-empty-small"><MessageCircle size={25} /><p>{query ? t("لا توجد نتائج مطابقة.") : showHidden ? t("لا توجد محادثات محذوفة.") : t("تظهر محادثاتك تلقائياً بعد أول حجز.")}</p></div> : visibleThreads.map(row => <button className={`dm-thread ${id === row.id ? 'selected' : ''}`} key={row.id} onClick={() => { stopTyping(); chat.select(row.id); }} aria-label={t("محادثة {v0}", { v0: row.peer.name })} aria-pressed={id === row.id}><PeerAvatar thread={row} /><span className="dm-thread-copy"><strong>{row.peer.name}{row.muted && <BellOff size={13} />}{row.blocked && <ShieldOff size={13} />}</strong><small>{row.typing ? <TypingDots /> : row.lastMessage?.media_url ? t("صورة GIF") : row.lastMessage?.body || (row.lastMessage?.attachments?.length ? isAudio(row.lastMessage.attachments[0]) ? t("رسالة صوتية") : `📎 ${row.lastMessage.attachments[0].name}` : t("ابدأ محادثة جديدة"))}</small></span><span className="dm-thread-meta">{row.lastMessage && <time>{clock(row.lastMessage.created)}</time>}{row.unread > 0 && !row.hidden && <b>{row.unread > 99 ? '99+' : row.unread}</b>}</span></button>)}</div><div className="dm-inbox-footer"><span className="dm-mini-dot" />{t("محادثات خاصة مرتبطة بحجوزاتك")}</div></aside>
       <div className="dm-conversation">{!thread ? <div className="dm-welcome"><span className="dm-welcome-icon"><MessageCircle size={34} strokeWidth={1.5} /></span><span className="section-kicker">{t("معك، خارج وقت الحصة أيضاً")}</span><h3>{t("كل سؤال، بداية جديدة.")}</h3><p>{t("اختر محادثة للتواصل، مشاركة فكرة، أو متابعة ما تعلّمته.")}</p><div className="dm-welcome-features"><span><CheckCheck size={16} />{t("قراءة")}</span><span><Smile size={16} />{t("تفاعلات")}</span><span><ShieldOff size={16} />{t("خصوصية")}</span></div></div> : <>
         <header className="dm-conversation-header"><button className="icon-button dm-back" aria-label={t("العودة للمحادثات")} onClick={() => { stopTyping(); chat.select(null); }}><ArrowRight size={19} /></button><PeerAvatar thread={thread} /><div className="dm-peer-title"><h3>{thread.peer.name}</h3><p><span className={`dm-status-text ${thread.peer.status}`}>{presenceText(thread.peer)}</span>{thread.muted && <BellOff size={13} />}</p></div><button className="icon-button" aria-label={t("بحث في الرسائل")} onClick={() => { setSearching(!searching); setMessageQuery(''); }} aria-pressed={searching}><Search size={18} /></button><details className="dm-menu"><summary aria-label={t("خيارات المحادثة")}><MoreHorizontal size={21} /></summary><div><button disabled={busy} onClick={() => void action(() => mutate('preferences', { muted: !thread.muted }))}><BellOff size={16} />{thread.muted ? t("إلغاء الصامت") : t("كتم المحادثة")}</button><button disabled={busy} onClick={() => void action(() => mutate('preferences', { blocked: !thread.blocked }))}><ShieldOff size={16} />{thread.blocked ? t("إلغاء الحظر") : t("حظر المراسلة")}</button><button disabled={busy} onClick={() => {
           if (window.confirm(t("حذف هذه المحادثة وسجلها من حسابك؟ تبقى نسخة الطرف الآخر لديه. لا يمكن استعادة سجلّك المحذوف."))) void action(async () => { await request(messagePath(thread.id, 'delete'), {}); chat.select(null); await chat.refresh(); });
@@ -232,15 +293,16 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
             const mine = message.author_id === user.id;
             const previous = visibleMessages[index - 1];
             const showDay = !previous || new Date(previous.created).toDateString() !== new Date(message.created).toDateString();
-            return <div key={message.id}>{showDay && <div className="dm-day"><span>{day(message.created)}</span></div>}<article className={`dm-message ${mine ? 'mine' : 'theirs'}`} data-message-id={message.id}><div className="dm-message-content">{message.reply && <blockquote className="dm-reply-quote"><Reply size={13} /><span>{message.reply.body || (message.reply.attachments?.length ? `${t("ملف")}: ${message.reply.attachments[0].name}` : t("صورة GIF"))}</span></blockquote>}{message.body && <p dir="auto">{message.body}</p>}{message.media_url && <img className="dm-gif" src={message.media_url} alt={t("صورة GIF مرسلة")} loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.alt = t("تعذر تحميل GIF"); }} />}{message.attachments?.length > 0 && <div className="dm-attachments">{message.attachments.map(file => <div className="dm-attachment" key={file.id}>{file.preview_type && <img src={attachmentUrl(thread.id, file, true)} alt={`${t("معاينة")} ${file.name}`} loading="lazy" />}<div><File size={18} /><span><b title={file.name}>{file.name}</b><small>{sizeLabel(file.size)}</small></span><button type="button" aria-label={`${t("تنزيل")} ${file.name}`} title={t("تنزيل الملف")} onClick={() => void download(thread.id, file)}><Download size={17} /></button></div></div>)}</div>}<div className="dm-message-meta"><time>{clock(message.created)}</time>{mine && <span title={thread.peerReadAt === null ? t("تم الإرسال") : thread.peerReadAt >= message.created ? t("تمت القراءة") : t("تم الإرسال")}>{thread.peerReadAt !== null && thread.peerReadAt >= message.created ? <><CheckCheck size={14} /><span>{t("تمت القراءة")}</span></> : <Check size={13} />}</span>}</div></div><div className="dm-message-tools"><button aria-label={t("تفاعل مع الرسالة")} disabled={thread.unavailable} onClick={() => setReactionTarget(reactionTarget === message.id ? null : message.id)}><Smile size={15} /></button><button aria-label={t("رد على الرسالة")} disabled={thread.unavailable} onClick={() => { setReply(message); input.current?.focus(); }}><Reply size={15} /></button></div>{reactionTarget === message.id && <div className="dm-reaction-picker" aria-label={t("تفاعلات سريعة")}>{reactions.map(emoji => <button key={emoji} aria-label={t("تفاعل {v0}", { v0: emoji })} disabled={busy} onClick={() => { setReactionTarget(null); void action(() => mutate('reaction', { messageId: message.id, emoji, active: !message.reactions.some(r => r.emoji === emoji && r.mine) })); }}>{emoji}</button>)}</div>}{message.reactions.length > 0 && <div className="dm-reactions">{message.reactions.map(reaction => <button key={reaction.emoji} disabled={busy || thread.unavailable} aria-label={`${reaction.emoji} ${reaction.count}`} aria-pressed={reaction.mine} onClick={() => void action(() => mutate('reaction', { messageId: message.id, emoji: reaction.emoji, active: !reaction.mine }))}>{reaction.emoji}<small>{reaction.count}</small></button>)}</div>}</article></div>;
+            return <div key={message.id}>{showDay && <div className="dm-day"><span>{day(message.created)}</span></div>}<article className={`dm-message ${mine ? 'mine' : 'theirs'}`} data-message-id={message.id}><div className="dm-message-content">{message.reply && <blockquote className="dm-reply-quote"><Reply size={13} /><span>{message.reply.body || (message.reply.attachments?.length ? isAudio(message.reply.attachments[0]) ? t("رسالة صوتية") : `${t("ملف")}: ${message.reply.attachments[0].name}` : t("صورة GIF"))}</span></blockquote>}{message.body && <p dir="auto">{message.body}</p>}{message.media_url && <img className="dm-gif" src={message.media_url} alt={t("صورة GIF مرسلة")} loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.alt = t("تعذر تحميل GIF"); }} />}{message.attachments?.length > 0 && <div className="dm-attachments">{message.attachments.map(file => <div className={`dm-attachment ${isAudio(file) ? 'audio' : ''}`} key={file.id}>{file.preview_type.startsWith('image/') && <img src={attachmentUrl(thread.id, file, true)} alt={`${t("معاينة")} ${file.name}`} loading="lazy" />}{isAudio(file) && <div className="dm-audio"><Mic size={18} /><span>{t("رسالة صوتية")}</span><audio controls preload="metadata" src={attachmentUrl(thread.id, file, true)} aria-label={t("تشغيل الرسالة الصوتية")} /></div>}<div>{isAudio(file) ? <Mic size={18} /> : <File size={18} />}<span><b title={file.name}>{isAudio(file) ? t("تسجيل صوتي") : file.name}</b><small>{sizeLabel(file.size)}</small></span><button type="button" aria-label={`${t("تنزيل")} ${file.name}`} title={t("تنزيل الملف")} onClick={() => void download(thread.id, file)}><Download size={17} /></button></div></div>)}</div>}<div className="dm-message-meta"><time>{clock(message.created)}</time>{mine && <span title={thread.peerReadAt === null ? t("تم الإرسال") : thread.peerReadAt >= message.created ? t("تمت القراءة") : t("تم الإرسال")}>{thread.peerReadAt !== null && thread.peerReadAt >= message.created ? <><CheckCheck size={14} /><span>{t("تمت القراءة")}</span></> : <Check size={13} />}</span>}</div></div><div className="dm-message-tools"><button aria-label={t("تفاعل مع الرسالة")} disabled={thread.unavailable} onClick={() => setReactionTarget(reactionTarget === message.id ? null : message.id)}><Smile size={15} /></button><button aria-label={t("رد على الرسالة")} disabled={thread.unavailable} onClick={() => { setReply(message); input.current?.focus(); }}><Reply size={15} /></button></div>{reactionTarget === message.id && <div className="dm-reaction-picker" aria-label={t("تفاعلات سريعة")}>{reactions.map(emoji => <button key={emoji} aria-label={t("تفاعل {v0}", { v0: emoji })} disabled={busy} onClick={() => { setReactionTarget(null); void action(() => mutate('reaction', { messageId: message.id, emoji, active: !message.reactions.some(r => r.emoji === emoji && r.mine) })); }}>{emoji}</button>)}</div>}{message.reactions.length > 0 && <div className="dm-reactions">{message.reactions.map(reaction => <button key={reaction.emoji} disabled={busy || thread.unavailable} aria-label={`${reaction.emoji} ${reaction.count}`} aria-pressed={reaction.mine} onClick={() => void action(() => mutate('reaction', { messageId: message.id, emoji: reaction.emoji, active: !reaction.mine }))}>{reaction.emoji}<small>{reaction.count}</small></button>)}</div>}</article></div>;
           })}
         </div>
         {!atBottom && <button className="dm-jump" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; bottomRef.current = true; setAtBottom(true); }}><ChevronDown size={15} />{t("أحدث الرسائل")}</button>}
         <div className="dm-typing-line">{thread.typing && <><TypingDots /><span>{thread.peer.name}</span></>}</div>
-        {reply && <div className="dm-reply-bar"><Reply size={16} /><span><small>{t("رد على ")}{reply.author_id === user.id ? t("رسالتك") : thread.peer.name}</small><b>{reply.body || (reply.attachments?.length ? `${t("ملف")}: ${reply.attachments[0].name}` : t("صورة GIF"))}</b></span><button className="icon-button" aria-label={t("إلغاء الرد")} onClick={() => setReply(null)}><X size={16} /></button></div>}
+        {reply && <div className="dm-reply-bar"><Reply size={16} /><span><small>{t("رد على ")}{reply.author_id === user.id ? t("رسالتك") : thread.peer.name}</small><b>{reply.body || (reply.attachments?.length ? isAudio(reply.attachments[0]) ? t("رسالة صوتية") : `${t("ملف")}: ${reply.attachments[0].name}` : t("صورة GIF"))}</b></span><button className="icon-button" aria-label={t("إلغاء الرد")} onClick={() => setReply(null)}><X size={16} /></button></div>}
         {picker && <div className="dm-picker"><div className="dm-picker-heading"><strong>{picker === 'emoji' ? t("إيموجي") : t("اختر GIF")}</strong><button className="icon-button" aria-label={t("إغلاق المنتقي")} onClick={() => setPicker(null)}><X size={16} /></button></div>{picker === 'emoji' ? <div className="dm-emoji-grid">{emojis.map(emoji => <button type="button" key={emoji} aria-label={t("إضافة {v0}", { v0: emoji })} onClick={() => { type(draft + emoji); input.current?.focus(); }}>{emoji}</button>)}</div> : <><div className="dm-gif-grid">{gifs.map(gif => <button key={gif.label} title={t(gif.label)} aria-label={t("إرسال GIF {v0}", { v0: t(gif.label) })} disabled={busy} onClick={() => void send(undefined, gif.url)}><img src={gif.url} alt={t(gif.label)} loading="lazy" referrerPolicy="no-referrer" /></button>)}</div><form className="dm-gif-link" onSubmit={event => { event.preventDefault(); void send(undefined, gifLink); }}><label><span>{t("أو رابط GIF مباشر من Giphy / Tenor")}</span><input aria-label={t("رابط GIF")} value={gifLink} onChange={event => setGifLink(event.target.value)} type="url" dir="ltr" placeholder="https://media.giphy.com/…/giphy.gif" required maxLength={1000} /></label><button className="secondary-button" disabled={busy || !gifLink}>{t("إرسال GIF")}</button></form><small>{t("مصدر الصور: Giphy. يمكن للطرف الآخر كتم المحادثة أو حظرك.")}</small></>}</div>}
-        {files.length > 0 && <div className="dm-upload-list" aria-label={t("الملفات المختارة")}>{files.map(row => <div key={row.key}>{row.url ? <img src={row.url} alt={t("معاينة الملف")} /> : <File size={22} />}<span><b title={row.file.name}>{row.file.name}</b><small>{sizeLabel(row.file.size)}{busy && ` · ${row.progress}%`}</small>{busy && <i style={{ width: `${row.progress}%` }} />}</span><button type="button" className="icon-button" aria-label={`${t("إزالة")} ${row.file.name}`} disabled={busy} onClick={() => removeFile(row.key)}><X size={15} /></button></div>)}</div>}
-        <form className="dm-composer" onSubmit={event => void send(event)}><input ref={fileInput} className="dm-file-input" type="file" multiple aria-label={t("اختيار ملفات")} onChange={event => chooseFiles(event.currentTarget.files)} /><button type="button" className="icon-button" aria-label={t("إرفاق ملفات أو صور")} title={t("إرفاق ملفات أو صور")} disabled={thread.unavailable || thread.hidden || busy || files.length >= 10} onClick={() => fileInput.current?.click()}><Paperclip size={20} /></button><button type="button" className="icon-button" aria-label={t("إيموجي")} disabled={thread.unavailable || thread.hidden || busy} aria-expanded={picker === 'emoji'} onClick={() => setPicker(picker === 'emoji' ? null : 'emoji')}><Smile size={20} /></button><button type="button" className="icon-button" aria-label={t("صور GIF")} disabled={thread.unavailable || thread.hidden || busy} aria-expanded={picker === 'gif'} onClick={() => setPicker(picker === 'gif' ? null : 'gif')}><ImagePlay size={20} /></button><textarea ref={input} aria-label={t("رسالتك")} dir="auto" placeholder={thread.unavailable ? t("المراسلة غير متاحة") : t("اكتب رسالة…")} rows={1} value={draft} disabled={thread.unavailable || thread.hidden || busy} maxLength={4000} onChange={event => type(event.target.value)} onBlur={() => stopTyping()} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button className="dm-send" aria-label={t("إرسال الرسالة")} disabled={busy || thread.unavailable || thread.hidden || (!draft.trim() && !files.length)}><Send size={19} /></button></form><p className="dm-composer-hint">{t("حتى 10 ملفات · 25 م.ب للملف · Enter للإرسال")}</p>
+        {recording && <div className="dm-recording" role="status"><span className="dm-recording-pulse" /><strong>{t("جارٍ التسجيل…")}</strong><time dir="ltr">{recordingTime(recordingSeconds)}</time><button type="button" onClick={stopRecording}><Square size={14} />{t("إنهاء التسجيل")}</button><button type="button" className="icon-button" aria-label={t("إلغاء التسجيل")} onClick={cancelRecording}><X size={16} /></button></div>}
+        {files.length > 0 && <div className="dm-upload-list" aria-label={t("الملفات المختارة")}>{files.map(row => <div className={row.file.type.startsWith('audio/') ? 'audio' : ''} key={row.key}>{row.url && row.file.type.startsWith('image/') ? <img src={row.url} alt={t("معاينة الملف")} /> : row.file.type.startsWith('audio/') ? <><Mic size={20} /><audio controls preload="metadata" src={row.url} aria-label={t("معاينة التسجيل الصوتي")} /></> : <File size={22} />}<span><b title={row.file.name}>{row.file.type.startsWith('audio/') ? t("تسجيل صوتي") : row.file.name}</b><small>{sizeLabel(row.file.size)}{busy && ` · ${row.progress}%`}</small>{busy && <i style={{ width: `${row.progress}%` }} />}</span><button type="button" className="icon-button" aria-label={`${t("إزالة")} ${row.file.name}`} disabled={busy} onClick={() => removeFile(row.key)}><X size={15} /></button></div>)}</div>}
+        <form className="dm-composer" onSubmit={event => void send(event)}><input ref={fileInput} className="dm-file-input" type="file" multiple aria-label={t("اختيار ملفات")} onChange={event => chooseFiles(event.currentTarget.files)} /><button type="button" className="icon-button" aria-label={t("إرفاق ملفات أو صور")} title={t("إرفاق ملفات أو صور")} disabled={thread.unavailable || thread.hidden || busy || recording || files.length >= 10} onClick={() => fileInput.current?.click()}><Paperclip size={20} /></button><button type="button" className="icon-button" aria-label={t("إيموجي")} disabled={thread.unavailable || thread.hidden || busy || recording} aria-expanded={picker === 'emoji'} onClick={() => setPicker(picker === 'emoji' ? null : 'emoji')}><Smile size={20} /></button><button type="button" className="icon-button" aria-label={t("صور GIF")} disabled={thread.unavailable || thread.hidden || busy || recording} aria-expanded={picker === 'gif'} onClick={() => setPicker(picker === 'gif' ? null : 'gif')}><ImagePlay size={20} /></button><button type="button" className={`icon-button dm-mic ${recording ? 'recording' : ''}`} aria-label={t("تسجيل رسالة صوتية")} title={t("تسجيل رسالة صوتية")} aria-pressed={recording} disabled={thread.unavailable || thread.hidden || busy || recording || files.length >= 10} onClick={() => void startRecording()}><Mic size={20} /></button><textarea ref={input} aria-label={t("رسالتك")} dir="auto" placeholder={thread.unavailable ? t("المراسلة غير متاحة") : t("اكتب رسالة…")} rows={1} value={draft} disabled={thread.unavailable || thread.hidden || busy || recording} maxLength={4000} onChange={event => type(event.target.value)} onBlur={() => stopTyping()} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button className="dm-send" aria-label={t("إرسال الرسالة")} disabled={busy || recording || thread.unavailable || thread.hidden || (!draft.trim() && !files.length)}><Send size={19} /></button></form><p className="dm-composer-hint">{t("حتى 10 ملفات · 25 م.ب للملف · Enter للإرسال")}</p>
       </>}</div>
     </div>
   </section>;

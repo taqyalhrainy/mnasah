@@ -22,6 +22,17 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const contexts = []; const errors = [];
 async function pageFor(user) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' }); contexts.push(context);
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
+    class TestMediaRecorder {
+      static isTypeSupported() { return true; }
+      state = 'inactive'; mimeType = 'audio/webm'; ondataavailable = null; onstop = null; onerror = null;
+      constructor() {}
+      start() { this.state = 'recording'; }
+      stop() { if (this.state === 'inactive') return; this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([0x1a,0x45,0xdf,0xa3,1])], { type: this.mimeType }) }); this.onstop?.(); }
+    }
+    Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: TestMediaRecorder });
+  });
   await context.addCookies([{ name: `mansah_session_${user.role}`, value: `${user.id}-token`, url: base }]);
   const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${base}/${user.role}`, { waitUntil: 'domcontentloaded' });
@@ -73,6 +84,12 @@ try {
   await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
   await teacher.getByRole('button', { name: 'تنزيل واجب-الرياضيات.pdf', exact: true }).waitFor({ timeout: 3000 });
   await teacher.locator('.dm-attachment img').waitFor();
+  await student.getByRole('button', { name: 'تسجيل رسالة صوتية', exact: true }).click();
+  await student.getByText('جارٍ التسجيل…', { exact: true }).waitFor();
+  await student.getByRole('button', { name: 'إنهاء التسجيل', exact: true }).click();
+  await student.getByLabel('معاينة التسجيل الصوتي', { exact: true }).waitFor();
+  await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
+  await teacher.getByLabel('تشغيل الرسالة الصوتية', { exact: true }).waitFor({ timeout: 3000 });
   const downloadEvent = teacher.waitForEvent('download');
   await teacher.getByRole('button', { name: 'تنزيل واجب-الرياضيات.pdf', exact: true }).click();
   const downloaded = await downloadEvent;

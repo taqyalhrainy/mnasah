@@ -33,7 +33,8 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
           if (!last || last.id === notified.current.get(row.id) || last.author_id === current.current.user?.id || !row.unread || row.hidden || row.unavailable || row.muted || !preferences.notifications) continue;
           if (current.current.active && current.current.selected === row.id && document.visibilityState === 'visible') continue;
           if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
-            const notice = new Notification(row.peer.name, { body: last.body || (last.attachments?.length ? t(last.attachments.length === 1 ? 'أرسل ملفاً' : 'أرسل عدة ملفات') : t("أرسل صورة GIF")), tag: row.id, icon: `${import.meta.env.BASE_URL}icon.svg` });
+            const voice = last.attachments?.length === 1 && last.attachments[0].preview_type.startsWith('audio/');
+            const notice = new Notification(row.peer.name, { body: last.body || (voice ? t('أرسل رسالة صوتية') : last.attachments?.length ? t(last.attachments.length === 1 ? 'أرسل ملفاً' : 'أرسل عدة ملفات') : t("أرسل صورة GIF")), tag: row.id, icon: `${import.meta.env.BASE_URL}icon.svg` });
             notice.onclick = () => { window.focus(); setSelected(row.id); current.current.onOpen(); notice.close(); };
           }
           if (preferences.sounds && navigator.userActivation?.hasBeenActive && !document.documentElement.classList.contains('call-active')) {

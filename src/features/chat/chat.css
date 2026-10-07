@@ -73,6 +73,9 @@
 .dm-attachment { overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--dm-input,#fff); }
 .dm-attachment > img { display: block; width: 100%; max-height: 220px; object-fit: contain; background: #08070c; }
 .dm-attachment > div { display: flex; align-items: center; gap: 8px; padding: 9px; }
+.dm-attachment .dm-audio { display: grid; grid-template-columns: auto 1fr; gap: 6px 9px; padding: 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.dm-audio > span { align-self: center; font-size: 11px; font-weight: 600; }
+.dm-audio audio { grid-column: 1 / -1; width: 100%; height: 34px; accent-color: var(--yellow); }
 .dm-attachment > div > span { display: grid; flex: 1; min-width: 0; }
 .dm-attachment b,.dm-upload-list b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; font-weight: 600; }
 .dm-attachment small,.dm-upload-list small { color: var(--muted); font-size: 9px; }
@@ -87,14 +90,25 @@
 .dm-upload-list { display: flex; gap: 8px; overflow-x: auto; margin: 0 18px 8px; padding: 3px 1px; }
 .dm-upload-list > div { display: flex; position: relative; align-items: center; gap: 7px; flex: 0 0 210px; min-width: 0; padding: 7px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--dm-input,#fff); }
 .dm-upload-list img { width: 38px; height: 38px; flex: 0 0 38px; object-fit: cover; border-radius: 6px; }
+.dm-upload-list > div.audio { flex-basis: 360px; }
+.dm-upload-list > div.audio audio { width: min(170px,35vw); height: 32px; accent-color: var(--yellow); }
 .dm-upload-list > div > span { display: grid; flex: 1; min-width: 0; }
 .dm-upload-list i { position: absolute; bottom: 0; inset-inline-start: 0; height: 2px; background: var(--yellow); transition: width .15s; }
 .dm-upload-list .icon-button { flex: 0 0 26px; width: 26px; height: 26px; border: 0; }
 .dm-composer .icon-button { width: 32px; height: 32px; border: 0; background: none; color: var(--muted); }
+.dm-composer .dm-mic { color: var(--dm-seen,#765399); }
+.dm-composer .dm-mic:hover { background: var(--dm-hover,#eee8f7); color: var(--ink); }
 .dm-composer textarea { flex: 1; min-width: 0; max-height: 100px; min-height: 32px; padding: 6px 0; border: 0; outline: 0; resize: vertical; color: var(--ink); background: none; font-size: 13px; }
 .dm-send { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--yellow); color: #201a13; }
 .dm-send:disabled { opacity: .4; }
 .dm-composer-hint { margin: 7px 22px 11px; color: var(--muted); font-size: 9px; }
+.dm-recording { display: flex; align-items: center; gap: 9px; margin: 0 18px 8px; padding: 9px 11px; border: 1px solid var(--dm-selected-line,#d4c5ed); border-radius: 9px; background: var(--dm-input,#fff); color: var(--ink); font-size: 11px; }
+.dm-recording strong { flex: 1; font-weight: 600; }
+.dm-recording time { color: var(--muted); font: 600 11px 'Segoe UI',sans-serif; }
+.dm-recording > button:not(.icon-button) { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border: 0; border-radius: 6px; background: var(--yellow); color: #201a13; font-size: 10px; }
+.dm-recording .icon-button { width: 28px; height: 28px; border: 0; }
+.dm-recording-pulse { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #df5268; box-shadow: 0 0 0 0 #df526866; animation: dm-recording-pulse 1.35s infinite; }
+@keyframes dm-recording-pulse { 70% { box-shadow: 0 0 0 7px #df526800; } 100% { box-shadow: 0 0 0 0 #df526800; } }
 .dm-reply-bar { display: flex; align-items: center; gap: 9px; margin: 0 18px 8px; padding: 8px 12px; border-inline-start: 2px solid var(--yellow); border-radius: 6px; background: var(--dm-input,#fff); }
 .dm-reply-bar > span { display: grid; flex: 1; min-width: 0; font-size: 11px; }.dm-reply-bar small { color: var(--muted); }.dm-reply-bar b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; }
 .dm-picker { margin: 0 18px 9px; max-height: 245px; overflow-y: auto; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--dm-inbox,#fff); }

@@ -38,6 +38,16 @@ export function imageType(bytes) {
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
   return '';
 }
+export function audioType(bytes) {
+  const starts = values => values.every((value, index) => bytes[index] === value);
+  const ascii = (start, end) => String.fromCharCode(...bytes.slice(start, end));
+  if (starts([0x1a, 0x45, 0xdf, 0xa3])) return 'audio/webm';
+  if (ascii(0, 4) === 'OggS') return 'audio/ogg';
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE') return 'audio/wav';
+  if (ascii(4, 8) === 'ftyp') return 'audio/mp4';
+  return '';
+}
+export const previewType = bytes => imageType(bytes) || audioType(bytes);
 export function attachmentHeaders(file, preview = false) {
   const inline = preview && Boolean(file.preview_type);
   return {

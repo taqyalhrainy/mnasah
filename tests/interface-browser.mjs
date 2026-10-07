@@ -135,7 +135,10 @@ try {
       assert.equal(await page.locator('.nav-list').getByRole('button', { name: 'المحجوزة', exact: true }).count(), 0, 'booked must be merged into availability');
       await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
       await page.locator('.availability-hub').waitFor();
-      await page.locator('.availability-subject-trigger').click();
+      assert.equal(await page.locator('.availability-day-strip button').first().getAttribute('aria-pressed'), 'true');
+      await page.locator('.availability-inline-settings').waitFor();
+      await page.getByRole('button', { name: 'نشر المواعيد', exact: true }).click();
+      await page.getByText('اختر مادة واحدة على الأقل أولاً.', { exact: true }).waitFor();
       await page.locator('.availability-subject-menu .all-subjects').click();
       await page.getByRole('button', { name: 'تم', exact: true }).click();
       assert.match(await page.locator('.availability-subject-trigger').innerText(), /كل المواد/);

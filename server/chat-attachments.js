@@ -2,7 +2,7 @@ import { GridFSBucket } from 'mongodb';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { mongoChatStore } from './chat-store.js';
-import { attachmentFail as fail, attachmentHeaders, attachmentAccess, uploadMetadata, prepareUpload, publicAttachment, downloadAttachment, imageType, cleanupAttachments } from '../shared/chat-attachments.js';
+import { attachmentFail as fail, attachmentHeaders, attachmentAccess, uploadMetadata, prepareUpload, publicAttachment, downloadAttachment, previewType, cleanupAttachments } from '../shared/chat-attachments.js';
 
 export function gridAttachmentBytes(db) {
   const bucket = new GridFSBucket(db, { bucketName: 'chat_files', chunkSizeBytes: 255 * 1024 });
@@ -58,7 +58,7 @@ export async function serveChatAttachment(req, res, { db, user, path, bytes = gr
       await bytes.write(file.id, file.name, source());
       // Recheck after a slow upload in case the peer blocked the conversation.
       await attachmentAccess(store, user, threadId, true);
-      file.preview_type = imageType(Uint8Array.from(prefix));
+      file.preview_type = previewType(Uint8Array.from(prefix));
       await store.updateAttachment(file.id, { ready: 1, preview_type: file.preview_type });
     } catch (error) {
       await bytes.remove(file.id).catch(() => undefined);
