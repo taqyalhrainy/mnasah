@@ -23,9 +23,9 @@ test('Mongo service routes and authenticated realtime messaging', async () => {
     const response = await fetch(`${base}/api/${role}/${path}`, { method: body === undefined ? 'GET' : 'POST', headers: { cookie: cookies[who] || '', ...(body === undefined ? {} : { 'Content-Type': 'application/json', origin: base }), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const data = await response.json(); assert.equal(response.status, status, JSON.stringify(data)); return data;
   }
-  async function upload(who, threadId, messageId, name, bytes, status = 200) {
+  async function upload(who, threadId, messageId, name, bytes, type = '', status = 200) {
     const role = who === 'teacher' ? 'teachers' : 'students';
-    const query = new URLSearchParams({ messageId, name, size: String(bytes.length) });
+    const query = new URLSearchParams({ messageId, name, size: String(bytes.length), type });
     const response = await fetch(`${base}/api/${role}/chat/threads/${threadId}/attachments?${query}`, { method: 'POST', headers: { cookie: cookies[who] || '', origin: base, 'Content-Type': 'application/octet-stream' }, body: bytes });
     const data = await response.json(); assert.equal(response.status, status, JSON.stringify(data)); return data;
   }
@@ -42,16 +42,19 @@ test('Mongo service routes and authenticated realtime messaging', async () => {
     const pdf = Buffer.from('%PDF-1.7\nMansah worksheet');
     const png = Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
     const webm = Buffer.from([0x1a,0x45,0xdf,0xa3,0x01,0x00,0x00,0x00]);
+    const mp4 = Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d,0,0,0,0]);
     const pdfFile = (await upload('student', thread.id, attachmentMessage, 'worksheet.pdf', pdf)).attachment;
     const imageFile = (await upload('student', thread.id, attachmentMessage, 'diagram.png', png)).attachment;
-    const audioFile = (await upload('student', thread.id, attachmentMessage, 'voice-note.webm', webm)).attachment;
+    const audioFile = (await upload('student', thread.id, attachmentMessage, 'voice-note.webm', webm, 'audio/webm')).attachment;
+    const videoFile = (await upload('student', thread.id, attachmentMessage, 'lesson.mp4', mp4, 'video/mp4')).attachment;
     assert.equal(imageFile.preview_type, 'image/png');
     assert.equal(audioFile.preview_type, 'audio/webm');
+    assert.equal(videoFile.preview_type, 'video/mp4');
     let response = await fetch(`${base}/api/teachers/chat/threads/${thread.id}/attachments/${pdfFile.id}`, { headers: { cookie: cookies.teacher } });
     assert.equal(response.status, 404, 'Draft attachments must not be visible before the message is sent');
-    await call('student', `chat/threads/${thread.id}/messages`, { id: attachmentMessage, body: 'ملفات الدرس', attachments: [pdfFile.id, imageFile.id, audioFile.id] });
+    await call('student', `chat/threads/${thread.id}/messages`, { id: attachmentMessage, body: 'ملفات الدرس', attachments: [pdfFile.id, imageFile.id, audioFile.id, videoFile.id] });
     const attached = (await call('teacher', `chat/threads/${thread.id}`)).messages.at(-1);
-    assert.deepEqual(attached.attachments.map(file => file.name), ['worksheet.pdf', 'diagram.png', 'voice-note.webm']);
+    assert.deepEqual(attached.attachments.map(file => file.name), ['worksheet.pdf', 'diagram.png', 'voice-note.webm', 'lesson.mp4']);
     response = await fetch(`${base}/api/teachers/chat/threads/${thread.id}/attachments/${pdfFile.id}`, { headers: { cookie: cookies.teacher } });
     assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), pdf);
     assert.match(response.headers.get('content-disposition'), /^attachment;/);
@@ -59,6 +62,9 @@ test('Mongo service routes and authenticated realtime messaging', async () => {
     assert.equal(response.headers.get('content-type'), 'image/png');
     response = await fetch(`${base}/api/teachers/chat/threads/${thread.id}/attachments/${audioFile.id}?preview=1`, { headers: { cookie: cookies.teacher } });
     assert.equal(response.headers.get('content-type'), 'audio/webm');
+    assert.match(response.headers.get('content-disposition'), /^inline;/);
+    response = await fetch(`${base}/api/teachers/chat/threads/${thread.id}/attachments/${videoFile.id}?preview=1`, { headers: { cookie: cookies.teacher } });
+    assert.equal(response.headers.get('content-type'), 'video/mp4');
     assert.match(response.headers.get('content-disposition'), /^inline;/);
     response = await fetch(`${base}/api/students/chat/threads/${thread.id}/attachments/${pdfFile.id}`, { headers: { cookie: cookies.other } });
     assert.equal(response.status, 404, 'Unrelated accounts must not access attachments');

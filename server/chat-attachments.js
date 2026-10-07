@@ -58,7 +58,7 @@ export async function serveChatAttachment(req, res, { db, user, path, bytes = gr
       await bytes.write(file.id, file.name, source());
       // Recheck after a slow upload in case the peer blocked the conversation.
       await attachmentAccess(store, user, threadId, true);
-      file.preview_type = previewType(Uint8Array.from(prefix));
+      file.preview_type = previewType(Uint8Array.from(prefix), file.declared_type);
       await store.updateAttachment(file.id, { ready: 1, preview_type: file.preview_type });
     } catch (error) {
       await bytes.remove(file.id).catch(() => undefined);

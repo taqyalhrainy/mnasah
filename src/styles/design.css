@@ -32,6 +32,7 @@
 }
 body, button, input, select, textarea { letter-spacing: 0; }
 button, input, select, textarea { font-family: inherit; }
+@media(max-width:767px) { input, select, textarea { font-size: 16px !important; } }
 button, a { touch-action: manipulation; }
 button, a, input, select, textarea { transition: background-color .16s, border-color .16s, color .16s, box-shadow .16s; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }

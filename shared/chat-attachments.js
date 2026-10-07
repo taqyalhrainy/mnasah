@@ -26,9 +26,10 @@ export function uploadMetadata(query, user, threadId) {
   const size = Number(query.size);
   if (!Number.isSafeInteger(size) || size < 1) attachmentFail(400, 'اختر ملفاً غير فارغ.');
   if (size > MAX_FILE_BYTES) attachmentFail(413, 'الحد الأقصى للملف 25 ميغابايت.');
-  return { id: crypto.randomUUID(), thread_id: threadId, author_id: user.id, message_id: query.messageId, name, size, preview_type: '', ready: 0, created: Date.now(), expires_at: Date.now() + DRAFT_LIFETIME };
+  const declaredType = typeof query.type === 'string' && /^(?:image\/(?:png|jpeg|gif|webp)|audio\/(?:webm|ogg|wav|mp4|mpeg)|video\/(?:webm|mp4|quicktime))$/.test(query.type) ? query.type : '';
+  return { id: crypto.randomUUID(), thread_id: threadId, author_id: user.id, message_id: query.messageId, name, size, declared_type: declaredType, preview_type: '', ready: 0, created: Date.now(), expires_at: Date.now() + DRAFT_LIFETIME };
 }
-// Only recognized raster formats may render inline; SVG/HTML and all other files download.
+// Only recognized raster, audio, and video formats may render inline; active formats stay downloads.
 export function imageType(bytes) {
   const starts = values => values.every((value, index) => bytes[index] === value);
   if (starts([137,80,78,71,13,10,26,10])) return 'image/png';
@@ -38,16 +39,17 @@ export function imageType(bytes) {
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
   return '';
 }
-export function audioType(bytes) {
+export function mediaType(bytes, declaredType = '') {
   const starts = values => values.every((value, index) => bytes[index] === value);
   const ascii = (start, end) => String.fromCharCode(...bytes.slice(start, end));
-  if (starts([0x1a, 0x45, 0xdf, 0xa3])) return 'audio/webm';
-  if (ascii(0, 4) === 'OggS') return 'audio/ogg';
+  if (starts([0x1a, 0x45, 0xdf, 0xa3])) return declaredType.startsWith('video/') ? 'video/webm' : 'audio/webm';
+  if (ascii(0, 4) === 'OggS') return declaredType.startsWith('video/') ? 'video/ogg' : 'audio/ogg';
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE') return 'audio/wav';
-  if (ascii(4, 8) === 'ftyp') return 'audio/mp4';
+  if (ascii(4, 8) === 'ftyp') return declaredType.startsWith('video/') ? 'video/mp4' : 'audio/mp4';
+  if (ascii(0, 3) === 'ID3') return 'audio/mpeg';
   return '';
 }
-export const previewType = bytes => imageType(bytes) || audioType(bytes);
+export const previewType = (bytes, declaredType = '') => imageType(bytes) || mediaType(bytes, declaredType);
 export function attachmentHeaders(file, preview = false) {
   const inline = preview && Boolean(file.preview_type);
   return {

@@ -48,7 +48,7 @@ export async function workerChatAttachment(request, env, user, path) {
     if (received !== file.size) fail(400, 'لم يكتمل رفع الملف. حاول مجدداً.');
     if (used) chunks.push(piece.subarray(0, used));
     await attachmentAccess(store, user, threadId, true);
-    file.preview_type = previewType(chunks[0].subarray(0, 32));
+    file.preview_type = previewType(chunks[0].subarray(0, 32), file.declared_type);
     await env.DB.batch([
       statement(env, 'INSERT INTO chat_attachments (id,thread_id,author_id,message_id,name,size,preview_type,ready,created,expires_at) VALUES (?,?,?,?,?,?,?,1,?,?)', file.id, file.thread_id, file.author_id, file.message_id, file.name, file.size, file.preview_type, file.created, file.expires_at),
       ...chunks.map((data, index) => statement(env, 'INSERT INTO chat_file_chunks (attachment_id,position,data) VALUES (?,?,?)', file.id, index, data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))),

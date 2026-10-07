@@ -31,8 +31,8 @@ test('authorization and the full reservation lifecycle', async () => {
     if (response.headers.has('set-cookie')) clients[who] = response.headers.get('set-cookie').split(';')[0];
     return body;
   }
-  async function uploadFile(who, path, messageId, name, bytes, expected = 200) {
-    const query = new URLSearchParams({ messageId, name, size: String(bytes.length) });
+  async function uploadFile(who, path, messageId, name, bytes, type = '', expected = 200) {
+    const query = new URLSearchParams({ messageId, name, size: String(bytes.length), type });
     const request = new Request(`https://mansah.test/api/${path}?${query}`, { method: 'POST', headers: { cookie: clients[who] || '', origin: 'https://mansah.test', 'content-type': 'application/octet-stream' }, body: bytes });
     const response = await worker.fetch(request, env); const body = await response.json();
     assert.equal(response.status, expected, `${path}: ${JSON.stringify(body)}`); return body;
@@ -195,11 +195,19 @@ test('authorization and the full reservation lifecycle', async () => {
   assert.match(attachmentResponse.headers.get('content-disposition'), /^attachment;/);
   const voiceMessageId = crypto.randomUUID();
   const voiceBytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01]);
-  const voiceFile = (await uploadFile('student', `${dmPath}/attachments`, voiceMessageId, 'voice-note.webm', voiceBytes)).attachment;
+  const voiceFile = (await uploadFile('student', `${dmPath}/attachments`, voiceMessageId, 'voice-note.webm', voiceBytes, 'audio/webm')).attachment;
   assert.equal(voiceFile.preview_type, 'audio/webm');
   await call('student', `${dmPath}/messages`, { id: voiceMessageId, attachments: [voiceFile.id] });
   attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${voiceFile.id}?preview=1`, { headers: { cookie: clients.teacher } }), env);
   assert.equal(attachmentResponse.headers.get('content-type'), 'audio/webm');
+  assert.match(attachmentResponse.headers.get('content-disposition'), /^inline;/);
+  const videoMessageId = crypto.randomUUID();
+  const videoBytes = new Uint8Array([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d,0,0,0,0]);
+  const videoFile = (await uploadFile('student', `${dmPath}/attachments`, videoMessageId, 'lesson.mp4', videoBytes, 'video/mp4')).attachment;
+  assert.equal(videoFile.preview_type, 'video/mp4');
+  await call('student', `${dmPath}/messages`, { id: videoMessageId, attachments: [videoFile.id] });
+  attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${videoFile.id}?preview=1`, { headers: { cookie: clients.teacher } }), env);
+  assert.equal(attachmentResponse.headers.get('content-type'), 'video/mp4');
   assert.match(attachmentResponse.headers.get('content-disposition'), /^inline;/);
   await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
   await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);

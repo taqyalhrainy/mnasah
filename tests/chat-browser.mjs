@@ -79,19 +79,27 @@ try {
   await student.getByLabel('اختيار ملفات').setInputFiles([
     { name: 'واجب-الرياضيات.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7 Mansah') },
     { name: 'رسم.png', mimeType: 'image/png', buffer: Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]) },
+    { name: 'شرح.mp4', mimeType: 'video/mp4', buffer: Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d,0,0,0,0]) },
   ]);
   await student.getByText('واجب-الرياضيات.pdf', { exact: true }).waitFor();
   await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
-  await teacher.getByRole('button', { name: 'تنزيل واجب-الرياضيات.pdf', exact: true }).waitFor({ timeout: 3000 });
-  await teacher.locator('.dm-attachment img').waitFor();
+  await teacher.getByLabel('خيارات المرفق واجب-الرياضيات.pdf', { exact: true }).waitFor({ timeout: 3000 });
+  await teacher.getByRole('button', { name: 'فتح رسم.png', exact: true }).click();
+  await teacher.getByRole('dialog', { name: 'معاينة رسم.png', exact: true }).waitFor();
+  await teacher.getByRole('button', { name: 'إغلاق المعاينة', exact: true }).click();
+  await teacher.getByRole('button', { name: 'فتح شرح.mp4', exact: true }).click();
+  await teacher.getByRole('dialog', { name: 'معاينة شرح.mp4', exact: true }).waitFor();
+  await teacher.getByRole('button', { name: 'إغلاق المعاينة', exact: true }).click();
   await student.getByRole('button', { name: 'تسجيل رسالة صوتية', exact: true }).click();
   await student.getByText('جارٍ التسجيل…', { exact: true }).waitFor();
   await student.getByRole('button', { name: 'إنهاء التسجيل', exact: true }).click();
   await student.getByLabel('معاينة التسجيل الصوتي', { exact: true }).waitFor();
   await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
   await teacher.getByLabel('تشغيل الرسالة الصوتية', { exact: true }).waitFor({ timeout: 3000 });
+  assert.equal(await teacher.getByRole('button', { name: /تحميل voice-note-/ }).count(), 0, 'Voice notes must not expose a download action');
   const downloadEvent = teacher.waitForEvent('download');
-  await teacher.getByRole('button', { name: 'تنزيل واجب-الرياضيات.pdf', exact: true }).click();
+  await teacher.getByLabel('خيارات المرفق واجب-الرياضيات.pdf', { exact: true }).click();
+  await teacher.getByRole('button', { name: 'تحميل واجب-الرياضيات.pdf', exact: true }).click();
   const downloaded = await downloadEvent;
   assert.equal(downloaded.suggestedFilename(), 'واجب-الرياضيات.pdf');
   await teacher.getByRole('button', { name: 'إعدادات الرسائل', exact: true }).click();
