@@ -861,6 +861,35 @@ button.day-event { font: inherit; }
 :root[data-theme=light] .free-day p { color: #6c5b36; }
 :root[data-theme=light] .day-free-windows span { color: #23483d; background: #d8f5e9; }
 
+@media (min-width: 901px) and (max-height: 900px) {
+  .availability-hub { gap: 12px; }
+  .availability-showcase { min-height: 0; padding: 16px 28px 20px; }
+  .availability-showcase-head { padding-bottom: 7px; }
+  .availability-tabs { padding: 4px; }
+  .availability-tabs button { min-height: 39px; padding-inline: 13px; }
+  .availability-simple-publisher { gap: 9px; margin-top: 3px; }
+  .availability-subject-trigger { min-height: 50px; padding: 7px 14px; border-radius: 13px; }
+  .availability-subject-trigger strong { font-size: 15px; }
+  .availability-date-picker { gap: 5px; padding: 8px 10px; border-radius: 15px; }
+  .availability-date-head button { width: 29px; height: 29px; border-radius: 8px; }
+  .availability-day-strip { gap: 6px; padding: 1px 2px 5px; }
+  .availability-day-strip button { flex-basis: 66px; min-height: 65px; gap: 1px; padding: 5px; border-radius: 10px; }
+  .availability-day-strip button > span { font-size: 10px; }
+  .availability-day-strip button > strong { font-size: 18px; }
+  .availability-day-strip button > small { font-size: 9px; }
+  .availability-inline-settings { grid-template-columns: minmax(0, 1.35fr) minmax(220px, .6fr) minmax(145px, .38fr); gap: 8px; padding: 9px 10px; border-radius: 15px; }
+  .availability-selected-day { grid-column: 1 / -1; min-height: 20px; font-size: 12px; }
+  .availability-inline-settings .schedule-row { grid-column: 1; grid-template-columns: auto minmax(95px, 1fr) auto minmax(95px, 1fr); gap: 7px; padding: 8px; border-radius: 12px; }
+  .availability-inline-settings .schedule-row > div { min-width: 105px; font-size: 12px; }
+  .availability-inline-settings .schedule-row input,
+  .availability-inline-settings .availability-publish-settings input,
+  .availability-inline-settings .availability-publish-settings select { min-height: 36px; }
+  .availability-inline-settings .availability-publish-settings { grid-column: 2; gap: 7px; }
+  .availability-inline-settings .availability-publish-settings label { gap: 3px; font-size: 10px; }
+  .availability-inline-settings .availability-publish { grid-column: 3; min-height: 44px; }
+  .availability-local-error { margin-top: 6px; padding-block: 7px; }
+}
+
 @media (max-width: 900px) {
   .availability-showcase-head { align-items: center; }
   .availability-inline-settings { grid-template-columns: 1fr; }

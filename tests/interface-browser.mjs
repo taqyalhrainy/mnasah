@@ -146,6 +146,9 @@ try {
       await page.locator('.availability-inline-settings').waitFor();
       await checkLayout(page, 'teacher availability settings mobile');
       await page.screenshot({ path: '.private/redesign-teachers-availability-settings-mobile.png', fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 760 });
+      await page.waitForFunction(() => document.querySelector('.availability-showcase')?.getBoundingClientRect().bottom <= window.innerHeight);
+      await page.screenshot({ path: '.private/redesign-teachers-availability-settings-short-desktop.png' });
       await page.setViewportSize({ width: 1440, height: 1000 });
       await checkLayout(page, 'teacher availability settings desktop');
       await page.screenshot({ path: '.private/redesign-teachers-availability-settings-desktop.png', fullPage: true });
