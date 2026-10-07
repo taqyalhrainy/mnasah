@@ -13,7 +13,7 @@ test('Mongo service routes and authenticated realtime messaging', async () => {
   const storedFiles = new Map();
   const attachmentStore = {
     async write(id, _name, source) { const parts = []; for await (const part of source) parts.push(Buffer.from(part)); storedFiles.set(id, Buffer.concat(parts)); },
-    read: id => Readable.from(storedFiles.get(id) || []),
+    read: (id, range = null) => { const data = storedFiles.get(id) || Buffer.alloc(0); return Readable.from(range ? data.subarray(range.start, range.end + 1) : data); },
     async remove(id) { storedFiles.delete(id); },
   };
   const { httpServer, io: socketServer } = await startPlatformServer({ database: db, attachmentStore, port: 0 });
@@ -66,6 +66,11 @@ test('Mongo service routes and authenticated realtime messaging', async () => {
     response = await fetch(`${base}/api/teachers/chat/threads/${thread.id}/attachments/${videoFile.id}?preview=1`, { headers: { cookie: cookies.teacher } });
     assert.equal(response.headers.get('content-type'), 'video/mp4');
     assert.match(response.headers.get('content-disposition'), /^inline;/);
+    response = await fetch(`${base}/api/teachers/chat/threads/${thread.id}/attachments/${videoFile.id}?preview=1`, { headers: { cookie: cookies.teacher, range: 'bytes=4-9' } });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get('accept-ranges'), 'bytes');
+    assert.equal(response.headers.get('content-range'), `bytes 4-9/${mp4.length}`);
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), mp4.subarray(4, 10));
     response = await fetch(`${base}/api/students/chat/threads/${thread.id}/attachments/${pdfFile.id}`, { headers: { cookie: cookies.other } });
     assert.equal(response.status, 404, 'Unrelated accounts must not access attachments');
     const socket = io(base, { auth: { portal: 'teachers' }, extraHeaders: { cookie: cookies.teacher }, transports: ['websocket'], reconnection: false }); sockets.push(socket);

@@ -2,13 +2,13 @@ import { GridFSBucket } from 'mongodb';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { mongoChatStore } from './chat-store.js';
-import { attachmentFail as fail, attachmentHeaders, attachmentAccess, uploadMetadata, prepareUpload, publicAttachment, downloadAttachment, previewType, cleanupAttachments } from '../shared/chat-attachments.js';
+import { attachmentFail as fail, attachmentHeaders, attachmentAccess, uploadMetadata, prepareUpload, publicAttachment, downloadAttachment, previewType, cleanupAttachments, byteRange } from '../shared/chat-attachments.js';
 
 export function gridAttachmentBytes(db) {
   const bucket = new GridFSBucket(db, { bucketName: 'chat_files', chunkSizeBytes: 255 * 1024 });
   return {
     write: (id, name, source) => pipeline(Readable.from(source), bucket.openUploadStreamWithId(id, name)),
-    read: id => bucket.openDownloadStream(id),
+    read: (id, range = null) => bucket.openDownloadStream(id, range ? { start: range.start, end: range.end + 1 } : undefined),
     async remove(id) { try { await bucket.delete(id); } catch (error) { if (!/File not found/.test(error.message)) throw error; } },
   };
 }
@@ -22,8 +22,11 @@ export async function serveChatAttachment(req, res, { db, user, path, bytes = gr
   res.setHeader('Cache-Control', 'private, no-store');
   if (attachmentId && req.method === 'GET') {
     const file = await downloadAttachment(store, user, threadId, attachmentId);
-    res.set(attachmentHeaders(file, req.query.preview === '1'));
-    const stream = bytes.read(file.id);
+    const preview = req.query.preview === '1';
+    const range = preview && file.preview_type ? byteRange(req.headers.range, file.size) : null;
+    if (range) res.statusCode = 206;
+    res.set(attachmentHeaders(file, preview, range));
+    const stream = bytes.read(file.id, range);
     // A closed browser cancels only this download, not any media/chat session.
     res.once('close', () => stream.destroy());
     stream.on('error', error => { console.error('Attachment download failed:', error.message); res.destroy(); });

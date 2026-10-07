@@ -209,6 +209,11 @@ test('authorization and the full reservation lifecycle', async () => {
   attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${videoFile.id}?preview=1`, { headers: { cookie: clients.teacher } }), env);
   assert.equal(attachmentResponse.headers.get('content-type'), 'video/mp4');
   assert.match(attachmentResponse.headers.get('content-disposition'), /^inline;/);
+  attachmentResponse = await worker.fetch(new Request(`https://mansah.test/api/${teacherDmPath}/attachments/${videoFile.id}?preview=1`, { headers: { cookie: clients.teacher, range: 'bytes=4-9' } }), env);
+  assert.equal(attachmentResponse.status, 206);
+  assert.equal(attachmentResponse.headers.get('accept-ranges'), 'bytes');
+  assert.equal(attachmentResponse.headers.get('content-range'), `bytes 4-9/${videoBytes.length}`);
+  assert.deepEqual(new Uint8Array(await attachmentResponse.arrayBuffer()), videoBytes.slice(4, 10));
   await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
   await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);
   await call('student', `students/bookings/${reservation.id}/cancel`, {});

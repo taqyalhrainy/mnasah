@@ -1,6 +1,6 @@
 import { t, locale, usePreferences } from '../../i18n/preferences';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, BellOff, Check, CheckCheck, ChevronDown, Download, File, ImagePlay, MessageCircle, Mic, MoreHorizontal, Paperclip, Reply, Search, Send, Settings2, ShieldOff, Smile, Square, Trash2, X } from 'lucide-react';
+import { ArrowRight, BellOff, Check, CheckCheck, ChevronDown, Download, File, ImagePlay, Maximize2, MessageCircle, Mic, Minimize2, MoreHorizontal, Paperclip, Reply, Search, Send, Settings2, ShieldOff, Smile, Square, Trash2, Volume2, X } from 'lucide-react';
 import { apiUrl, request, type Portal, type User } from '../../services/platformApi';
 import type { ChatAttachment, ChatMessage, ChatThread, ThreadResult } from './chatTypes';
 import type { DirectChatState } from './useDirectChat';
@@ -29,6 +29,29 @@ function MessageAttachment({ file, previewUrl, onOpen, onDownload }: { file: Cha
     {previewable && <button type="button" className="dm-media-preview" aria-label={`${t("فتح")} ${file.name}`} onClick={onOpen}>{isImage(file) ? <img src={previewUrl} alt={`${t("معاينة")} ${file.name}`} loading="lazy" /> : <video src={previewUrl} muted preload="metadata" playsInline aria-label={`${t("معاينة")} ${file.name}`} />}</button>}
     <div className="dm-attachment-info"><File size={18} /><span><b title={file.name}>{file.name}</b><small>{sizeLabel(file.size)}</small></span><details className="dm-file-menu"><summary aria-label={`${t("خيارات المرفق")} ${file.name}`} title={t("خيارات المرفق")}><MoreHorizontal size={18} /></summary><div><button type="button" aria-label={`${t("تحميل")} ${file.name}`} onClick={event => { onDownload(); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Download size={16} />{t("تحميل")}</button></div></details></div>
   </div>;
+}
+function MediaViewer({ file, url, onClose, onDownload }: { file: ChatAttachment; url: string; onClose: () => void; onDownload: () => void }) {
+  usePreferences();
+  const panel = useRef<HTMLDivElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const changed = () => setFullscreen(document.fullscreenElement === panel.current);
+    document.addEventListener('fullscreenchange', changed);
+    return () => document.removeEventListener('fullscreenchange', changed);
+  }, []);
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (panel.current?.requestFullscreen) await panel.current.requestFullscreen();
+      else (video.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null)?.webkitEnterFullscreen?.();
+    } catch { /* The browser can deny fullscreen outside a user gesture. */ }
+  }
+  return <div className="dm-media-viewer" role="dialog" aria-modal="true" aria-label={`${t("معاينة")} ${file.name}`} onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><div className="dm-media-panel" ref={panel}>
+    <header><strong title={file.name}>{file.name}</strong><button type="button" className="icon-button" aria-label={fullscreen ? t("الخروج من ملء الشاشة") : t("ملء الشاشة")} title={fullscreen ? t("الخروج من ملء الشاشة") : t("ملء الشاشة")} onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button><details className="dm-file-menu"><summary aria-label={`${t("خيارات المرفق")} ${file.name}`}><MoreHorizontal size={20} /></summary><div><button type="button" aria-label={`${t("تحميل")} ${file.name}`} onClick={onDownload}><Download size={16} />{t("تحميل")}</button></div></details><button type="button" className="icon-button" aria-label={t("إغلاق المعاينة")} onClick={onClose}><X size={21} /></button></header>
+    <div className="dm-media-viewer-content">{isImage(file) ? <img src={url} alt={file.name} /> : <video ref={video} src={url} controls autoPlay playsInline controlsList="nodownload" preload="metadata" aria-label={file.name} />}</div>
+    {isVideo(file) && <footer className="dm-video-options"><label><Volume2 size={17} /><span>{t("الصوت")}</span><input aria-label={t("مستوى الصوت")} type="range" min="0" max="1" step="0.05" defaultValue="1" onChange={event => { if (video.current) video.current.volume = Number(event.currentTarget.value); }} /></label><label><span>{t("السرعة")}</span><select aria-label={t("سرعة التشغيل")} defaultValue="1" onChange={event => { if (video.current) video.current.playbackRate = Number(event.currentTarget.value); }}>{[0.5,0.75,1,1.25,1.5,2].map(rate => <option value={rate} key={rate}>{rate}×</option>)}</select></label><label><span>{t("الجودة")}</span><select aria-label={t("جودة الفيديو")} defaultValue="original"><option value="original">{t("تلقائية (الأصلية)")}</option></select></label></footer>}
+  </div></div>;
 }
 function presenceText(peer: ChatThread['peer']) {
   return peer.status === 'online' ? t("متاح الآن") : peer.status === 'away' ? t("كان هنا قبل قليل") : peer.status === 'hidden' ? t("الظهور مخفي") : peer.lastSeen ? t("آخر ظهور {v0}، {v1}", { v0: day(peer.lastSeen), v1: clock(peer.lastSeen) }) : t("غير متصل");
@@ -323,7 +346,7 @@ export function DirectMessages({ portal, user, chat, active }: { portal: Portal;
         <form className="dm-composer" onSubmit={event => void send(event)}><input ref={fileInput} className="dm-file-input" type="file" multiple aria-label={t("اختيار ملفات")} onChange={event => chooseFiles(event.currentTarget.files)} /><button type="button" className="icon-button" aria-label={t("إرفاق ملفات أو صور")} title={t("إرفاق ملفات أو صور")} disabled={thread.unavailable || thread.hidden || busy || recording || files.length >= 10} onClick={() => fileInput.current?.click()}><Paperclip size={20} /></button><button type="button" className="icon-button" aria-label={t("إيموجي")} disabled={thread.unavailable || thread.hidden || busy || recording} aria-expanded={picker === 'emoji'} onClick={() => setPicker(picker === 'emoji' ? null : 'emoji')}><Smile size={20} /></button><button type="button" className="icon-button" aria-label={t("صور GIF")} disabled={thread.unavailable || thread.hidden || busy || recording} aria-expanded={picker === 'gif'} onClick={() => setPicker(picker === 'gif' ? null : 'gif')}><ImagePlay size={20} /></button><button type="button" className={`icon-button dm-mic ${recording ? 'recording' : ''}`} aria-label={t("تسجيل رسالة صوتية")} title={t("تسجيل رسالة صوتية")} aria-pressed={recording} disabled={thread.unavailable || thread.hidden || busy || recording || files.length >= 10} onClick={() => void startRecording()}><Mic size={20} /></button><textarea ref={input} aria-label={t("رسالتك")} dir="auto" placeholder={thread.unavailable ? t("المراسلة غير متاحة") : t("اكتب رسالة…")} rows={1} value={draft} disabled={thread.unavailable || thread.hidden || busy || recording} maxLength={4000} onChange={event => type(event.target.value)} onBlur={() => stopTyping()} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><button className="dm-send" aria-label={t("إرسال الرسالة")} disabled={busy || recording || thread.unavailable || thread.hidden || (!draft.trim() && !files.length)}><Send size={19} /></button></form><p className="dm-composer-hint">{t("حتى 10 ملفات · 25 م.ب للملف · Enter للإرسال")}</p>
       </>}</div>
     </div>
-  </section>{viewer && thread && <div className="dm-media-viewer" role="dialog" aria-modal="true" aria-label={`${t("معاينة")} ${viewer.name}`} onMouseDown={event => { if (event.target === event.currentTarget) setViewer(null); }}><header><strong title={viewer.name}>{viewer.name}</strong><details className="dm-file-menu"><summary aria-label={`${t("خيارات المرفق")} ${viewer.name}`}><MoreHorizontal size={20} /></summary><div><button type="button" aria-label={`${t("تحميل")} ${viewer.name}`} onClick={() => void download(thread.id, viewer)}><Download size={16} />{t("تحميل")}</button></div></details><button type="button" className="icon-button" aria-label={t("إغلاق المعاينة")} onClick={() => setViewer(null)}><X size={21} /></button></header><div className="dm-media-viewer-content">{isImage(viewer) ? <img src={attachmentUrl(thread.id, viewer, true)} alt={viewer.name} /> : <video src={attachmentUrl(thread.id, viewer, true)} controls autoPlay playsInline controlsList="nodownload" aria-label={viewer.name} />}</div></div>}</>;
+  </section>{viewer && thread && <MediaViewer file={viewer} url={attachmentUrl(thread.id, viewer, true)} onClose={() => setViewer(null)} onDownload={() => void download(thread.id, viewer)} />}</>;
 }
 function TypingDots() {
   usePreferences(); return <span className="dm-typing-dots" role="status" aria-label={t("يكتب الآن")}><i /><i /><i /></span>; }

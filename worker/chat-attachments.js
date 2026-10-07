@@ -1,6 +1,6 @@
 import { all, one, run, statement } from './db.js';
 import { sqlChatStore } from './chat-store.js';
-import { attachmentFail as fail, uploadMetadata, prepareUpload, attachmentAccess, publicAttachment, previewType, downloadAttachment, attachmentHeaders, cleanupAttachments } from '../shared/chat-attachments.js';
+import { attachmentFail as fail, uploadMetadata, prepareUpload, attachmentAccess, publicAttachment, previewType, downloadAttachment, attachmentHeaders, cleanupAttachments, byteRange } from '../shared/chat-attachments.js';
 
 const CHUNK_BYTES = 1024 * 1024;
 export async function workerChatAttachment(request, env, user, path) {
@@ -11,17 +11,23 @@ export async function workerChatAttachment(request, env, user, path) {
   const store = sqlChatStore(env);
   if (attachmentId && request.method === 'GET') {
     const file = await downloadAttachment(store, user, threadId, attachmentId);
-    let position = 0;
+    const preview = query.preview === '1';
+    const range = preview && file.preview_type ? byteRange(request.headers.get('range'), file.size) : null;
+    const start = range?.start || 0; const end = range?.end ?? file.size - 1;
+    let position = Math.floor(start / CHUNK_BYTES);
     const stream = new ReadableStream({
       async pull(controller) {
         try {
+          if (position * CHUNK_BYTES > end) { controller.close(); return; }
           const row = await one(env, 'SELECT data FROM chat_file_chunks WHERE attachment_id=? AND position=?', file.id, position++);
           if (!row) { controller.close(); return; }
-          controller.enqueue(row.data instanceof Uint8Array ? row.data : new Uint8Array(row.data));
+          const data = row.data instanceof Uint8Array ? row.data : new Uint8Array(row.data);
+          const chunkStart = (position - 1) * CHUNK_BYTES;
+          controller.enqueue(data.subarray(Math.max(0, start - chunkStart), Math.min(data.length, end - chunkStart + 1)));
         } catch (error) { controller.error(error); }
       },
     });
-    return new Response(stream, { headers: attachmentHeaders(file, query.preview === '1') });
+    return new Response(stream, { status: range ? 206 : 200, headers: attachmentHeaders(file, preview, range) });
   }
   if (attachmentId || request.method !== 'POST') fail(405, 'طريقة غير مدعومة.');
   if (request.headers.get('content-type')?.split(';')[0] !== 'application/octet-stream') fail(415, 'ارفع الملف بصيغته الأصلية.');

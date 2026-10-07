@@ -13,7 +13,7 @@ const db = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id,
 const storedFiles = new Map();
 const attachmentStore = {
   async write(id, _name, source) { const parts = []; for await (const part of source) parts.push(Buffer.from(part)); storedFiles.set(id, Buffer.concat(parts)); },
-  read: id => Readable.from(storedFiles.get(id) || []),
+  read: (id, range = null) => { const data = storedFiles.get(id) || Buffer.alloc(0); return Readable.from(range ? data.subarray(range.start, range.end + 1) : data); },
   async remove(id) { storedFiles.delete(id); },
 };
 const { httpServer, io } = await startPlatformServer({ database: db, attachmentStore, port: 0 });
@@ -44,7 +44,9 @@ async function layout(page) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Page must not overflow horizontally');
   const timeline = await page.locator('.dm-timeline').boundingBox();
   const composer = await page.locator('.dm-composer').boundingBox();
-  assert.ok(timeline.height > 60 && composer.y >= timeline.y + timeline.height - 1, `Composer must be below a scrollable timeline: ${JSON.stringify({ timeline, composer, viewport: page.viewportSize() })}`);
+  const conversation = await page.locator('.dm-conversation').boundingBox();
+  const styles = await page.evaluate(() => { const c = getComputedStyle(document.querySelector('.dm-conversation')); const t = getComputedStyle(document.querySelector('.dm-timeline')); return { conversation: [c.display,c.flexDirection,c.overflow], timeline: [t.flex,t.height,t.minHeight,t.position] }; });
+  assert.ok(timeline.height > 60 && composer.y >= timeline.y + timeline.height - 1, `Composer must be below a scrollable timeline: ${JSON.stringify({ timeline, composer, conversation, styles, viewport: page.viewportSize() })}`);
 }
 try {
   const student = await pageFor(users[1]); const teacher = await pageFor(users[0]);
@@ -54,8 +56,8 @@ try {
   await student.locator('.dm-conversation-header').waitFor();
   await teacher.locator('.dm-conversation-header').waitFor();
   await student.getByLabel('رسالتك', { exact: true }).fill('مرحباً أستاذ، عندي سؤال عن درس اليوم.');
-  await teacher.getByLabel('يكتب الآن', { exact: true }).waitFor({ timeout: 2200 });
-  await teacher.getByLabel('يكتب الآن', { exact: true }).waitFor({ state: 'hidden', timeout: 4000 });
+  await teacher.locator('.dm-typing-line').getByLabel('يكتب الآن', { exact: true }).waitFor({ timeout: 2200 });
+  await teacher.locator('.dm-typing-line').getByLabel('يكتب الآن', { exact: true }).waitFor({ state: 'hidden', timeout: 4000 });
   const start = Date.now();
   await student.getByRole('button', { name: 'إرسال الرسالة', exact: true }).click();
   await teacher.locator('.dm-message-content').getByText('مرحباً أستاذ، عندي سؤال عن درس اليوم.', { exact: true }).waitFor({ timeout: 2300 });
@@ -86,9 +88,15 @@ try {
   await teacher.getByLabel('خيارات المرفق واجب-الرياضيات.pdf', { exact: true }).waitFor({ timeout: 3000 });
   await teacher.getByRole('button', { name: 'فتح رسم.png', exact: true }).click();
   await teacher.getByRole('dialog', { name: 'معاينة رسم.png', exact: true }).waitFor();
+  const mediaPanel = await teacher.locator('.dm-media-panel').boundingBox();
+  assert.ok(mediaPanel.width <= 1000 && mediaPanel.height <= 700, `Media opens in a contained viewer: ${JSON.stringify(mediaPanel)}`);
+  await teacher.getByRole('button', { name: 'ملء الشاشة', exact: true }).waitFor();
+  await teacher.screenshot({ path: '.private/chat-media-viewer.png', fullPage: true });
   await teacher.getByRole('button', { name: 'إغلاق المعاينة', exact: true }).click();
   await teacher.getByRole('button', { name: 'فتح شرح.mp4', exact: true }).click();
   await teacher.getByRole('dialog', { name: 'معاينة شرح.mp4', exact: true }).waitFor();
+  await teacher.getByLabel('سرعة التشغيل', { exact: true }).selectOption('1.5');
+  assert.equal(await teacher.getByLabel('جودة الفيديو', { exact: true }).inputValue(), 'original');
   await teacher.getByRole('button', { name: 'إغلاق المعاينة', exact: true }).click();
   await student.getByRole('button', { name: 'تسجيل رسالة صوتية', exact: true }).click();
   await student.getByText('جارٍ التسجيل…', { exact: true }).waitFor();

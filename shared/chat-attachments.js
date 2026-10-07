@@ -50,15 +50,34 @@ export function mediaType(bytes, declaredType = '') {
   return '';
 }
 export const previewType = (bytes, declaredType = '') => imageType(bytes) || mediaType(bytes, declaredType);
-export function attachmentHeaders(file, preview = false) {
+export function byteRange(header, size) {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) attachmentFail(416, 'نطاق الملف المطلوب غير صالح.');
+  let start; let end;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix) || suffix < 1) attachmentFail(416, 'نطاق الملف المطلوب غير صالح.');
+    start = Math.max(0, size - suffix); end = size - 1;
+  } else {
+    start = Number(match[1]); end = match[2] ? Number(match[2]) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) attachmentFail(416, 'نطاق الملف المطلوب غير صالح.');
+    end = Math.min(end, size - 1);
+  }
+  return { start, end };
+}
+export function attachmentHeaders(file, preview = false, range = null) {
   const inline = preview && Boolean(file.preview_type);
-  return {
+  const headers = {
     'Content-Type': inline ? file.preview_type : 'application/octet-stream',
     'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="download"; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, c => `%${c.charCodeAt(0).toString(16)}`)}`,
-    'Content-Length': String(file.size), 'Cache-Control': 'private, no-store',
+    'Content-Length': String(range ? range.end - range.start + 1 : file.size), 'Cache-Control': 'private, no-store',
     'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox",
     'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
   };
+  if (inline) headers['Accept-Ranges'] = 'bytes';
+  if (range) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${file.size}`;
+  return headers;
 }
 export async function downloadAttachment(store, user, threadId, attachmentId) {
   const { mine } = await attachmentAccess(store, user, threadId);
