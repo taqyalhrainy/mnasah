@@ -55,7 +55,7 @@ function parseTeachingChoices(value: string, catalog: Category[]) {
   return uniqueTeachingChoices(choices);
 }
 
-export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLiveChange, searchFocusKey = 0 }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void; onRoomLiveChange?: (live: boolean) => void; searchFocusKey?: number }) {
+export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLiveChange, onReminderControls, searchFocusKey = 0 }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void; onRoomLiveChange?: (live: boolean) => void; onReminderControls?: (enabled: boolean, hint: string, toggle: () => void) => void; searchFocusKey?: number }) {
   usePreferences();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -87,6 +87,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [messages, setMessages] = useState<Message[]>([]);
   const reminders = useLessonReminders(portal, user.id, revision, room?.id);
   const focusedSearch = useRef(0);
+  useEffect(() => { onReminderControls?.(reminders.enabled, reminders.hint, reminders.toggle); }, [reminders.enabled, reminders.hint, onReminderControls]);
   useEffect(() => {
     if (portal !== 'students' || view !== 'home' || loadedView !== view || loading || searchFocusKey === focusedSearch.current) return;
     const frame = requestAnimationFrame(() => {
@@ -345,7 +346,6 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   if (view === 'messages') return <>{callLayer}</>;
   if ((portal === 'admin' && view === 'payments') || (portal === 'teachers' && view === 'earnings')) return <>{callLayer}<PaymentsPanel portal={portal === 'admin' ? 'admin' : 'teachers'} /></>;
   if (portal === 'students') return <>{callLayer}{lessonDetails}<div className="portal-content student-experience">
-    <div className="reminder-settings"><button className="secondary-button" aria-pressed={reminders.enabled} onClick={reminders.toggle}>{reminders.enabled ? <Bell size={18} /> : <BellOff size={18} />}{reminders.enabled ? t("التنبيهات مفعّلة") : t("تفعيل تنبيهات الحصص")}</button>{reminders.hint && <small role="status">{t(reminders.hint)}</small>}</div>
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />{t("فتح الغرف")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
@@ -368,7 +368,6 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {currentSlot && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelectedSlot(null)} className="detail-dialog"><div className="section-heading"><h2>{catalogText(currentSlot.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelectedSlot(null)}><X size={20} /></button></div><p>{date(currentSlot.start)}</p><p>{currentSlot.minutes}{t(" دقيقة · ")}{money(currentSlot.price)}</p><span className={`badge ${currentSlot.status}`}>{t(statusNames[currentSlot.status])}</span><div className="row-actions">{currentSlot.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm(t("حذف هذا الموعد؟"))) void act(() => post(`slots/${currentSlot.id}`), t("تم حذف الموعد.")); setSelectedSlot(null); }}><X size={17} />{t("حذف الموعد")}</button>}</div></dialog>}
   </div></>;
   if (portal === 'teachers') return <>{callLayer}{lessonDetails}<div className="portal-content tutor-experience">
-    <div className="reminder-settings"><button className="secondary-button" aria-pressed={reminders.enabled} onClick={reminders.toggle}>{reminders.enabled ? <Bell size={18} /> : <BellOff size={18} />}{reminders.enabled ? t("التنبيهات مفعّلة") : t("تفعيل تنبيهات الحصص")}</button>{reminders.hint && <small role="status">{t(reminders.hint)}</small>}</div>
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />{t("فتح الغرف")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>

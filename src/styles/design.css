@@ -391,6 +391,12 @@ input[type=checkbox] { accent-color: var(--ink); }
 .account-dropdown .account-preferences .preference-controls { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 6px; width: 100%; }
 .account-dropdown .account-preferences .language-control { min-width: 0; width: 100%; }
 .account-dropdown .account-preferences select { width: 100%; }
+.account-dropdown .account-reminders { align-items: center; width: 100%; }
+.account-dropdown .account-reminders > span { display: grid; gap: 2px; text-align: start; }
+.account-dropdown .account-reminders strong { font-size: 12px; font-weight: 500; }
+.account-dropdown .account-reminders small,.account-reminder-hint { color: var(--muted); font-size: 9px; }
+.account-dropdown .account-reminders[aria-pressed=true] svg { color: var(--brand); }
+.account-dropdown .account-reminder-hint { display: block; padding: 0 12px 7px; line-height: 1.6; }
 .account-dropdown .account-logout { color: #b33636; }
 .learning-shell .topbar { min-height: 52px; padding-block: 8px; }
 .learning-shell .workspace-content { padding-top: 0; }
@@ -697,6 +703,7 @@ input[type=checkbox] { accent-color: var(--ink); }
   .learning-shell > .mobile-account > summary { padding: 3px; border-radius: 999px; background: #fff; box-shadow: 0 7px 22px #231b2917; }
   .learning-shell > .mobile-account > summary .account-name, .learning-shell > .mobile-account > summary > svg { display: none; }
   .learning-shell > .mobile-account .account-dropdown { top: calc(100% + 8px); left: 0; right: auto; width: min(270px, calc(100vw - 36px)); }
+  .learning-shell .workspace-content { padding-top: 72px; }
   .learning-shell .topbar { min-height: 66px; padding-inline-start: 68px; }
   .home-showcase { --showcase-padding: 18px; min-height: 600px; padding-block: 24px; border-radius: 9px; }
   .redesigned-shell .home-intro h2 { font-size: clamp(40px, 13vw, 64px); }

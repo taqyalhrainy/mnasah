@@ -50,6 +50,17 @@ async function layout(page) {
 }
 try {
   const student = await pageFor(users[1]); const teacher = await pageFor(users[0]);
+  assert.equal(await teacher.locator('.topbar').count(), 0, 'Learning portals must not repeat the active page title');
+  assert.equal(await teacher.locator('.nav-button[title]').count(), 0, 'Visible navigation labels must not repeat in native hover tooltips');
+  assert.equal(await teacher.locator('.reminder-settings').count(), 0, 'Reminder controls belong in the account menu, not the page content');
+  const accountMenu = teacher.locator('.sidebar-account');
+  await accountMenu.locator('summary').click();
+  const reminderButton = accountMenu.getByRole('button', { name: /تنبيهات الحصص/ });
+  await reminderButton.getByText('غير مفعّلة', { exact: true }).waitFor();
+  await reminderButton.click();
+  await reminderButton.getByText('مفعّلة', { exact: true }).waitFor();
+  assert.equal(await teacher.evaluate(() => localStorage.getItem('mansah:reminders:teacher-ui')), '1');
+  await accountMenu.locator('summary').click();
   await student.screenshot({ path: '.private/chat-inbox-desktop.png', fullPage: true });
   await student.getByRole('button', { name: `محادثة ${users[0].name}`, exact: true }).click();
   await teacher.getByRole('button', { name: `محادثة ${users[1].name}`, exact: true }).click();
