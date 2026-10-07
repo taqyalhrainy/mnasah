@@ -19,7 +19,7 @@
   --canvas: #fff;
   --brand: #cc382b;
   --brand-dark: #ad281d;
-  --yellow: #ffe16c;
+  --yellow: #ffda57;
   --blue: #2764d7;
   --mint: #fceae7;
   --lime: #ffe16c;
@@ -393,7 +393,7 @@ input[type=checkbox] { accent-color: var(--ink); }
 .account-dropdown .account-logout { color: #b33636; }
 .learning-shell .topbar { min-height: 52px; padding-block: 8px; }
 .learning-shell .workspace-content { padding-top: 0; }
-.home-showcase { --showcase-padding: clamp(27px, 4vw, 58px); position: relative; display: grid; min-height: clamp(500px, 67vh, 690px); overflow: hidden; padding: var(--showcase-padding); border-radius: 12px; color: #211d17; background: linear-gradient(135deg, #f5d86e 0%, #e8cd78 52%, #f2db87 100%); background-color: #e8cd78; isolation: isolate; }
+.home-showcase { --showcase-padding: clamp(27px, 4vw, 58px); position: relative; display: grid; min-height: clamp(500px, 67vh, 690px); overflow: hidden; padding: var(--showcase-padding); border-radius: 12px; color: #211d17; background: linear-gradient(135deg, #ffe36a 0%, #ffd654 52%, #ffdf6d 100%); background-color: #ffda57; isolation: isolate; }
 .home-showcase::before { content: ''; position: absolute; z-index: -1; inset: 0; opacity: .35; background: radial-gradient(circle at 12% 20%, #fff8c8 0 2px, transparent 3px), radial-gradient(circle at 87% 78%, #ba8d2c40 0 2px, transparent 3px); background-size: 34px 34px, 43px 43px; mask-image: linear-gradient(120deg, #000, transparent 72%); }
 .home-showcase::after { content: ''; position: absolute; z-index: -1; width: min(42vw, 520px); aspect-ratio: 1; inset-inline-end: -17%; bottom: -55%; border: clamp(48px, 8vw, 110px) solid #fff5b02b; border-radius: 50%; }
 .home-intro { position: relative; display: grid; place-content: center; min-height: 100%; text-align: center; animation: home-scene-in .62s cubic-bezier(.2,.8,.2,1) both; }
@@ -432,7 +432,7 @@ input[type=checkbox] { accent-color: var(--ink); }
 .showcase-heading .student-search { min-width: min(310px, 38vw); background: #fff9ddc9; border-color: #a9923f88; }
 .showcase-heading .student-search:focus-within { background: #fffdf2; border-color: #594366; box-shadow: 0 0 0 3px #59436618; }
 .package-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px; max-height: 390px; overflow: auto; padding: 2px 3px 8px; scrollbar-width: thin; scrollbar-color: #8b753e transparent; }
-.package-card { --package-delay: 0ms; position: relative; display: grid; grid-template-columns: 42px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 2px 11px; min-height: 91px; padding: 14px; border: 1px solid #8b743b4a; border-radius: 10px; color: #211d17; background: #f3e4aa; text-align: start; box-shadow: 0 8px 22px #8269210a; animation: package-pop .55s cubic-bezier(.16,1,.3,1) both; animation-delay: var(--package-delay); }
+.package-card { --package-delay: 0ms; position: relative; display: grid; grid-template-columns: 42px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 2px 11px; min-height: 91px; padding: 14px; border: 1px solid #8b743b3d; border-radius: 10px; color: #211d17; background: #fff4c7; text-align: start; box-shadow: 0 8px 22px #8269210a; animation: package-pop .55s cubic-bezier(.16,1,.3,1) both; animation-delay: var(--package-delay); }
 .package-card:hover { border-color: #55415f; background: #fffdf1; transform: translateY(-3px); box-shadow: 0 13px 28px #5e482b1f; }
 .package-card:focus-visible { outline: 3px solid #6d4c7a55; outline-offset: 2px; }
 .package-card .package-icon { grid-row: 1 / 3; display: grid; place-items: center; width: 42px; height: 52px; border-radius: 8px; color: #f9efff; background: #5b3c70; }
@@ -441,7 +441,7 @@ input[type=checkbox] { accent-color: var(--ink); }
 .package-card strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
 .package-card small { min-width: 0; overflow: hidden; color: #514619; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .package-card > svg { position: absolute; top: 8px; inset-inline-end: 8px; padding: 3px; color: #fff; background: #5d3e6d; border-radius: 50%; }
-.package-card.chosen { border-color: #654875; background: #f5e8ae; }
+.package-card.chosen { border-color: #654875; background: #ffedaa; }
 .custom-package-card { border-style: dashed; }
 .custom-package-card .package-icon, .custom-saved-package .package-icon { background: #2f2735; }
 .package-detail, .custom-package-builder { display: grid; align-content: start; gap: 22px; animation: home-stage-ready .55s cubic-bezier(.16,1,.3,1) both; }

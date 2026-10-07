@@ -794,9 +794,9 @@ button.day-event { font: inherit; }
 .learning-shell .availability-showcase .month-grid > button.selected { color: #fff !important; border-color: #9d7cff !important; background: #7c3aed !important; }
 .learning-shell .availability-showcase .month-grid > button.selected > span { color: #fff !important; }
 
-:root[data-theme=light] .availability-showcase { color: #191522; border-color: #d5a916; background: radial-gradient(circle at 10% 8%, #76500022 0 2px, transparent 3px) 0 0 / 34px 34px, linear-gradient(135deg, #f7d75e, #efc33c 55%, #e8b928); box-shadow: 0 28px 70px #a77c1d28; }
+:root[data-theme=light] .availability-showcase { color: #191522; border-color: #d9ad24; background: radial-gradient(circle at 10% 8%, #7650001c 0 2px, transparent 3px) 0 0 / 34px 34px, linear-gradient(135deg, #ffe36a, #ffd451 55%, #f8ca40); box-shadow: 0 28px 70px #c79a2024; }
 :root[data-theme=light] .availability-orbit { border-color: #fff8; }
-:root[data-theme=light] .availability-tabs { border-color: #4e390f26; background: #d39f1a45; }
+:root[data-theme=light] .availability-tabs { border-color: #62480024; background: #f0bd294f; }
 :root[data-theme=light] .availability-tabs button { color: #49370e; }
 :root[data-theme=light] .availability-tabs button.active,
 :root[data-theme=light] .availability-light-button,
