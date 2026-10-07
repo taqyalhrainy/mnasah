@@ -78,9 +78,14 @@ try {
   await student.getByRole('button', { name: 'صور GIF', exact: true }).click();
   await student.getByRole('button', { name: 'إرسال GIF رائع', exact: true }).click();
   await teacher.locator('.dm-message .dm-gif').waitFor();
+  const imageFixture = await student.context().newPage();
+  await imageFixture.setViewportSize({ width: 300, height: 900 });
+  await imageFixture.setContent('<style>html,body{margin:0;width:100%;height:100%}body{background:linear-gradient(#e53935 0 33%,#43a047 33% 66%,#1e88e5 66%)}</style>');
+  const portraitImage = await imageFixture.screenshot();
+  await imageFixture.close();
   await student.getByLabel('اختيار ملفات').setInputFiles([
     { name: 'واجب-الرياضيات.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7 Mansah') },
-    { name: 'رسم.png', mimeType: 'image/png', buffer: Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]) },
+    { name: 'رسم.png', mimeType: 'image/png', buffer: portraitImage },
     { name: 'شرح.mp4', mimeType: 'video/mp4', buffer: Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d,0,0,0,0]) },
   ]);
   await student.getByText('واجب-الرياضيات.pdf', { exact: true }).waitFor();
@@ -90,6 +95,15 @@ try {
   await teacher.getByRole('dialog', { name: 'معاينة رسم.png', exact: true }).waitFor();
   const mediaPanel = await teacher.locator('.dm-media-panel').boundingBox();
   assert.ok(mediaPanel.width <= 1000 && mediaPanel.height <= 700, `Media opens in a contained viewer: ${JSON.stringify(mediaPanel)}`);
+  const imageLayout = await teacher.locator('.dm-media-viewer-content img').evaluate(image => {
+    const rect = image.getBoundingClientRect();
+    const parent = image.parentElement.getBoundingClientRect();
+    const style = getComputedStyle(image);
+    return { naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight, objectFit: style.objectFit, position: style.position, width: rect.width, height: rect.height, parentWidth: parent.width, parentHeight: parent.height };
+  });
+  assert.ok(imageLayout.naturalHeight >= imageLayout.naturalWidth * 3, `Portrait fixture loaded: ${JSON.stringify(imageLayout)}`);
+  assert.deepEqual([imageLayout.position, imageLayout.objectFit], ['absolute', 'contain']);
+  assert.ok(imageLayout.width <= imageLayout.parentWidth && imageLayout.height <= imageLayout.parentHeight, `Image stays inside the viewer: ${JSON.stringify(imageLayout)}`);
   await teacher.getByRole('button', { name: 'ملء الشاشة', exact: true }).waitFor();
   await teacher.screenshot({ path: '.private/chat-media-viewer.png', fullPage: true });
   await teacher.getByRole('button', { name: 'إغلاق المعاينة', exact: true }).click();
