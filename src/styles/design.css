@@ -400,6 +400,7 @@ input[type=checkbox] { accent-color: var(--ink); }
 .account-dropdown .account-logout { color: #b33636; }
 .learning-shell .topbar { min-height: 52px; padding-block: 8px; }
 .learning-shell .workspace-content { padding-top: 0; }
+.learning-shell .home-workspace-content { padding-top: 20px; }
 .home-showcase { --showcase-padding: clamp(27px, 4vw, 58px); position: relative; display: grid; min-height: clamp(500px, 67vh, 690px); overflow: hidden; padding: var(--showcase-padding); border-radius: 12px; color: #211d17; background: linear-gradient(135deg, #ffe36a 0%, #ffd654 52%, #ffdf6d 100%); background-color: #ffda57; isolation: isolate; }
 .home-showcase::before { content: ''; position: absolute; z-index: -1; inset: 0; opacity: .35; background: radial-gradient(circle at 12% 20%, #fff8c8 0 2px, transparent 3px), radial-gradient(circle at 87% 78%, #ba8d2c40 0 2px, transparent 3px); background-size: 34px 34px, 43px 43px; mask-image: linear-gradient(120deg, #000, transparent 72%); }
 .home-showcase::after { content: ''; position: absolute; z-index: -1; width: min(42vw, 520px); aspect-ratio: 1; inset-inline-end: -17%; bottom: -55%; border: clamp(48px, 8vw, 110px) solid #fff5b02b; border-radius: 50%; }

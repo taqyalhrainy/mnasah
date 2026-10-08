@@ -36,7 +36,10 @@ async function pageFor(user) {
   await context.addCookies([{ name: `mansah_session_${user.role}`, value: `${user.id}-token`, url: base }]);
   const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${base}/${user.role}`, { waitUntil: 'domcontentloaded' });
+  assert.equal(await page.locator('.workspace-content').evaluate(element => getComputedStyle(element).paddingTop), '20px', 'The home page needs breathing room below navigation');
   await page.locator('.nav-list').getByRole('button', { name: 'الرسائل', exact: true }).click();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.workspace-content')).paddingTop === '0px');
+  assert.equal(await page.locator('.workspace-content').evaluate(element => getComputedStyle(element).paddingTop), '0px', 'Other desktop views keep their existing spacing');
   await page.getByRole('button', { name: `محادثة ${user.role === 'students' ? users[0].name : users[1].name}`, exact: true }).waitFor();
   return page;
 }
@@ -151,6 +154,7 @@ try {
   for (const width of [1024, 768, 390, 320]) {
     await student.setViewportSize({ width, height: width < 768 ? 844 : 1000 });
     await student.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await student.waitForTimeout(350);
     await layout(student);
     if (width === 390) await student.screenshot({ path: '.private/chat-conversation-mobile.png', fullPage: true });
   }
