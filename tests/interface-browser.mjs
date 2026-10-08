@@ -87,7 +87,7 @@ try {
       if (width === 1440 || width === 390) await page.screenshot({ path: `.private/redesign-${role}-${width}.png`, fullPage: true });
     }
     await page.setViewportSize({ width: 390, height: 844 });
-    const navIds = await page.locator('.nav-list .nav-button').evaluateAll(buttons => buttons.map(button => button.getAttribute('title')));
+    const navIds = await page.locator('.nav-list .nav-button').evaluateAll(buttons => buttons.map(button => button.getAttribute('title')).filter(Boolean));
     for (const name of navIds) {
       await page.locator('.nav-list').getByRole('button', { name: new RegExp(`^${name}`) }).click();
       await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
@@ -176,10 +176,18 @@ try {
   await page.getByRole('button', { name: 'إظهار كلمة المرور', exact: true }).click();
   assert.equal(await page.getByLabel('كلمة المرور', { exact: true }).getAttribute('type'), 'text');
   await page.getByRole('button', { name: 'إنشاء حساب جديد', exact: true }).click();
-  await page.getByLabel('الاسم الكامل').fill('سارة أحمد');
+  await page.getByLabel('الاسم الأول').fill('سارة');
+  await page.getByLabel('اسم الأب').fill('أحمد');
+  await page.getByLabel('اسم العائلة').fill('الخطيب');
+  await page.getByLabel('تاريخ الميلاد').fill('2000-05-20');
+  await page.getByLabel('الجنس').selectOption('female');
+  await page.getByLabel('رقم الهاتف الأردني').fill('0791234567');
+  await page.getByRole('button', { name: 'التالي', exact: true }).click();
   await page.getByLabel('البريد الإلكتروني').fill('student@example.test');
   await page.getByLabel('كلمة المرور', { exact: true }).fill('Ui-testing-password-123');
-  await page.getByRole('button', { name: 'إنشاء الحساب', exact: true }).click();
+  await page.getByLabel('تأكيد كلمة المرور', { exact: true }).fill('Ui-testing-password-123');
+  await page.getByRole('checkbox', { name: /أوافق على شروط الاستخدام/ }).check();
+  await page.getByRole('button', { name: 'إنشاء حساب الطالب', exact: true }).click();
   await page.locator('.workspace-content').waitFor();
   assert.ok(mutations.some(item => item.path.endsWith('/auth/register') && item.body.role === 'students'));
   await context.close();

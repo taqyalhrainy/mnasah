@@ -730,3 +730,104 @@ input[type=checkbox] { accent-color: var(--ink); }
   .package-grid { grid-template-columns: 1fr; }
   .home-showcase { min-height: 620px; }
 }
+
+/* Registration and teacher verification */
+.registration-page { align-items: flex-start; min-height: 100dvh; padding: 116px 5% 42px; overflow-y: auto; }
+.registration-page .registration-main { align-items: flex-start; width: min(760px, 58vw); padding: 0; }
+.registration-flow { width: min(900px, 100%); margin-inline: auto; color: var(--ink); }
+.registration-flow > header { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 14px; margin-bottom: 20px; }
+.registration-flow > header > div { display: grid; gap: 4px; }
+.registration-flow > header span { display: flex; align-items: center; gap: 7px; color: var(--accent-strong); font-size: 12px; font-weight: 900; }
+.registration-flow > header h1 { margin: 0; font-size: clamp(27px, 3vw, 39px); }
+.registration-flow > header > strong { padding: 8px 12px; border-radius: 999px; background: var(--panel-muted); font-size: 12px; }
+.registration-progress { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 7px; margin-bottom: 18px; }
+.registration-progress span { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); background: color-mix(in srgb, var(--panel) 86%, transparent); }
+.registration-progress span.current { color: var(--ink); border-color: var(--accent); box-shadow: inset 0 -3px var(--accent); }
+.registration-progress span.done { color: #226a51; border-color: #53b99577; background: #e7f8f1; }
+.registration-progress i { display: grid; place-items: center; flex: 0 0 auto; width: 25px; height: 25px; border-radius: 50%; background: var(--panel-muted); font-style: normal; font-weight: 900; }
+.registration-progress .current i { color: #18131f; background: var(--accent); }
+.registration-progress .done i { color: #fff; background: #2f8d6d; }
+.registration-progress small { overflow: hidden; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+.registration-stage { display: grid; gap: 18px; padding: clamp(18px, 3vw, 30px); border: 1px solid var(--line); border-radius: 24px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 24px 70px #25153314; animation: registrationEnter .3s ease both; }
+@keyframes registrationEnter { from { opacity: 0; transform: translateY(10px); } }
+.registration-heading { display: flex; align-items: center; gap: 12px; }
+.registration-heading > svg { width: 47px; height: 47px; padding: 11px; border-radius: 15px; color: var(--accent-strong); background: var(--accent-soft); }
+.registration-heading h2, .registration-heading p { margin: 0; }
+.registration-heading h2 { font-size: 21px; }
+.registration-heading p { margin-top: 3px; color: var(--muted); font-size: 13px; }
+.registration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.registration-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.registration-grid .full { grid-column: 1 / -1; }
+.registration-stage label, .registration-stage fieldset { display: grid; gap: 7px; min-width: 0; color: var(--ink); font-size: 12px; font-weight: 850; }
+.registration-stage input:not([type=checkbox]):not([type=file]), .registration-stage select, .registration-stage textarea { width: 100%; min-height: 48px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--field); outline: none; font: inherit; font-weight: 700; }
+.registration-stage textarea { resize: vertical; }
+.registration-stage input:focus, .registration-stage select:focus, .registration-stage textarea:focus { border-color: var(--accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 23%, transparent); }
+.registration-stage label > small { color: var(--muted); font-weight: 600; }
+.birth-field, .field-with-icon { position: relative; display: flex; align-items: center; }
+.birth-field b { position: absolute; inset-inline-end: 10px; padding: 5px 9px; border-radius: 8px; color: var(--accent-strong); background: var(--accent-soft); font-size: 11px; }
+.field-with-icon > svg { position: absolute; inset-inline-start: 12px; color: var(--muted); }
+.field-with-icon input { padding-inline-start: 40px !important; }
+.registration-google { display: grid; justify-items: center; gap: 6px; min-height: 44px; }
+.registration-google > div { min-width: min(360px, 100%); }
+.registration-google small { color: var(--muted); text-align: center; }
+.google-linked { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 0; color: #237257; font-weight: 850; }
+.registration-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 11px; }
+.registration-divider::before, .registration-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.registration-consent { display: flex !important; align-items: flex-start; grid-template-columns: auto 1fr; gap: 10px !important; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel-muted); cursor: pointer; }
+.registration-consent input { width: 18px; height: 18px; accent-color: var(--accent-strong); }
+.registration-consent span { display: grid; gap: 3px; }
+.registration-consent small { color: var(--muted); font-weight: 600; }
+.verification-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.verification-options.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.verification-options label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 9px; border: 1px solid var(--line); border-radius: 11px; background: var(--field); cursor: pointer; }
+.verification-options label.selected { border-color: var(--accent-strong); background: var(--accent-soft); }
+.verification-options input { position: absolute; opacity: 0; pointer-events: none; }
+.verification-options label > span { display: grid; place-items: center; flex: 0 0 auto; width: 21px; height: 21px; border: 1px solid var(--line); border-radius: 6px; color: transparent; background: var(--panel); }
+.verification-options label.selected > span { color: #17101e; border-color: var(--accent); background: var(--accent); }
+.registration-stage fieldset { margin: 0; padding: 0; border: 0; }
+.registration-stage legend { margin-bottom: 8px; }
+.verification-upload-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.photo-uploader, .document-uploader { position: relative; display: grid !important; place-items: center; align-content: center; min-height: 190px; padding: 18px; overflow: hidden; border: 1px dashed var(--accent-strong) !important; border-radius: 18px; background: var(--accent-soft); text-align: center; cursor: pointer; }
+.photo-uploader img { width: 94px; height: 94px; border: 4px solid var(--panel); border-radius: 50%; object-fit: cover; box-shadow: 0 8px 25px #0002; }
+.photo-uploader input, .document-uploader input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.photo-uploader small, .document-uploader small { color: var(--muted); }
+.credential-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.credential-list span { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 7px 10px; overflow: hidden; border-radius: 9px; background: var(--panel-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.live-verification { display: grid; grid-template-columns: 1fr 280px; gap: 15px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel-muted); }
+.live-verification p { color: var(--accent-strong); font-size: 17px; font-weight: 900; }
+.live-verification small { color: var(--muted); }
+.live-verification video { grid-row: span 2; width: 100%; min-height: 185px; border-radius: 14px; background: #09070c; object-fit: cover; }
+.record-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.record-actions > span { display: flex; align-items: center; gap: 5px; color: #277458; font-size: 12px; font-weight: 850; }
+.record-stop { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 8px 14px; border: 0; border-radius: 12px; color: #fff; background: #9f2835; font-weight: 900; }
+.record-stop i { width: 11px; height: 11px; border-radius: 3px; background: #fff; }
+.registration-error { margin-top: 13px; }
+.registration-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 17px; }
+.registration-actions button { min-height: 47px; }
+.registration-actions .primary-button { min-width: 190px; }
+.spin { animation: registrationSpin .8s linear infinite; }
+.account-avatar.has-photo { overflow: hidden; padding: 0; }
+.account-avatar.has-photo img { width: 100%; height: 100%; object-fit: cover; }
+@keyframes registrationSpin { to { transform: rotate(360deg); } }
+:root[data-theme=dark] .registration-progress span.done { color: #bff3dd; background: #173f34; }
+:root[data-theme=dark] .google-linked, :root[data-theme=dark] .record-actions > span { color: #8fe2c3; }
+
+@media (max-width: 980px) {
+  .registration-page { display: block; }
+  .registration-page .auth-visual { display: none; }
+  .registration-page .registration-main { width: 100%; min-height: 100dvh; }
+}
+@media (max-width: 680px) {
+  .registration-page { padding: 92px 14px 28px; }
+  .registration-page .registration-main { padding: 0; }
+  .registration-flow > header { grid-template-columns: 38px 1fr auto; }
+  .registration-progress small { display: none; }
+  .registration-progress span { justify-content: center; padding: 7px; }
+  .registration-grid, .registration-grid.three, .verification-upload-grid, .live-verification { grid-template-columns: 1fr; }
+  .verification-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .verification-options.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-verification video { grid-row: auto; }
+  .registration-stage { padding: 16px; border-radius: 18px; }
+  .registration-actions { position: sticky; bottom: 8px; z-index: 5; padding: 8px; border: 1px solid var(--line); border-radius: 15px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(14px); }
+  .registration-actions .primary-button { min-width: 0; }
+}

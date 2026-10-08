@@ -10,7 +10,10 @@ import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
 import { serveChatAttachment } from './chat-attachments.js';
+import { serveVerificationFile, verificationBytes } from './verification-files.js';
+import { attachmentHeaders } from '../shared/chat-attachments.js';
 import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-packages.js';
+import { parseVerification, registrationProfile } from '../shared/verification.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -27,6 +30,7 @@ const MONGODB_USER = process.env.MONGODB_USER || '';
 const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || '';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
 const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-token';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 function validChatOrigin(origin, req) {
   if (!origin) return true;
   try {
@@ -89,6 +93,8 @@ async function connect() {
     db.collection('chat_attachments').createIndex({ id: 1 }, { unique: true }),
     db.collection('chat_attachments').createIndex({ author_id: 1, created: 1 }),
     db.collection('chat_attachments').createIndex({ expires_at: 1 }),
+    db.collection('verification_files').createIndex({ id: 1 }, { unique: true }),
+    db.collection('verification_files').createIndex({ user_id: 1, kind: 1 }),
     db.collection('catalog').createIndex({ kind: 1, position: 1 }),
   ]);
   await seedCatalog();
@@ -116,7 +122,14 @@ function cookie(req, name) {
   return raw.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))?.[1] || '';
 }
 function publicUser(u) {
-  return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', custom_packages: parseCustomPackages(u.custom_packages), mustChangePassword: Boolean(u.must_change_password) } : null;
+  return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
+}
+async function googleIdentity(credential) {
+  if (!GOOGLE_CLIENT_ID) fail(503, 'تسجيل Google غير مفعّل على الخادم بعد.');
+  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(field(credential, 5000))}`);
+  const profile = await response.json().catch(() => ({}));
+  if (!response.ok || profile.aud !== GOOGLE_CLIENT_ID || profile.email_verified !== 'true' || !profile.email) fail(401, 'تعذر التحقق من حساب Google.');
+  return { email: String(profile.email).toLowerCase(), name: String(profile.name || '').trim(), sub: String(profile.sub || '') };
 }
 function setSession(res, role, token, expires) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure; SameSite=None' : '; SameSite=Lax';
@@ -228,9 +241,11 @@ app.all('/api/auth/:action', async (req, res, next) => {
       clearSession(res, requestedRole);
       return res.json({ user: null });
     }
-    if (!['login', 'register', 'setup'].includes(action)) fail(404, 'الطلب غير موجود.');
-    const email = field(body.email, 254).toLowerCase();
-    const password = field(body.password, 128, 12);
+    if (!['login', 'register', 'setup', 'google'].includes(action)) fail(404, 'الطلب غير موجود.');
+    const google = action === 'google' ? await googleIdentity(body.credential) : null;
+    const email = google?.email || field(body.email, 254).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'البريد الإلكتروني غير صحيح.');
+    const password = action === 'google' ? '' : field(body.password, 128, 12);
     const role = body.role;
     if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
     let user;
@@ -239,12 +254,26 @@ app.all('/api/auth/:action', async (req, res, next) => {
       const hash = passwordHash(password, user?.password?.split(':')[0] || 'missing-account-salt');
       if (!user || user.role !== role || !equal(hash, user.password)) fail(401, 'بيانات الدخول غير صحيحة لهذا القسم.');
       if (user.status === 'suspended') fail(403, 'الحساب موقوف. راجع الإدارة.');
+    } else if (action === 'google') {
+      user = await db.collection('users').findOne({ email });
+      if (user && user.role !== role) fail(409, 'هذا البريد مرتبط بقسم مختلف.');
+      if (!user) {
+        if (role === 'admin') fail(403, 'تسجيل Google غير متاح للإدارة.');
+        const verification = registrationProfile(body, role);
+        user = { id: crypto.randomUUID(), email, name: [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(random()), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone, verification, auth_provider: 'google', email_verified: 1, google_sub: google.sub, created: Date.now(), must_change_password: 0 };
+        try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً.'); }
+      } else {
+        await db.collection('users').updateOne({ id: user.id }, { $set: { auth_provider: 'google', email_verified: 1, google_sub: google.sub } });
+        user = { ...user, auth_provider: 'google', email_verified: 1, google_sub: google.sub };
+      }
+      if (user.status === 'suspended') fail(403, 'الحساب موقوف. راجع الإدارة.');
     } else {
       if (action === 'setup') {
         if (String(body.token || '') !== OWNER_SETUP_TOKEN || role !== 'admin') fail(403, 'رابط تهيئة الإدارة غير صالح.');
         if (await db.collection('users').findOne({ role: 'admin' })) fail(409, 'تم إنشاء حساب الإدارة مسبقاً. سجل الدخول.');
       } else if (role === 'admin') fail(403, 'إنشاء حساب إدارة غير متاح للعامة.');
-      user = { id: role === 'admin' ? 'platform-owner' : crypto.randomUUID(), email, name: field(body.name, 100), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(password), subject: '', bio: '', created: Date.now(), must_change_password: 0 };
+      const verification = role === 'admin' ? {} : registrationProfile(body, role);
+      user = { id: role === 'admin' ? 'platform-owner' : crypto.randomUUID(), email, name: role === 'admin' ? field(body.name, 100) : [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(password), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone || '', verification, auth_provider: 'password', email_verified: 0, created: Date.now(), must_change_password: 0 };
       try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً أو حساب الإدارة موجود.'); }
     }
     const token = random();
@@ -253,6 +282,15 @@ app.all('/api/auth/:action', async (req, res, next) => {
     await db.collection('sessions').insertOne({ token: digest(token), user_id: user.id, expires });
     setSession(res, role, token, expires);
     res.json({ user: publicUser(user) });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/media/avatar/:userId', async (req, res, next) => {
+  try {
+    await connect(); const teacher = await db.collection('users').findOne({ id: req.params.userId, role: 'teachers', status: 'active' }, { projection: { id: 1 } });
+    if (!teacher) fail(404, 'الصورة غير موجودة.');
+    const file = await db.collection('verification_files').findOne({ user_id: teacher.id, kind: 'avatar' }, { projection: { _id: 0 } }); if (!file) fail(404, 'الصورة غير موجودة.');
+    res.set(attachmentHeaders({ ...file, preview_type: file.content_type }, true)); const stream = verificationBytes(db).read(file.id); res.once('close', () => stream.destroy()); stream.on('error', () => res.destroy()); stream.pipe(res);
   } catch (error) { next(error); }
 });
 
@@ -267,6 +305,16 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (!user) fail(401, 'يلزم تسجيل الدخول.');
     if (portal !== user.role) fail(403, 'هذا القسم غير متاح لحسابك.');
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
+
+    if (await serveVerificationFile(req, res, { db, user, path })) return;
+    if (path === 'verification/status' && !write && user.role === 'teachers') return res.json({ user: publicUser(user), files: await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0, declared_type: 0 } }).toArray() });
+    if (path === 'verification/submit' && write && user.role === 'teachers') {
+      const files = await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0 } }).toArray();
+      if (!files.some(file => file.kind === 'avatar') || !files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل الصورة وفيديو التحقق والمستند الداعم قبل إرسال الطلب.');
+      const verification = { ...parseVerification(user.verification), verification_status: 'submitted', submitted_at: Date.now(), reviewed_at: 0, rejection_reason: '' };
+      await db.collection('users').updateOne({ id: user.id }, { $set: { verification } });
+      return res.json({ user: publicUser({ ...user, verification }) });
+    }
 
     if (path === 'profile') {
       if (write) {
@@ -301,11 +349,21 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const bookings = await db.collection('bookings').find({ status: 'completed', slot_id: { $in: slots.map(slot => slot.id) } }, { projection: { _id: 0 } }).toArray();
       return res.json(paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 15));
     }
-    if (path === 'users' && user.role === 'admin' && !write) return res.json({ users: (await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray()).map(publicUser) });
+    if (path === 'users' && user.role === 'admin' && !write) {
+      const rows = await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray();
+      const files = await db.collection('verification_files').find({ user_id: { $in: rows.map(row => row.id) } }, { projection: { _id: 0, declared_type: 0 } }).toArray();
+      return res.json({ users: rows.map(row => ({ ...publicUser(row), verification_files: files.filter(file => file.user_id === row.id) })) });
+    }
     if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
       const id = path.split('/')[1];
       if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
-      await db.collection('users').updateOne({ id, role: { $ne: 'admin' } }, { $set: { status: body.status } });
+      const target = await db.collection('users').findOne({ id, role: { $ne: 'admin' } });
+      if (!target) fail(404, 'الحساب غير موجود.');
+      const verification = parseVerification(target.verification);
+      if (body.status === 'active' && target.role === 'teachers' && verification.verification_status !== 'submitted') fail(409, 'طلب الأستاذ غير مكتمل أو لم يُرسل للمراجعة بعد.');
+      const update = { status: body.status };
+      if (body.status === 'active' && target.role === 'teachers') update.verification = { ...verification, verification_status: 'approved', reviewed_at: Date.now(), reviewed_by: user.id };
+      await db.collection('users').updateOne({ id }, { $set: update });
       await db.collection('sessions').deleteMany({ user_id: id });
       await audit(user.id, `user:${body.status}`, id);
       return res.json({ ok: true });

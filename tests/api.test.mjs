@@ -37,15 +37,27 @@ test('authorization and the full reservation lifecycle', async () => {
     const response = await worker.fetch(request, env); const body = await response.json();
     assert.equal(response.status, expected, `${path}: ${JSON.stringify(body)}`); return body;
   }
-  const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role });
+  async function uploadVerification(who, kind, name, bytes, type, expected = 200) {
+    const query = new URLSearchParams({ kind, name, size: String(bytes.length), type });
+    const request = new Request(`https://mansah.test/api/teachers/verification/files?${query}`, { method: 'POST', headers: { cookie: clients[who] || '', origin: 'https://mansah.test', 'content-type': 'application/octet-stream' }, body: bytes });
+    const response = await worker.fetch(request, env); const body = await response.json(); assert.equal(response.status, expected, JSON.stringify(body)); return body;
+  }
+  const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role, ...(role === 'admin' ? {} : { first_name: 'Test', father_name: 'Account', family_name: role === 'teachers' ? 'Teacher' : 'Student', birth_date: '1990-01-01', gender: 'male', phone: '0791234567', accept_terms: true }), ...(role === 'teachers' ? { qualifications: ['بكالوريوس'], years_experience: 4, teaching_languages: ['العربية'], national_id_last4: '1234', professional_bio: 'Experienced mathematics teacher for school learners.', confirm_accuracy: true, accept_teaching_policy: true } : {}) });
   await call('guest', 'admin/users', undefined, 401);
   await call('guest', 'auth/register', credentials('evil@test.com', 'admin'), 403);
+  await call('guest', 'auth/register', { ...credentials('bad-phone@test.com', 'students'), phone: '0712345678' }, 400);
+  await call('guest', 'auth/google', { ...credentials('google@test.com', 'students'), credential: 'not-a-google-token' }, 503);
   await call('guest', 'auth/setup', { ...credentials('owner@test.com', 'admin'), token: 'wrong' }, 403);
   await call('owner', 'auth/setup', { ...credentials('owner@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN });
   await call('guest', 'auth/setup', { ...credentials('owner2@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN }, 409);
   const teacher = (await call('teacher', 'auth/register', credentials('teacher@test.com', 'teachers'))).user;
   const student = (await call('student', 'auth/register', credentials('student@test.com', 'students'))).user;
   await call('other', 'auth/register', credentials('other@test.com', 'students'));
+  await uploadVerification('teacher', 'avatar', 'profile.png', Uint8Array.from([137,80,78,71,13,10,26,10,0]), 'image/png');
+  await uploadVerification('teacher', 'intro_video', 'intro.webm', Uint8Array.from([0x1a,0x45,0xdf,0xa3,0]), 'video/webm');
+  await uploadVerification('teacher', 'credential', 'degree.pdf', new TextEncoder().encode('%PDF-1.7'), 'application/pdf');
+  const submittedVerification = await call('teacher', 'teachers/verification/submit', {});
+  assert.equal(submittedVerification.user.verification.verification_status, 'submitted');
   await call('teacher', 'teachers/slots', undefined, 403);
   const customPackages = [{ id: 'robotics', name: 'روبوتكس', description: 'برمجة الروبوت', levels: ['مبتدئ', 'متقدم'] }];
   const savedProfile = await call('teacher', 'teachers/profile', { name: 'Teacher', subject: 'Math', bio: 'Algebra tutor', custom_packages: customPackages });

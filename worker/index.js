@@ -2,6 +2,7 @@ import html from '../dist/client/index.html';
 import { auth } from './auth.js';
 import { api } from './api.js';
 import { fail } from './db.js';
+import { workerPublicAvatar } from './verification-files.js';
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -10,7 +11,8 @@ export default {
       if (url.pathname.startsWith('/api/')) {
         const [, , portal, ...parts] = url.pathname.split('/');
         const path = parts.join('/');
-        const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path);
+        if (portal === 'media' && parts[0] === 'avatar' && parts[1] && request.method === 'GET') return workerPublicAvatar(env, parts[1]);
+        const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path) || path === 'verification/files';
         const write = request.method !== 'GET';
         if (!['GET', 'POST'].includes(request.method)) fail(405, 'طريقة غير مدعومة.');
         if (write && (request.headers.get('origin') !== url.origin || !request.headers.get('content-type')?.startsWith(upload ? 'application/octet-stream' : 'application/json'))) fail(403, 'مصدر الطلب غير صالح.');

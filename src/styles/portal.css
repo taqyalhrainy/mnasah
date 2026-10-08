@@ -2021,3 +2021,37 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
   .room-card-date { display: flex; justify-content: space-between; }
   .room-card-action { grid-column: auto; grid-template-columns: 1fr; }
 }
+
+/* Owner verification review */
+.verification-status { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: 7px; padding: 5px 8px; border-radius: 999px; color: #785d15; background: #fff2bd; font-size: 10px; font-weight: 900; }
+.verification-status.submitted { color: #214d7d; background: #dcecff; }
+.verification-status.approved { color: #1d654d; background: #d9f4e9; }
+.verification-review-dialog { width: min(880px, calc(100vw - 28px)); max-height: min(90dvh, 920px); overflow-y: auto; }
+.verification-review-dialog .section-heading > div { display: grid; gap: 2px; }
+.verification-review-dialog .section-heading span { color: var(--muted); font-size: 11px; font-weight: 800; }
+.verification-review-hero { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel-muted); }
+.verification-review-hero > img, .verification-review-hero > span:first-child { display: grid; place-items: center; width: 82px; height: 82px; border-radius: 50%; background: var(--panel); object-fit: cover; }
+.verification-review-hero > div { display: grid; gap: 4px; }
+.verification-review-hero p { margin: 0; }
+.verification-review-hero small { color: var(--muted); }
+.verification-review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 13px; }
+.verification-review-grid > div { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.verification-review-grid small { color: var(--muted); }
+.verification-review-section { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 15px; }
+.verification-review-section h3 { margin: 0 0 10px; }
+.verification-review-section > div:not(.verification-review-files) { display: flex; flex-wrap: wrap; gap: 7px; }
+.verification-review-section > div:not(.verification-review-files) span { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 9px; background: var(--accent-soft); font-size: 11px; font-weight: 800; }
+.verification-review-files { display: grid; gap: 9px; }
+.verification-review-files article { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+.verification-review-files video { grid-column: 1 / -1; width: min(100%, 580px); max-height: 330px; border-radius: 13px; background: #09080b; }
+.verification-review-files a { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-decoration: none; }
+.verification-review-files a span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-theme=dark] .verification-status { color: #f7dd8a; background: #4d3b16; }
+:root[data-theme=dark] .verification-status.submitted { color: #bcdcff; background: #173653; }
+:root[data-theme=dark] .verification-status.approved { color: #b3edd8; background: #174738; }
+@media(max-width: 680px) {
+  .verification-review-hero { grid-template-columns: 64px 1fr; }
+  .verification-review-hero > img, .verification-review-hero > span:first-child { width: 64px; height: 64px; }
+  .verification-review-hero > .verification-status { grid-column: 1 / -1; }
+  .verification-review-grid { grid-template-columns: 1fr 1fr; }
+}

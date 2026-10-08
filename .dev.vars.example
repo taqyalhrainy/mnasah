@@ -6,6 +6,11 @@ MONGODB_DB=mansah
 CLIENT_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://taqyalhrainy.github.io
 PORT=8787
 
+# Optional Google sign-in. Both values are the same OAuth 2.0 Web Client ID.
+# Add http://127.0.0.1:5173 and https://mnasah.onrender.com as authorized JavaScript origins.
+GOOGLE_CLIENT_ID=replace-with-google-oauth-web-client-id.apps.googleusercontent.com
+VITE_GOOGLE_CLIENT_ID=replace-with-google-oauth-web-client-id.apps.googleusercontent.com
+
 # Optional development-only shared login hash. Do not put plaintext passwords here.
 # DEVELOPMENT_LOGIN_HASH=replace-with-generated-password-hash
 # DEVELOPMENT_LOGIN_EXPIRES=replace-with-utc-epoch-ms

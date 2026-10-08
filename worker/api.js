@@ -6,6 +6,8 @@ import { sqlChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
 import { workerChatAttachment } from './chat-attachments.js';
 import { serializeCustomPackages } from '../shared/custom-packages.js';
+import { parseVerification } from '../shared/verification.js';
+import { workerVerificationFile } from './verification-files.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
@@ -26,6 +28,16 @@ export async function api(request, env, portal, path, body) {
   const write = request.method !== 'GET';
   if (!user.development_access && user.must_change_password && user.temporary_password_expires <= Date.now()) fail(401, 'انتهت صلاحية كلمة المرور المؤقتة. راجع الإدارة.');
   if (!user.development_access && user.must_change_password && path !== 'password') fail(403, 'يجب تغيير كلمة المرور المؤقتة أولاً.');
+  const verificationFile = await workerVerificationFile(request, env, user, path);
+  if (verificationFile) return verificationFile;
+  if (path === 'verification/status' && !write && user.role === 'teachers') return { user: publicUser(user), files: await all(env, 'SELECT id,user_id,kind,name,size,content_type,created FROM verification_files WHERE user_id=?', user.id) };
+  if (path === 'verification/submit' && write && user.role === 'teachers') {
+    const files = await all(env, 'SELECT id,kind FROM verification_files WHERE user_id=?', user.id);
+    if (!files.some(file => file.kind === 'avatar') || !files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل الصورة وفيديو التحقق والمستند الداعم قبل إرسال الطلب.');
+    const verification = { ...parseVerification(user.verification), verification_status: 'submitted', submitted_at: Date.now(), reviewed_at: 0, rejection_reason: '' };
+    await run(env, 'UPDATE users SET verification=? WHERE id=?', JSON.stringify(verification), user.id);
+    return { user: publicUser({ ...user, verification }) };
+  }
   if (path === 'profile') {
     if (write) await run(env, 'UPDATE users SET name=?,subject=?,bio=?,academic_level=?,phone=?,custom_packages=? WHERE id=?', field(body.name, 100), field(body.subject || '', 4000, 0), field(body.bio || '', 2000, 0), field(body.academic_level || '', 100, 0), field(body.phone || '', 40, 0), body.custom_packages === undefined ? (user.custom_packages || '[]') : serializeCustomPackages(body.custom_packages), user.id);
     return { user: publicUser({ ...await one(env, 'SELECT * FROM users WHERE id=?', user.id), development_access: user.development_access }) };
@@ -65,7 +77,11 @@ export async function api(request, env, portal, path, body) {
     const where = user.role === 'admin' ? '' : user.role === 'teachers' ? ' WHERE s.teacher_id=?' : ' WHERE b.student_id=?';
     return { bookings: await all(env, `${bookingSelect}${where} ORDER BY s.start DESC LIMIT 500`, ...(where ? [user.id] : [])) };
   }
-  if (path === 'users' && user.role === 'admin' && !write) return { users: (await all(env, 'SELECT * FROM users ORDER BY created DESC LIMIT 1000')).map(publicUser) };
+  if (path === 'users' && user.role === 'admin' && !write) {
+    const rows = await all(env, 'SELECT * FROM users ORDER BY created DESC LIMIT 1000');
+    const files = await all(env, 'SELECT id,user_id,kind,name,size,content_type,created FROM verification_files ORDER BY created');
+    return { users: rows.map(row => ({ ...publicUser(row), verification_files: files.filter(file => file.user_id === row.id) })) };
+  }
   if (/^users\/[^/]+\/reset-password$/.test(path) && user.role === 'admin' && write) {
     const adminPassword = field(body.adminPassword, 128, 12);
     if (!equal(await passwordHash(adminPassword, user.password.split(':')[0]), user.password)) fail(403, 'كلمة مرور الأدمن غير صحيحة.');
@@ -86,7 +102,10 @@ export async function api(request, env, portal, path, body) {
     if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
     const target = await one(env, "SELECT * FROM users WHERE id=? AND role!='admin'", id);
     if (!target) fail(404, 'الحساب غير موجود.');
-    await env.DB.batch([statement(env, 'UPDATE users SET status=? WHERE id=?', body.status, id), statement(env, 'DELETE FROM sessions WHERE user_id=?', id), auditEntry(env, user.id, `user:${body.status}`, id)]);
+    const verification = parseVerification(target.verification);
+    if (body.status === 'active' && target.role === 'teachers' && verification.verification_status !== 'submitted') fail(409, 'طلب الأستاذ غير مكتمل أو لم يُرسل للمراجعة بعد.');
+    const nextVerification = body.status === 'active' && target.role === 'teachers' ? JSON.stringify({ ...verification, verification_status: 'approved', reviewed_at: Date.now(), reviewed_by: user.id }) : target.verification;
+    await env.DB.batch([statement(env, 'UPDATE users SET status=?,verification=? WHERE id=?', body.status, nextVerification, id), statement(env, 'DELETE FROM sessions WHERE user_id=?', id), auditEntry(env, user.id, `user:${body.status}`, id)]);
     return { ok: true };
   }
   if (path === 'audit' && user.role === 'admin' && !write) return { events: await all(env, 'SELECT a.*,u.name FROM audit a JOIN users u ON u.id=a.actor ORDER BY a.created DESC LIMIT 100') };

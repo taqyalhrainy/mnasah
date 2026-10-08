@@ -2,6 +2,10 @@
 
 This app needs a Node.js backend for `/api`. GitHub Pages can only host the static frontend, so deploy the full app to a Node host such as Render.
 
+## Google sign-in
+
+Create an OAuth 2.0 **Web application** client in Google Cloud, then add `https://mnasah.onrender.com` (and the local development origin when needed) to its authorized JavaScript origins. Set the same client ID in Render as both `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID`. The backend validates the Google credential and its audience; the frontend button stays disabled until these values are configured and a new build is deployed.
+
 Use these settings:
 
 ```text

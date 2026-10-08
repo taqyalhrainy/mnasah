@@ -8,8 +8,20 @@ export const users = sqliteTable('users', {
   subject: text('subject').notNull().default(''), bio: text('bio').notNull().default(''),
   academicLevel: text('academic_level').notNull().default(''), phone: text('phone').notNull().default(''),
   customPackages: text('custom_packages').notNull().default('[]'),
+  verification: text('verification').notNull().default('{}'),
+  authProvider: text('auth_provider').notNull().default('password'),
+  emailVerified: integer('email_verified').notNull().default(0),
   created: integer('created').notNull(),
 });
+export const verificationFiles = sqliteTable('verification_files', {
+  id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), name: text('name').notNull(), size: integer('size').notNull(),
+  contentType: text('content_type').notNull(), created: integer('created').notNull(),
+}, t => [index('verification_files_user_kind').on(t.userId, t.kind)]);
+export const verificationFileChunks = sqliteTable('verification_file_chunks', {
+  fileId: text('file_id').notNull().references(() => verificationFiles.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(), data: blob('data', { mode: 'buffer' }).notNull(),
+}, t => [primaryKey({ columns: [t.fileId, t.position] })]);
 export const sessions = sqliteTable('sessions', {
   token: text('token').primaryKey(), userId: text('user_id').notNull().references(() => users.id), expires: integer('expires').notNull(),
   developmentKey: text('development_key'),

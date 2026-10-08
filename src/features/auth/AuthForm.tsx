@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { ArrowLeft, Eye, EyeOff, GraduationCap, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { request, portalNames, type Portal, type User } from '../../services/platformApi';
 import { PreferenceControls, direction, t, usePreferences } from '../../i18n/preferences';
+import { RegistrationFlow } from './RegistrationFlow';
 
 export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: User) => void }) {
   usePreferences();
@@ -20,6 +21,11 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
       history.replaceState({}, '', location.pathname); onLogin(result.user);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
+  if (register && portal !== 'admin' && !setupToken) return <main className={`auth-page redesigned-auth registration-page portal-${portal}`} dir={direction()}>
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>Mansah<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
+    <div className="auth-main registration-main"><RegistrationFlow portal={portal} onLogin={onLogin} onCancel={() => { setRegister(false); setError(''); }} /></div>
+    <aside className="auth-visual" aria-label={t("مساحة تعلم")}><img src={`${base}images/learning-desk-v3.jpg`} alt={t("دفتر دراسة وقلم وسماعات على مكتب أصفر")} fetchPriority="high" /></aside>
+  </main>;
   return <main className={`auth-page redesigned-auth portal-${portal}`} dir={direction()}>
     <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>Mansah<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main">

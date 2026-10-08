@@ -16,11 +16,14 @@ export const direction = () => language === 'ar' ? 'rtl' : 'ltr';
 export const catalogText = (source: string) => source === 'حفظ' && language === 'en' ? messages['حفظ القرآن'] : t(source);
 export const searchText = (...values: string[]) => values.flatMap(value => [value, catalogText(value)]).join(' ');
 
-export function t(source: string | null | undefined, values: Record<string, string | number> = {}): string {
+export function t(source: string | null | undefined, values?: Record<string, string | number>): string;
+export function t(source: string, index: number, list: string[]): string;
+export function t(source: string | null | undefined, values: Record<string, string | number> | number = {}): string {
   if (!source) return '';
+  const replacements = typeof values === 'number' ? {} : values;
   const key = sourceKeys.get(source.trim()) || source.trim();
   const translated = language === 'en' ? messages[key] || key : key;
-  const result = translated.replace(/\{(\w+)\}/g, (token, name: string) => String(values[name] ?? token));
+  const result = translated.replace(/\{(\w+)\}/g, (token, name: string) => String(replacements[name] ?? token));
   return source.startsWith(' ') || source.endsWith(' ') ? source.slice(0, source.length - source.trimStart().length) + result + source.slice(source.trimEnd().length) : result;
 }
 function apply() {

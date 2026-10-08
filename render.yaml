@@ -20,3 +20,8 @@ services:
         generateValue: true
       - key: CLIENT_ORIGIN
         sync: false
+      # Use the same OAuth 2.0 Web Client ID in both variables.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
