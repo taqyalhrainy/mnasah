@@ -638,7 +638,8 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .schedule-row > div { display: flex; align-items: center; gap: 8px; align-self: center; color: #fff; }
 .schedule-row > div svg { color: #f8cf59; }
 .schedule-row label, .availability-publish-settings label { display: grid; gap: 6px; color: #aed4df; font-size: 12px; font-weight: 900; }
-.schedule-row input, .availability-publish-settings input, .availability-publish-settings select { min-height: 43px; padding: 0 11px; border: 1px solid #bfe8f437; border-radius: 11px; color: #fff; background: #0a405a; color-scheme: dark; }
+.schedule-row input, .schedule-row select, .availability-publish-settings input, .availability-publish-settings select { min-height: 43px; padding: 0 11px; border: 1px solid #bfe8f437; border-radius: 11px; color: #fff; background: #0a405a; color-scheme: dark; }
+.schedule-row select option:disabled { color: #7f8494; background: #171522; }
 .schedule-row > span { align-self: center; color: #71d9f3; direction: ltr; }
 .availability-publish-settings { display: grid; grid-template-columns: minmax(150px, .6fr) minmax(150px, .6fr) minmax(220px, 1fr); gap: 12px; margin-top: 14px; }
 .publish-summary { display: grid; align-content: center; gap: 3px; padding: 11px 14px; border: 1px solid #c5edf92b; border-radius: 14px; background: #062f4790; }
@@ -783,6 +784,7 @@ button.day-event { font: inherit; }
 .availability-inline-settings .availability-publish-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
 .availability-inline-settings .availability-publish { align-self: end; width: 100%; margin: 0; background: #7c3aed; }
 .availability-inline-settings .schedule-row input,
+.availability-inline-settings .schedule-row select,
 .availability-inline-settings .availability-publish-settings input,
 .availability-inline-settings .availability-publish-settings select { color: #fff !important; background: #21184c !important; color-scheme: dark !important; -webkit-text-fill-color: #fff; opacity: 1; }
 .availability-inline-settings input[type=time]::-webkit-datetime-edit,
@@ -831,8 +833,10 @@ button.day-event { font: inherit; }
 :root[data-theme=light] .schedule-row > div svg,
 :root[data-theme=light] .availability-selected-day svg { color: #6b541f; }
 :root[data-theme=light] .availability-inline-settings .schedule-row input,
+:root[data-theme=light] .availability-inline-settings .schedule-row select,
 :root[data-theme=light] .availability-inline-settings .availability-publish-settings input,
 :root[data-theme=light] .availability-inline-settings .availability-publish-settings select { color: #111827 !important; background: #fff !important; color-scheme: light !important; -webkit-text-fill-color: #111827; }
+:root[data-theme=light] .schedule-row select option:disabled { color: #a0a4ad; background: #eceef1; }
 :root[data-theme=light] .availability-inline-settings input[type=time]::-webkit-datetime-edit,
 :root[data-theme=light] .availability-inline-settings input[type=time]::-webkit-datetime-edit-fields-wrapper,
 :root[data-theme=light] .availability-inline-settings input[type=time]::-webkit-datetime-edit-hour-field,
@@ -882,6 +886,7 @@ button.day-event { font: inherit; }
   .availability-inline-settings .schedule-row { grid-column: 1; grid-template-columns: auto minmax(95px, 1fr) auto minmax(95px, 1fr); gap: 7px; padding: 8px; border-radius: 12px; }
   .availability-inline-settings .schedule-row > div { min-width: 105px; font-size: 12px; }
   .availability-inline-settings .schedule-row input,
+  .availability-inline-settings .schedule-row select,
   .availability-inline-settings .availability-publish-settings input,
   .availability-inline-settings .availability-publish-settings select { min-height: 36px; }
   .availability-inline-settings .availability-publish-settings { grid-column: 2; gap: 7px; }

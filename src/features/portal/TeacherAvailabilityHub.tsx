@@ -25,6 +25,16 @@ const atTime = (day: number, value: string) => { const [hours, minutes] = value.
 const monthStart = (value: number | Date) => { const result = new Date(value); result.setDate(1); result.setHours(0, 0, 0, 0); return result.getTime(); };
 const dateLabel = (value: number) => new Date(value).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
 const durationOptions = [30, 45, 60, 90, 120] as const;
+const timeOptions = Array.from({ length: 24 * 12 }, (_, index) => {
+  const minutes = index * 5;
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+});
+const availableTimeOptions = (current: string) => timeOptions.includes(current) ? timeOptions : [...timeOptions, current].sort((left, right) => clockMinutes(left) - clockMinutes(right));
+const timeLabel = (value: string) => {
+  const minutes = clockMinutes(value);
+  const date = new Date(2026, 0, 1, Math.floor(minutes / 60), minutes % 60);
+  return date.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+};
 
 export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome, onPublish, onDelete, onBookingDetails }: Props) {
   usePreferences();
@@ -113,7 +123,8 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
 }
 
 function ScheduleRow({ label, schedule, onChange }: { label: string; schedule: Schedule; onChange: (key: keyof Schedule, value: string) => void }) {
-  return <div className="schedule-row"><div><CalendarDays size={18} /><strong>{label}</strong></div><label>{t('من')}<input type="time" max="23:58" value={schedule.from} onChange={event => onChange('from', event.target.value)} /></label><span aria-hidden="true">→</span><label>{t('إلى')}<input type="time" min={addClockMinutes(schedule.from, 1)} value={schedule.to} onChange={event => onChange('to', event.target.value)} /></label></div>;
+  const fromMinutes = clockMinutes(schedule.from);
+  return <div className="schedule-row"><div><CalendarDays size={18} /><strong>{label}</strong></div><label>{t('من')}<select aria-label={t('من')} value={schedule.from} onChange={event => onChange('from', event.target.value)}>{availableTimeOptions(schedule.from).map(value => <option key={value} value={value}>{timeLabel(value)}</option>)}</select></label><span aria-hidden="true">→</span><label>{t('إلى')}<select aria-label={t('إلى')} value={schedule.to} onChange={event => onChange('to', event.target.value)}>{availableTimeOptions(schedule.to).map(value => <option key={value} value={value} disabled={clockMinutes(value) <= fromMinutes}>{timeLabel(value)}</option>)}</select></label></div>;
 }
 
 function MonthCalendar({ month, days, today, selected, slots, bookings, onMove, onDay }: { month: number; days: Array<number | null>; today: number; selected: number[]; slots: Slot[]; bookings: Booking[]; onMove: (direction: number) => void; onDay: (value: number) => void }) {
