@@ -151,6 +151,15 @@ try {
       assert.match(await page.locator('.availability-subject-trigger').innerText(), /كل المواد/);
       await page.locator('.availability-day-strip button').nth(1).click();
       await page.locator('.availability-inline-settings').waitFor();
+      const fromTime = page.locator('.schedule-row input[type="time"]').nth(0);
+      const toTime = page.locator('.schedule-row input[type="time"]').nth(1);
+      await fromTime.fill('23:00');
+      assert.equal(await toTime.inputValue(), '23:30', 'changing the start should move an earlier end time forward');
+      assert.equal(await toTime.getAttribute('min'), '23:01', 'the end input should expose the earliest valid time');
+      await toTime.fill('22:00');
+      assert.equal(await toTime.inputValue(), '23:30', 'the end time must never be earlier than the start time');
+      await fromTime.fill('19:00');
+      await toTime.fill('21:00');
       await checkLayout(page, 'teacher availability settings mobile');
       await page.screenshot({ path: '.private/redesign-teachers-availability-settings-mobile.png', fullPage: true });
       await page.setViewportSize({ width: 1440, height: 760 });
