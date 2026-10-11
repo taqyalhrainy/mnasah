@@ -17,7 +17,7 @@ const teacher = { id: 'teacher-ui', name: 'أحمد الخطيب', email: 'teach
 const student = { id: 'student-ui', name: 'سارة أحمد', email: 'student@example.test', role: 'students', status: 'active', subject: '', bio: '' };
 const owner = { id: 'owner-ui', name: 'مدير المنصّة', email: 'owner@example.test', role: 'admin', status: 'active', subject: '', bio: '' };
 const slots = [
-  { id: 'math-slot', teacher_id: teacher.id, teacher_name: teacher.name, teacher_subjects: teacher.subject, subject: 'رياضيات', minutes: 60, price: 1500, start: now + 3600000, available_until: now + 10800000, status: 'open', bio: '' },
+  { id: 'math-slot', teacher_id: teacher.id, teacher_name: teacher.name, teacher_subjects: teacher.subject, subject: 'كل المواد المختارة', subjects: ['رياضيات', 'فيزياء'], minutes: 30, price: 900, offerings: [{ minutes: 30, price: 900 }, { minutes: 90, price: 2200 }], start: now + 3600000, available_until: now + 10800000, status: 'open', bio: '' },
   { id: 'physics-slot', teacher_id: 'teacher-two', teacher_name: 'ليان الزعبي', teacher_subjects: 'فيزياء', subject: 'فيزياء', minutes: 45, price: 1200, start: now + 7200000, available_until: now + 14400000, status: 'open', bio: '' },
 ];
 const bookings = [
@@ -122,7 +122,14 @@ try {
       assert.equal(await page.locator('.student-flow .tutor-card').count(), 1);
       page.on('dialog', dialog => dialog.accept());
       await page.locator('.student-flow').getByRole('button', { name: 'احجز الآن' }).click();
-      assert.ok(mutations.some(item => item.path.endsWith('/students/slots/math-slot')));
+      const choiceDialog = page.getByRole('dialog');
+      await choiceDialog.waitFor();
+      await checkLayout(page, 'student booking choices mobile');
+      await page.screenshot({ path: '.private/student-booking-choices-mobile.png', fullPage: true });
+      assert.equal(await choiceDialog.getByText('أي مادة تريد أن تدرس؟', { exact: true }).count(), 0, 'the selected subject filter should skip the subject question');
+      await choiceDialog.getByText('90 دقيقة', { exact: true }).click();
+      await choiceDialog.getByRole('button', { name: 'تأكيد الحجز', exact: true }).click();
+      assert.ok(mutations.some(item => item.path.endsWith('/students/slots/math-slot') && item.body.subject === 'رياضيات' && item.body.minutes === 90));
       await page.locator('.nav-list').getByRole('button', { name: 'السجل', exact: true }).click();
       await page.locator('.history-tabs').getByRole('button', { name: 'المكتملة', exact: true }).click();
       assert.equal(await page.locator('.history-list article').count(), 1);

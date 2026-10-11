@@ -531,6 +531,10 @@ input[type=checkbox] { accent-color: var(--ink); }
   .auth-main { width: 350px; }
   .auth-visual > img { object-position: 58% center; }
 }
+@media (max-width: 800px) and (min-width: 768px) {
+  .redesigned-shell .nav-list { gap: 2px; }
+  .redesigned-shell .sidebar .nav-button { gap: 4px; padding-inline: 7px; font-size: 12px; }
+}
 @media (max-width: 767px) {
   .redesigned-shell .sidebar { position: fixed; z-index: 100; top: auto; bottom: 0; inset-inline: 0; height: auto; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); overflow: visible; border: 0; border-top: 1px solid var(--line); background: #fff; box-shadow: 0 -3px 15px #15151a05; }
   .redesigned-shell .sidebar .brand, .sidebar-footer { display: none; }

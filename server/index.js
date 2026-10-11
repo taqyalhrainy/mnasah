@@ -49,7 +49,7 @@ if (!MONGODB_URI) {
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && (!CLIENT_ORIGIN || CLIENT_ORIGIN.split(',').map(s => s.trim()).includes(origin))) {
+  if (origin && validChatOrigin(origin, req)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -108,6 +108,21 @@ function field(value, max = 200, min = 1) {
   if (typeof value !== 'string' || value.trim().length < min || value.trim().length > max) fail(400, 'تحقق من الحقول المطلوبة وطول النص.');
   return value.trim();
 }
+const allowedDurations = [30, 45, 60, 90, 120];
+function slotSubjects(body) {
+  const values = Array.isArray(body.subjects) ? body.subjects : [body.subject];
+  const subjects = [...new Set(values.map(value => field(value, 100)).filter(Boolean))];
+  if (!subjects.length || subjects.length > 20) fail(400, 'اختر مادة واحدة على الأقل.');
+  return subjects;
+}
+function slotOfferings(body) {
+  const values = Array.isArray(body.offerings) && body.offerings.length ? body.offerings : [{ minutes: body.minutes, price: body.price }];
+  const offerings = [...new Map(values.map(item => ({ minutes: Number(item?.minutes), price: Number(item?.price) })).map(item => [item.minutes, item])).values()].sort((left, right) => left.minutes - right.minutes);
+  if (!offerings.length || offerings.length > allowedDurations.length || offerings.some(item => !allowedDurations.includes(item.minutes) || !Number.isInteger(item.price) || item.price < 0 || item.price > 100000)) fail(400, 'تحقق من مدد الحصة وأسعارها.');
+  return offerings;
+}
+const storedSubjects = slot => Array.isArray(slot.subjects) && slot.subjects.length ? slot.subjects : [slot.subject].filter(Boolean);
+const storedOfferings = slot => Array.isArray(slot.offerings) && slot.offerings.length ? slot.offerings : [{ minutes: slot.minutes, price: slot.price }];
 const random = () => crypto.randomBytes(32).toString('hex');
 const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 function passwordHash(value, salt = random()) {
@@ -402,10 +417,16 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         return res.json({ slots: slots.filter(s => teacherMap.has(s.teacher_id)).map(s => ({ ...s, teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '' })) });
       }
       if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
-      const start = Number(body.start), minutes = Number(body.minutes), price = Number(body.price);
-      const until = Number(body.available_until || body.availableUntil || start + minutes * 60000);
-      if (!Number.isSafeInteger(start) || ![30, 45, 60, 90, 120].includes(minutes) || !Number.isInteger(price)) fail(400, 'تحقق من الموعد والمدة والسعر.');
-      await db.collection('slots').insertOne({ id: crypto.randomUUID(), teacher_id: user.id, start, minutes, price, subject: field(body.subject, 100), available_until: until, status: 'open', created: Date.now() });
+      const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
+      const defaultOffering = offerings[0], maxMinutes = Math.max(...offerings.map(item => item.minutes));
+      const suppliedUntil = Number(body.available_until || body.availableUntil || 0);
+      const hasAvailabilityWindow = Number.isSafeInteger(suppliedUntil) && suppliedUntil >= start + maxMinutes * 60000;
+      const until = hasAvailabilityWindow ? suppliedUntil : start + maxMinutes * 60000;
+      const now = Date.now();
+      if (!Number.isSafeInteger(start) || start > now + 31536000000 || (!hasAvailabilityWindow && start <= now) || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
+      const overlaps = await db.collection('slots').findOne({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until }, $expr: { $gt: [{ $ifNull: ['$available_until', { $add: ['$start', { $multiply: ['$minutes', 60000] }] }] }, start] } });
+      if (overlaps) fail(409, 'الموعد يتعارض مع موعد آخر.');
+      await db.collection('slots').insertOne({ id: crypto.randomUUID(), teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() });
       return res.json({ ok: true });
     }
     if (path.startsWith('slots/') && write) {
@@ -417,9 +438,18 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (user.role !== 'students') fail(403, 'الحجز متاح للطلاب فقط.');
       const slot = await db.collection('slots').findOne({ id, status: 'open', available_until: { $gt: Date.now() } });
       if (!slot) fail(409, 'الموعد لم يعد متاحاً.');
+      const subjects = storedSubjects(slot), offerings = storedOfferings(slot);
+      const legacyAllSubjects = !Array.isArray(slot.subjects) && slot.subject === 'كل المواد المختارة';
+      const requestedSubject = typeof body.subject === 'string' ? field(body.subject, 100) : '';
+      const selectedSubject = requestedSubject && (subjects.includes(requestedSubject) || legacyAllSubjects) ? requestedSubject : subjects.length === 1 && !legacyAllSubjects ? subjects[0] : '';
+      const selectedOffering = offerings.find(item => item.minutes === Number(body.minutes)) || (offerings.length === 1 ? offerings[0] : null);
+      if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
+      if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
       const bookingId = crypto.randomUUID();
-      await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, status: 'confirmed', room: random(), paid: 1, payment_ref: `sandbox-${random().slice(0, 10)}`, notes: '', resource: '', created: Date.now() });
-      await db.collection('slots').updateOne({ id }, { $set: { status: 'booked' } });
+      const reserved = await db.collection('slots').updateOne({ id, status: 'open' }, { $set: { status: 'booked', subject: selectedSubject, minutes: selectedOffering.minutes, price: selectedOffering.price } });
+      if (!reserved.modifiedCount) fail(409, 'الموعد لم يعد متاحاً.');
+      try { await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, status: 'confirmed', room: random(), paid: 1, payment_ref: `sandbox-${random().slice(0, 10)}`, notes: '', resource: '', created: Date.now() }); }
+      catch (error) { await db.collection('slots').updateOne({ id, status: 'booked' }, { $set: { status: 'open', subject: slot.subject, minutes: slot.minutes, price: slot.price } }); throw error; }
       await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
       io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
       return res.json({ ok: true, id: bookingId });

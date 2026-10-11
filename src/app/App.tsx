@@ -4,7 +4,7 @@ import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { RegistrationFlow } from '../features/auth/RegistrationFlow';
 import { PortalWorkspace } from '../features/portal/PortalWorkspace';
-import { request, portalNames, type Portal, type User } from '../services/platformApi';
+import { apiMediaUrl, request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
 import { useDirectChat } from '../features/chat/useDirectChat';
 import { PreferenceControls, direction, usePreferences, t, locale } from '../i18n/preferences';
@@ -123,7 +123,7 @@ function PortalApp() {
       { id: 'payments', label: t("المستحقات"), icon: Wallet },
       { id: 'catalog', label: t("التصنيفات والمواد"), icon: ClipboardList },
       { id: 'profile', label: t("حسابي"), icon: Settings }];
-  const accountAvatar = user.avatar_url && user.status === 'active' ? <span className="account-avatar has-photo"><img src={user.avatar_url} alt="" /></span> : <span className="account-avatar">{user.name.trim().charAt(0)}</span>;
+  const accountAvatar = user.avatar_url && user.status === 'active' ? <span className="account-avatar has-photo"><img src={apiMediaUrl(user.avatar_url)} alt="" /></span> : <span className="account-avatar">{user.name.trim().charAt(0)}</span>;
   const learningAccountMenu = (className: string) => <details className={`account-menu ${className}`}><summary title={t('خيارات الحساب')}>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><div className="account-preferences"><PreferenceControls /></div><button className="account-reminders" aria-pressed={lessonReminders.enabled} onClick={() => toggleLessonReminders.current()}>{lessonReminders.enabled ? <Bell size={16} /> : <BellOff size={16} />}<span><strong>{t("تنبيهات الحصص")}</strong><small>{lessonReminders.enabled ? t("مفعّلة") : t("غير مفعّلة")}</small></span></button>{lessonReminders.hint && <small className="account-reminder-hint" role="status">{t(lessonReminders.hint)}</small>}<a href={assetUrl('downloads/mansah.apk')}><Download size={16} />{t("تطبيق أندرويد")}</a><button className="account-logout" onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>;
   return <main className={`app-shell business-shell redesigned-shell portal-${portal} ${portal !== 'admin' ? 'learning-shell' : ''}`} dir={direction()}>
     <a className="skip-link" href="#main-content">{t("انتقل إلى المحتوى")}</a>

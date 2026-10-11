@@ -10,6 +10,21 @@ import { parseVerification } from '../shared/verification.js';
 import { workerVerificationFile } from './verification-files.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
+const allowedDurations = [30, 45, 60, 90, 120];
+const parseList = (value, fallback) => { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) && parsed.length ? parsed : fallback; } catch { return fallback; } };
+const normalizeSlot = slot => slot ? ({ ...slot, legacy_all_subjects: (!slot.subjects || slot.subjects === '[]') && slot.subject === 'كل المواد المختارة', subjects: parseList(slot.subjects, [slot.subject].filter(Boolean)), offerings: parseList(slot.offerings, [{ minutes: slot.minutes, price: slot.price }]) }) : slot;
+function slotSubjects(body) {
+  const values = Array.isArray(body.subjects) ? body.subjects : [body.subject];
+  const subjects = [...new Set(values.map(value => field(value, 100)).filter(Boolean))];
+  if (!subjects.length || subjects.length > 20) fail(400, 'اختر مادة واحدة على الأقل.');
+  return subjects;
+}
+function slotOfferings(body) {
+  const values = Array.isArray(body.offerings) && body.offerings.length ? body.offerings : [{ minutes: body.minutes, price: body.price }];
+  const offerings = [...new Map(values.map(item => ({ minutes: Number(item?.minutes), price: Number(item?.price) })).map(item => [item.minutes, item])).values()].sort((left, right) => left.minutes - right.minutes);
+  if (!offerings.length || offerings.length > allowedDurations.length || offerings.some(item => !allowedDurations.includes(item.minutes) || !Number.isInteger(item.price) || item.price < 0 || item.price > 100000)) fail(400, 'تحقق من مدد الحصة وأسعارها.');
+  return offerings;
+}
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
 async function walletBalance(env, userId) {
   const row = await one(env, 'SELECT COALESCE(SUM(amount),0) AS balance FROM wallet_transactions WHERE user_id=?', userId);
@@ -142,18 +157,20 @@ export async function api(request, env, portal, path, body) {
   }
   if (path === 'slots') {
     if (!write) {
-      if (user.role === 'teachers') return { slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
-      return { slots: await all(env, `SELECT s.*,u.name AS teacher_name,u.bio,u.subject AS teacher_subjects FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? ORDER BY s.start LIMIT 500`, Date.now()) };
+      if (user.role === 'teachers') return { slots: (await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id)).map(normalizeSlot) };
+      return { slots: (await all(env, `SELECT s.*,u.name AS teacher_name,u.bio,u.subject AS teacher_subjects FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? ORDER BY s.start LIMIT 500`, Date.now())).map(normalizeSlot) };
     }
     if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
-    const start = Number(body.start), minutes = Number(body.minutes), price = Number(body.price), availableUntil = Number(body.available_until || body.availableUntil || 0);
-    const hasAvailabilityWindow = Number.isSafeInteger(availableUntil) && availableUntil >= start + minutes * 60000;
-    const until = hasAvailabilityWindow ? availableUntil : start + minutes * 60000;
+    const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
+    const defaultOffering = offerings[0], maxMinutes = Math.max(...offerings.map(item => item.minutes));
+    const availableUntil = Number(body.available_until || body.availableUntil || 0);
+    const hasAvailabilityWindow = Number.isSafeInteger(availableUntil) && availableUntil >= start + maxMinutes * 60000;
+    const until = hasAvailabilityWindow ? availableUntil : start + maxMinutes * 60000;
     const now = Date.now();
-    if (!Number.isSafeInteger(start) || start > now + 31536000000 || ![30, 45, 60, 90, 120].includes(minutes) || !Number.isInteger(price) || price < 0 || price > 100000) fail(400, 'تحقق من الموعد والمدة والسعر.');
+    if (!Number.isSafeInteger(start) || start > now + 31536000000) fail(400, 'تحقق من الموعد والفترة المتاحة.');
     if (!hasAvailabilityWindow && start <= now) fail(400, 'اختر وقتاً مخصصاً بعد الوقت الحالي.');
     if (until <= now) fail(400, 'انتهت فترة التوفر. اختر وقت نهاية بعد الوقت الحالي.');
-    const result = await run(env, `INSERT INTO slots (id,teacher_id,start,minutes,price,subject,available_until) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM slots WHERE teacher_id=? AND status!='cancelled' AND start<? AND COALESCE(NULLIF(available_until,0),start+minutes*60000)>?)`, crypto.randomUUID(), user.id, start, minutes, price, field(body.subject, 100), until, user.id, until, start);
+    const result = await run(env, `INSERT INTO slots (id,teacher_id,start,minutes,price,subject,subjects,offerings,available_until) SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM slots WHERE teacher_id=? AND status!='cancelled' AND start<? AND COALESCE(NULLIF(available_until,0),start+minutes*60000)>?)`, crypto.randomUUID(), user.id, start, defaultOffering.minutes, defaultOffering.price, subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', JSON.stringify(subjects), JSON.stringify(offerings), until, user.id, until, start);
     if (!result.meta.changes) fail(409, 'الموعد يتعارض مع موعد آخر.');
     return { ok: true };
   }
@@ -166,16 +183,22 @@ export async function api(request, env, portal, path, body) {
     }
     if (user.role !== 'students') fail(403, 'الحجز متاح للطلاب فقط.');
     const bookingId = crypto.randomUUID();
-    const slot = await one(env, 'SELECT price FROM slots WHERE id=?', id);
+    const slot = normalizeSlot(await one(env, 'SELECT * FROM slots WHERE id=?', id));
     if (!slot) fail(404, 'الموعد غير موجود.');
+    const legacyAllSubjects = slot.legacy_all_subjects;
+    const requestedSubject = typeof body.subject === 'string' ? field(body.subject, 100) : '';
+    const selectedSubject = requestedSubject && (slot.subjects.includes(requestedSubject) || legacyAllSubjects) ? requestedSubject : slot.subjects.length === 1 && !legacyAllSubjects ? slot.subjects[0] : '';
+    const selectedOffering = slot.offerings.find(item => item.minutes === Number(body.minutes)) || (slot.offerings.length === 1 ? slot.offerings[0] : null);
+    if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
+    if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
     const method = body.method === 'wallet' ? 'wallet' : 'sandbox';
-    if (method === 'wallet' && await walletBalance(env, user.id) < slot.price) fail(402, 'رصيد المحفظة غير كافٍ.');
+    if (method === 'wallet' && await walletBalance(env, user.id) < selectedOffering.price) fail(402, 'رصيد المحفظة غير كافٍ.');
     const statements = [
-      statement(env, `INSERT INTO bookings (id,slot_id,student_id,status,room,created) SELECT ?,s.id,?,'confirmed',?,? FROM slots s JOIN users t ON t.id=s.teacher_id WHERE s.id=? AND s.status='open' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? AND t.status='active' AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE b.student_id=? AND b.status='confirmed' AND x.start<s.start+s.minutes*60000 AND x.start+x.minutes*60000>s.start)`, bookingId, user.id, random(), Date.now(), id, Date.now(), user.id),
-      statement(env, "UPDATE slots SET status='booked' WHERE id=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)", id, bookingId),
+      statement(env, `INSERT INTO bookings (id,slot_id,student_id,status,room,created) SELECT ?,s.id,?,'confirmed',?,? FROM slots s JOIN users t ON t.id=s.teacher_id WHERE s.id=? AND s.status='open' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? AND t.status='active' AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE b.student_id=? AND b.status='confirmed' AND x.start<s.start+?*60000 AND x.start+x.minutes*60000>s.start)`, bookingId, user.id, random(), Date.now(), id, Date.now(), user.id, selectedOffering.minutes),
+      statement(env, "UPDATE slots SET status='booked',subject=?,minutes=?,price=? WHERE id=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)", selectedSubject, selectedOffering.minutes, selectedOffering.price, id, bookingId),
       statement(env, 'UPDATE bookings SET paid=1,payment_ref=? WHERE id=?', method === 'wallet' ? 'wallet' : `sandbox-${random().slice(0, 10)}`, bookingId),
     ];
-    if (method === 'wallet') statements.push(statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_payment',?,?,? WHERE EXISTS (SELECT 1 FROM bookings WHERE id=?)", crypto.randomUUID(), user.id, -slot.price, bookingId, Date.now(), bookingId));
+    if (method === 'wallet') statements.push(statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_payment',?,?,? WHERE EXISTS (SELECT 1 FROM bookings WHERE id=?)", crypto.randomUUID(), user.id, -selectedOffering.price, bookingId, Date.now(), bookingId));
     const results = await env.DB.batch(statements);
     if (!results[0].meta.changes) fail(409, 'الموعد لم يعد متاحاً أو يتعارض مع حجز آخر.');
     const teacher = await one(env, 'SELECT teacher_id FROM slots WHERE id=?', id);

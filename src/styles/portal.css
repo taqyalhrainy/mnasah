@@ -922,6 +922,60 @@ button.day-event { font: inherit; }
 @media(max-width:1000px) { .business-shell { grid-template-columns: 215px minmax(0,1fr); } .business-shell .workspace { padding: 24px; } .booking-row { grid-template-columns: minmax(0,1fr) auto; } .booking-row .row-actions { grid-column: 1/-1; } }
 @media(max-width:760px) { .business-shell { display: block; } .business-shell .sidebar { gap: 20px; padding: 18px; } .business-shell .nav-list { display: flex; flex-wrap: wrap; gap: 6px; } .business-shell .nav-button { width: auto; } .sidebar-footer { display: flex; flex-wrap: wrap; gap: 12px; } .business-shell .workspace { padding: 22px 16px; } .business-shell .topbar { align-items: start; gap: 12px; } .business-shell h1 { font-size: 22px; } .account-name { font-size: 14px; max-width: 120px; } .metric-band { gap: 12px; } .metric-band strong { font-size: 21px; } .profile-layout, .slot-form { grid-template-columns: 1fr; gap: 20px; } .user-row { grid-template-columns: minmax(0,1fr); gap: 12px; } .detail-dialog { padding: 18px; } .booking-row { gap: 12px; } .auth-page { padding-top: 32px; } .list-toolbar select { flex: 1; } }
 
+.availability-inline-settings .availability-duration-options { grid-column: 1 / -1; min-width: 0; margin: 0; padding: 12px; border: 1px solid #bda9ff3d; border-radius: 14px; }
+.availability-duration-options legend { padding-inline: 7px; color: #fff; font-size: 13px; font-weight: 900; }
+.availability-duration-options > p { margin: 0 0 10px; color: #aed4df; font-size: 11px; }
+.availability-duration-options > div { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.availability-duration-options > div > label { display: grid; gap: 8px; min-width: 0; padding: 10px; border: 1px solid #bfe8f437; border-radius: 11px; background: #11153670; cursor: pointer; }
+.availability-duration-options > div > label.selected { border-color: #a78bfa; background: #372565; }
+.duration-check, .duration-price { display: flex; align-items: center; gap: 7px; }
+.duration-check input { position: absolute; opacity: 0; pointer-events: none; }
+.duration-check i { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid #bfe8f45c; border-radius: 5px; color: transparent; font-style: normal; }
+.selected .duration-check i { color: #171225; border-color: #f2cf52; background: #f2cf52; }
+.duration-check strong { color: #fff; font-size: 12px; white-space: nowrap; }
+.duration-price input { width: 100%; min-width: 0; min-height: 36px; padding: 0 8px; border: 1px solid #bfe8f437; border-radius: 8px; color: #fff; background: #21184c; }
+.duration-price input:disabled { opacity: .4; }
+.duration-price small { color: #aed4df; white-space: nowrap; }
+
+.booking-choice-dialog { width: min(92vw, 650px); max-height: min(88vh, 760px); padding: 0; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); box-shadow: 0 24px 80px #0005; overflow: auto; }
+.booking-choice-dialog::backdrop { background: #111827a6; backdrop-filter: blur(4px); }
+.booking-choice-dialog > header, .booking-choice-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px; }
+.booking-choice-dialog > header { border-bottom: 1px solid var(--line); }
+.booking-choice-dialog header span, .booking-choice-dialog header p, .booking-choice-dialog footer small { color: var(--muted); }
+.booking-choice-dialog header h2, .booking-choice-dialog header p { margin: 3px 0 0; }
+.booking-choice-dialog fieldset { margin: 0; padding: 20px 22px; border: 0; border-bottom: 1px solid var(--line); }
+.booking-choice-dialog legend { padding: 0; font-size: 15px; font-weight: 800; }
+.booking-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 9px; margin-top: 12px; }
+.booking-choice-grid label { min-width: 0; cursor: pointer; }
+.booking-choice-grid input { position: absolute; opacity: 0; }
+.booking-choice-grid label > span { display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.booking-choice-grid label.selected > span { border-color: #e4b91d; box-shadow: inset 0 0 0 1px #e4b91d; background: #fff6c9; color: #171717; }
+.booking-choice-grid.durations label > span { display: grid; grid-template-columns: auto 1fr; }
+.booking-choice-grid.durations small { grid-column: 2; color: var(--muted); }
+.booking-choice-dialog > footer { background: var(--surface-soft); }
+.booking-choice-dialog > footer > div { display: grid; gap: 2px; }
+.booking-choice-dialog > footer strong { font-size: 22px; }
+
+:root[data-theme=light] .availability-duration-options legend, :root[data-theme=light] .duration-check strong { color: #231d12; }
+:root[data-theme=light] .availability-duration-options > p, :root[data-theme=light] .duration-price small { color: #6b5b36; }
+:root[data-theme=light] .availability-duration-options > div > label { border-color: #d7bd67; background: #fff9dd; }
+:root[data-theme=light] .availability-duration-options > div > label.selected { border-color: #60417a; background: #f2e7ff; }
+:root[data-theme=light] .duration-price input { color: #111827; border-color: #d6c68d; background: #fff; }
+:root[data-theme=dark] .booking-choice-grid label.selected > span { border-color: #f2cf52; background: #493b18; color: #fff; }
+
+@media(min-width:1100px) {
+  .availability-inline-settings { grid-template-columns: minmax(0, 1fr) minmax(145px, .25fr); }
+  .availability-inline-settings .schedule-row { grid-column: 1; }
+  .availability-inline-settings .availability-duration-options { grid-column: 1 / -1; }
+  .availability-inline-settings .availability-publish { grid-column: 2; grid-row: 1; }
+}
+@media(max-width:720px) {
+  .availability-duration-options > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .booking-choice-dialog > header, .booking-choice-dialog > footer, .booking-choice-dialog fieldset { padding: 16px; }
+  .booking-choice-dialog > footer { align-items: stretch; flex-direction: column; }
+  .booking-choice-dialog > footer .primary-button { width: 100%; }
+}
+
 @media(max-width:760px) {
   .learning-shell .sidebar {
     position: fixed;

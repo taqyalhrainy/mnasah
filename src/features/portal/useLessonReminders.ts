@@ -85,7 +85,7 @@ export function useLessonReminders(portal: Portal, userId: string, revision: num
         if ('Notification' in window && Notification.permission === 'granted' && 'serviceWorker' in navigator) {
           try {
             const registration = await navigator.serviceWorker.getRegistration();
-            if (registration && active.current) await registration.showNotification(title, { body, icon: '/icon.svg', tag: `mansah-${noticeKey}`, data: { url: `/${portal}?lesson=${encodeURIComponent(lesson.id)}` } });
+            if (registration && active.current) await registration.showNotification(title, { body, icon: `${import.meta.env.BASE_URL}icon.svg`, tag: `mansah-${noticeKey}`, data: { url: `${portal}?lesson=${encodeURIComponent(lesson.id)}` } });
           } catch { if (active.current) setHint(t("تعذر عرض إشعار الجهاز؛ تنبيه الحصة ظاهر داخل الموقع.")); }
         }
       };

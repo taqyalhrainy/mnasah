@@ -1,7 +1,7 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { BookOpen, CalendarPlus, Check, ChevronLeft, CreditCard, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2 } from 'lucide-react';
-import { request, date, money, statusNames, type Booking, type Slot, type Portal, type User, type Message, type CustomPackage } from '../../services/platformApi';
+import { request, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
@@ -27,6 +27,13 @@ const normalizedSearch = (value: string) => value.normalize('NFKD').toLocaleLowe
 const searchKeys = (value: string) => { const normalized = normalizedSearch(value).replaceAll(' ', ''); return [normalized, normalized.replace(/[اوي]/g, '')].filter(key => key.length > 1); };
 const fuzzyMatch = (left: string, right: string) => searchKeys(left).some(a => searchKeys(right).some(b => a.includes(b) || b.includes(a)));
 const teachesSubject = (list: string, subject: string) => list.split(' | ').some(item => fuzzyMatch(item, subject));
+const legacyTeacherSubjects = (value = '') => [...new Set(value.split(' | ').map(entry => { const parts = entry.split(' › ').map(item => item.trim()); return parts.length > 1 ? parts[1] : entry.trim(); }).filter(Boolean))];
+const slotSubjects = (slot: Slot) => slot.subjects?.filter(Boolean).length
+  ? [...new Set(slot.subjects.filter(Boolean))]
+  : slot.subject === 'كل المواد المختارة' && slot.teacher_subjects ? legacyTeacherSubjects(slot.teacher_subjects) : [slot.subject].filter(Boolean);
+const slotOfferings = (slot: Slot): SlotOffering[] => slot.offerings?.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).length
+  ? [...new Map(slot.offerings.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).map(item => [item.minutes, item])).values()].sort((left, right) => left.minutes - right.minutes)
+  : [{ minutes: slot.minutes, price: slot.price }];
 type TeachingChoice = { categoryId: string; categoryName: string; subject: string; levels: string[] };
 const teachingChoiceKey = (categoryId: string, subject: string) => `${categoryId}\u0000${subject}`;
 const uniqueTeachingChoices = (choices: TeachingChoice[]) => [...new Map(choices.map(choice => [teachingChoiceKey(choice.categoryId, choice.subject), choice])).values()];
@@ -82,6 +89,9 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [buildingCustomPackage, setBuildingCustomPackage] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [bookingSlot, setBookingSlot] = useState<Slot | null>(null);
+  const [bookingSubject, setBookingSubject] = useState('');
+  const [bookingMinutes, setBookingMinutes] = useState(0);
   const [room, setRoom] = useState<Room | null>(null);
   const [callCompact, setCallCompact] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -208,7 +218,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     }, t("الغرفة جاهزة."));
   }
   const cancel = (b: Booking) => { if (window.confirm(t("إلغاء حصة {v0} بتاريخ {v1}؟", { v0: catalogText(b.subject), v1: date(b.start) }))) void act(() => post(`bookings/${b.id}/cancel`), t("تم إلغاء الحصة.")); };
-  const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && matches(searchText(s.subject, s.teacher_name || '', s.teacher_subjects || '')));
+  const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && matches(searchText(slotSubjects(s).join(' '), s.teacher_name || '', s.teacher_subjects || '')));
   const teacherMap = new Map<string, Booking>();
   bookings.forEach(b => { if (!teacherMap.has(b.teacher_id)) teacherMap.set(b.teacher_id, b); });
   const myTutors = [...teacherMap.values()];
@@ -271,7 +281,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   }
   const subjectSlots = openSlots.filter(s => {
     if (!studentSubject) return true;
-    const slotMatchesSubject = s.subject === 'كل المواد المختارة' || fuzzyMatch(s.subject, studentSubject);
+    const availableSubjects = slotSubjects(s);
+    const slotMatchesSubject = availableSubjects.some(subject => subject === 'كل المواد المختارة' || fuzzyMatch(subject, studentSubject));
     const choices = parseTeachingChoices(s.teacher_subjects || '', catalog);
     if (choices.length) {
       const matching = choices.filter(choice => (!activeCategory || choice.categoryId === activeCategory.id) && fuzzyMatch(choice.subject, studentSubject));
@@ -281,12 +292,23 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return fuzzyMatch(specialties, studentSubject) || (s.subject === 'كل المواد المختارة' && teachesSubject(s.teacher_subjects || '', studentSubject));
   });
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label={t("بحث")} placeholder={t("ابحث عن مادة أو أستاذ")} value={query} onChange={e => setQuery(e.target.value)} /></label>;
-  const bookSlot = (s: Slot) => { if (window.confirm(t("تأكيد حجز الحصة بقيمة {v0}؟", { v0: money(s.price) }))) void act(() => post(`slots/${s.id}`), t("تم تأكيد الحجز. ستجده في السجل.")); };
+  async function completeBooking(slot: Slot, subject: string, offering: SlotOffering) {
+    if (!window.confirm(t("تأكيد حجز حصة {v0} لمدة {v1} دقيقة بقيمة {v2}؟", { v0: catalogText(subject), v1: offering.minutes, v2: money(offering.price) }))) return;
+    if (await act(() => post(`slots/${slot.id}`, { subject, minutes: offering.minutes }), t("تم تأكيد الحجز. ستجده في السجل."))) setBookingSlot(null);
+  }
+  const bookSlot = (slot: Slot) => {
+    const availableSubjects = slotSubjects(slot);
+    const offerings = slotOfferings(slot);
+    const filteredSubject = studentSubject && availableSubjects.find(subject => fuzzyMatch(subject, studentSubject));
+    const subject = filteredSubject || (availableSubjects.length === 1 ? availableSubjects[0] : '');
+    if (subject && offerings.length === 1) { void completeBooking(slot, subject, offerings[0]); return; }
+    setBookingSlot(slot); setBookingSubject(subject); setBookingMinutes(offerings.length === 1 ? offerings[0].minutes : 0);
+  };
   async function publishAvailability(drafts: AvailabilityDraft[]) {
     setBusy(true); setError(''); setSuccess('');
     try {
-      for (const draft of drafts) await post('slots', { subject: draft.subject, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price });
-      setSlots(current => [...drafts.map(draft => ({ id: crypto.randomUUID?.() || `slot-${Date.now()}-${draft.start}`, teacher_id: user.id, subject: draft.subject, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, status: 'open' })), ...current]);
+      for (const draft of drafts) await post('slots', { subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, offerings: draft.offerings });
+      setSlots(current => [...drafts.map(draft => ({ id: crypto.randomUUID?.() || `slot-${Date.now()}-${draft.start}`, teacher_id: user.id, subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, offerings: draft.offerings, available_until: draft.availableUntil, price: draft.price, status: 'open' })), ...current]);
       setSuccess(t('تم نشر مواعيدك وإضافتها إلى التقويم.'));
       return true;
     } catch (cause) {
@@ -343,9 +365,21 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       }}
       onLeave={() => { setRoom(null); setCallCompact(false); refresh(); }}
     /></Suspense></div>;
+  const bookingDialog = bookingSlot && (() => {
+    const availableSubjects = slotSubjects(bookingSlot);
+    const offerings = slotOfferings(bookingSlot);
+    const selectedOffering = offerings.find(item => item.minutes === bookingMinutes);
+    const subjectAlreadyFiltered = Boolean(studentSubject && availableSubjects.some(subject => fuzzyMatch(subject, studentSubject)));
+    return <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setBookingSlot(null)} className="booking-choice-dialog" aria-labelledby="booking-choice-title">
+      <header><div><span>{t('أكمل اختيار حصتك')}</span><h2 id="booking-choice-title">{bookingSlot.teacher_name}</h2><p>{date(bookingSlot.start)}</p></div><button className="icon-button" type="button" aria-label={t('إغلاق')} onClick={() => setBookingSlot(null)}><X size={20} /></button></header>
+      {!subjectAlreadyFiltered && availableSubjects.length > 1 && <fieldset><legend>{t('أي مادة تريد أن تدرس؟')}</legend><div className="booking-choice-grid subjects">{availableSubjects.map(subject => <label className={bookingSubject === subject ? 'selected' : ''} key={subject}><input type="radio" name="booking-subject" checked={bookingSubject === subject} onChange={() => setBookingSubject(subject)} /><span><BookOpen size={18} />{catalogText(subject)}</span></label>)}</div></fieldset>}
+      <fieldset><legend>{offerings.length > 1 ? t('اختر مدة الحصة التي تناسبك') : t('مدة الحصة')}</legend><div className="booking-choice-grid durations">{offerings.map(offering => <label className={bookingMinutes === offering.minutes ? 'selected' : ''} key={offering.minutes}><input type="radio" name="booking-duration" checked={bookingMinutes === offering.minutes} onChange={() => setBookingMinutes(offering.minutes)} /><span><Clock3 size={18} /><strong>{offering.minutes} {t('دقيقة')}</strong><small>{money(offering.price)}</small></span></label>)}</div></fieldset>
+      <footer><div><small>{t('الإجمالي')}</small><strong>{selectedOffering ? money(selectedOffering.price) : '—'}</strong></div><button className="primary-button" type="button" disabled={busy || !bookingSubject || !selectedOffering} onClick={() => selectedOffering && void completeBooking(bookingSlot, bookingSubject, selectedOffering)}><CalendarPlus size={18} />{t('تأكيد الحجز')}</button></footer>
+    </dialog>;
+  })();
   if (view === 'messages') return <>{callLayer}</>;
   if ((portal === 'admin' && view === 'payments') || (portal === 'teachers' && view === 'earnings')) return <>{callLayer}<PaymentsPanel portal={portal === 'admin' ? 'admin' : 'teachers'} /></>;
-  if (portal === 'students') return <>{callLayer}{lessonDetails}<div className="portal-content student-experience">
+  if (portal === 'students') return <>{callLayer}{lessonDetails}{bookingDialog}<div className="portal-content student-experience">
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />{t("فتح الغرف")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
@@ -463,8 +497,8 @@ function TutorList({ slots, busy, bookSlot, compact = false }: { slots: Slot[]; 
   if (!slots.length) return <Empty text="لا توجد مواعيد مناسبة حالياً." />;
   return <div className={compact ? 'tutor-strip' : 'tutor-market-list'}>{slots.map(slot => <article className="tutor-card" key={slot.id}>
     <div className="tutor-photo">{slot.teacher_name?.slice(0, 1) || 'أ'}</div>
-    <div className="tutor-info"><div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><p>{catalogText(slot.subject)}</p><small><Clock3 size={14} />{slot.minutes}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)}</time></div>
-    <div className="tutor-actions"><b>{money(slot.price)}<small>{t("للحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
+    <div className="tutor-info"><div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{slotOfferings(slot).map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)}</time></div>
+    <div className="tutor-actions"><b>{money(Math.min(...slotOfferings(slot).map(item => item.price)))}<small>{slotOfferings(slot).length > 1 ? t("ابتداءً من") : t("للحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
   </article>)}</div>;
 }
 

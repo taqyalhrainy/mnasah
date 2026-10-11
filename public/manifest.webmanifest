@@ -2,15 +2,15 @@
   "name": "Mansah",
   "short_name": "Mansah",
   "description": "منصة تعليم خصوصي بمكالمات فيديو مباشرة.",
-  "start_url": "/video",
-  "scope": "/",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "orientation": "any",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
