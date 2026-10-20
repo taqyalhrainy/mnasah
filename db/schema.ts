@@ -38,6 +38,22 @@ export const bookings = sqliteTable('bookings', {
   room: text('room').notNull(), paid: integer('paid').notNull().default(0), paymentRef: text('payment_ref').notNull().default(''),
   notes: text('notes').notNull().default(''), resource: text('resource').notNull().default(''), created: integer('created').notNull(),
 });
+export const walletTransactions = sqliteTable('wallet_transactions', {
+  id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => users.id), type: text('type').notNull(),
+  amount: integer('amount').notNull(), reference: text('reference').notNull().default(''), created: integer('created').notNull(),
+}, t => [uniqueIndex('wallet_transactions_reference_unique').on(t.reference)]);
+export const walletAccounts = sqliteTable('wallet_accounts', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }), balance: integer('balance').notNull().default(0), updated: integer('updated').notNull(),
+});
+export const walletTopups = sqliteTable('wallet_topups', {
+  id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }), amount: integer('amount').notNull(), status: text('status').notNull().default('pending'),
+  transferReference: text('transfer_reference').notNull().default(''), proofName: text('proof_name').notNull(), proofSize: integer('proof_size').notNull(), proofType: text('proof_type').notNull(), proofHash: text('proof_hash').notNull().unique(),
+  created: integer('created').notNull(), reviewedAt: integer('reviewed_at').notNull().default(0), reviewedBy: text('reviewed_by').notNull().default(''), rejectionReason: text('rejection_reason').notNull().default(''),
+}, t => [index('wallet_topups_status_created').on(t.status, t.created), index('wallet_topups_user_created').on(t.userId, t.created)]);
+export const walletTopupChunks = sqliteTable('wallet_topup_chunks', {
+  topupId: text('topup_id').notNull().references(() => walletTopups.id, { onDelete: 'cascade' }), position: integer('position').notNull(), data: blob('data', { mode: 'buffer' }).notNull(),
+}, t => [primaryKey({ columns: [t.topupId, t.position] })]);
+export const platformSettings = sqliteTable('platform_settings', { key: text('key').primaryKey(), value: text('value').notNull() });
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(), bookingId: text('booking_id').notNull().references(() => bookings.id),
   authorId: text('author_id').notNull().references(() => users.id), body: text('body').notNull(), created: integer('created').notNull(),

@@ -42,6 +42,11 @@ test('authorization and the full reservation lifecycle', async () => {
     const request = new Request(`https://mansah.test/api/teachers/verification/files?${query}`, { method: 'POST', headers: { cookie: clients[who] || '', origin: 'https://mansah.test', 'content-type': 'application/octet-stream' }, body: bytes });
     const response = await worker.fetch(request, env); const body = await response.json(); assert.equal(response.status, expected, JSON.stringify(body)); return body;
   }
+  async function uploadTopup(who, amount, reference, bytes, expected = 200) {
+    const query = new URLSearchParams({ amount: String(amount), reference, name: 'receipt.png', size: String(bytes.length), type: 'image/png' });
+    const request = new Request(`https://mansah.test/api/students/wallet/topups?${query}`, { method: 'POST', headers: { cookie: clients[who] || '', origin: 'https://mansah.test', 'content-type': 'application/octet-stream' }, body: bytes });
+    const response = await worker.fetch(request, env); const body = await response.json(); assert.equal(response.status, expected, JSON.stringify(body)); return body;
+  }
   const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role, ...(role === 'admin' ? {} : { first_name: 'Test', father_name: 'Account', family_name: role === 'teachers' ? 'Teacher' : 'Student', birth_date: '1990-01-01', gender: 'male', phone: '0791234567', accept_terms: true }), ...(role === 'teachers' ? { qualifications: ['بكالوريوس'], years_experience: 4, teaching_languages: ['العربية'], national_id_last4: '1234', professional_bio: 'Experienced mathematics teacher for school learners.', confirm_accuracy: true, accept_teaching_policy: true } : {}) });
   await call('guest', 'admin/users', undefined, 401);
   await call('guest', 'auth/register', credentials('evil@test.com', 'admin'), 403);
@@ -52,7 +57,24 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('guest', 'auth/setup', { ...credentials('owner2@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN }, 409);
   const teacher = (await call('teacher', 'auth/register', credentials('teacher@test.com', 'teachers'))).user;
   const student = (await call('student', 'auth/register', credentials('student@test.com', 'students'))).user;
-  await call('other', 'auth/register', credentials('other@test.com', 'students'));
+  const other = (await call('other', 'auth/register', credentials('other@test.com', 'students'))).user;
+  const walletStudent = (await call('walletStudent', 'auth/register', credentials('wallet@test.com', 'students'))).user;
+  DB.db.prepare('INSERT INTO wallet_accounts (user_id,balance,updated) VALUES (?,?,?)').run(student.id, 100000, Date.now());
+  DB.db.prepare('INSERT INTO wallet_accounts (user_id,balance,updated) VALUES (?,?,?)').run(other.id, 100000, Date.now());
+  await call('owner', 'admin/wallet-topups/settings', { cliq_name: 'Mansah Learning', cliq_alias: 'Mansah.CliQ' });
+  assert.equal((await call('walletStudent', 'students/wallet')).balance, 0);
+  const receipt = Uint8Array.from([137,80,78,71,13,10,26,10,0]);
+  const topup = (await uploadTopup('walletStudent', 12.5, 'CLIQ-1001', receipt)).topup;
+  assert.equal(topup.status, 'pending');
+  await uploadTopup('walletStudent', 12.5, 'CLIQ-1002', receipt, 409);
+  const topupList = await call('owner', 'admin/wallet-topups');
+  assert.equal(topupList.topups.find(row => row.id === topup.id).user_id, walletStudent.id);
+  const proofResponse = await worker.fetch(new Request(`https://mansah.test/api/admin/wallet/topups/${topup.id}/proof`, { headers: { cookie: clients.owner } }), env);
+  assert.equal(proofResponse.status, 200);
+  assert.equal((await proofResponse.arrayBuffer()).byteLength, receipt.length);
+  await call('owner', `admin/wallet-topups/${topup.id}/approve`, {});
+  assert.equal((await call('walletStudent', 'students/wallet')).balance, 1250);
+  await call('owner', `admin/wallet-topups/${topup.id}/approve`, {}, 409);
   await uploadVerification('teacher', 'avatar', 'profile.png', Uint8Array.from([137,80,78,71,13,10,26,10,0]), 'image/png');
   await uploadVerification('teacher', 'intro_video', 'intro.webm', Uint8Array.from([0x1a,0x45,0xdf,0xa3,0]), 'video/webm');
   await uploadVerification('teacher', 'credential', 'degree.pdf', new TextEncoder().encode('%PDF-1.7'), 'application/pdf');
@@ -226,7 +248,7 @@ test('authorization and the full reservation lifecycle', async () => {
   assert.equal(attachmentResponse.headers.get('accept-ranges'), 'bytes');
   assert.equal(attachmentResponse.headers.get('content-range'), `bytes 4-9/${videoBytes.length}`);
   assert.deepEqual(new Uint8Array(await attachmentResponse.arrayBuffer()), videoBytes.slice(4, 10));
-  await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' });
+  await call('owner', `admin/bookings/${reservation.id}/payment`, { paid: 1, reference: 'Receipt 001' }, 409);
   await call('teacher', `teachers/bookings/${reservation.id}/complete`, {}, 409);
   await call('student', `students/bookings/${reservation.id}/cancel`, {});
   assert.equal((await call('student', 'students/chat/threads')).threads.length, 1, 'The conversation survives a cancelled or finished lesson');

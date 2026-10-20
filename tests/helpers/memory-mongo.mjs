@@ -47,6 +47,7 @@ export function memoryMongo(seed = {}) {
         if (!row && options.upsert) { row = { ...filter, ...structuredClone(update.$setOnInsert || {}) }; rows.push(row); inserted = true; }
         if (!row) return { modifiedCount: 0 };
         Object.assign(row, structuredClone(update.$set || {}));
+        for (const [key, value] of Object.entries(update.$inc || {})) row[key] = Number(row[key] || 0) + Number(value);
         for (const [key, value] of Object.entries(update.$max || {})) row[key] = Math.max(row[key] || 0, value);
         for (const key of Object.keys(update.$unset || {})) delete row[key];
         return { modifiedCount: 1, upsertedCount: inserted ? 1 : 0 };

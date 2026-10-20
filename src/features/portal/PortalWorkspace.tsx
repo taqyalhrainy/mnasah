@@ -1,11 +1,13 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { BookOpen, CalendarPlus, Check, ChevronLeft, CreditCard, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2 } from 'lucide-react';
-import { request, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage } from '../../services/platformApi';
+import { BookOpen, CalendarPlus, Check, ChevronLeft, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2 } from 'lucide-react';
+import { ApiError, request, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
 import { PaymentsPanel } from './PaymentsPanel';
+import { WalletPanel } from './WalletPanel';
+import { TopupReviewPanel } from './TopupReviewPanel';
 import { WorkspaceOverview, WorkspaceSkeleton } from './WorkspaceOverview';
 import { TeacherAvailabilityHub, type AvailabilityDraft } from './TeacherAvailabilityHub';
 import type { Category } from '../../services/platformApi';
@@ -92,6 +94,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [bookingSlot, setBookingSlot] = useState<Slot | null>(null);
   const [bookingSubject, setBookingSubject] = useState('');
   const [bookingMinutes, setBookingMinutes] = useState(0);
+  const [walletRequired, setWalletRequired] = useState(0);
   const [room, setRoom] = useState<Room | null>(null);
   const [callCompact, setCallCompact] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -127,7 +130,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return () => navigator.serviceWorker?.removeEventListener('message', open);
   }, [portal, onView]);
   useEffect(() => {
-    if (view === 'messages' || view === 'payments' || view === 'earnings') return;
+    if (view === 'messages' || view === 'payments' || view === 'earnings' || view === 'wallet' || view === 'topups') return;
     let alive = true;
     setLoading(true); setError('');
     const path = portal === 'students' ? (view === 'home' ? 'slots' : view === 'profile' ? 'profile' : 'overview') : view === 'bookings' ? 'overview' : view;
@@ -293,8 +296,17 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   });
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label={t("بحث")} placeholder={t("ابحث عن مادة أو أستاذ")} value={query} onChange={e => setQuery(e.target.value)} /></label>;
   async function completeBooking(slot: Slot, subject: string, offering: SlotOffering) {
-    if (!window.confirm(t("تأكيد حجز حصة {v0} لمدة {v1} دقيقة بقيمة {v2}؟", { v0: catalogText(subject), v1: offering.minutes, v2: money(offering.price) }))) return;
-    if (await act(() => post(`slots/${slot.id}`, { subject, minutes: offering.minutes }), t("تم تأكيد الحجز. ستجده في السجل."))) setBookingSlot(null);
+    setBusy(true); setError(''); setSuccess('');
+    try {
+      const wallet = await request<WalletData>('students/wallet');
+      if (wallet.balance < offering.price) { setWalletRequired(offering.price); setBookingSlot(null); onView('wallet'); return; }
+      if (!window.confirm(t("تأكيد حجز حصة {v0} لمدة {v1} دقيقة بقيمة {v2}؟", { v0: catalogText(subject), v1: offering.minutes, v2: money(offering.price) }))) return;
+      await post(`slots/${slot.id}`, { subject, minutes: offering.minutes, method: 'wallet' });
+      setWalletRequired(0); setBookingSlot(null); setSuccess(t("تم تأكيد الحجز. ستجده في السجل.")); refresh();
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 402) { setWalletRequired(offering.price); setBookingSlot(null); onView('wallet'); }
+      else setError((cause as Error).message);
+    } finally { setBusy(false); }
   }
   const bookSlot = (slot: Slot) => {
     const availableSubjects = slotSubjects(slot);
@@ -378,6 +390,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     </dialog>;
   })();
   if (view === 'messages') return <>{callLayer}</>;
+  if (portal === 'students' && view === 'wallet') return <>{callLayer}<WalletPanel requiredAmount={walletRequired} /></>;
+  if (portal === 'admin' && view === 'topups') return <>{callLayer}<TopupReviewPanel /></>;
   if ((portal === 'admin' && view === 'payments') || (portal === 'teachers' && view === 'earnings')) return <>{callLayer}<PaymentsPanel portal={portal === 'admin' ? 'admin' : 'teachers'} /></>;
   if (portal === 'students') return <>{callLayer}{lessonDetails}{bookingDialog}<div className="portal-content student-experience">
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />{t("فتح الغرف")}</button></div>)}
@@ -395,7 +409,6 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} />}
       {view === 'tutors' && <section className="student-page"><h2>{t("أساتذتي")}</h2>{!myTutors.length && <Empty text="لم تحجز مع أي أستاذ بعد." />}<div className="student-list">{myTutors.map(b => <article className="saved-tutor" key={b.teacher_id}><div className="avatar"><UserRound size={24} /></div><div><strong>{b.teacher_name}</strong><p>{catalogText(b.subject)}{t(" · آخر حصة ")}{date(b.start)}</p></div><button className="primary-button" onClick={() => onView('home')}>{t("احجز مجدداً")}</button></article>)}</div></section>}
-      {view === 'wallet' && <section className="student-page wallet-page"><div className="wallet-hero"><CreditCard size={30} /><span>{t("المحفظة")}</span><strong>{t("قريباً في منصّة")}</strong><p>{t("إضافة الرصيد والدفع الإلكتروني غير متاحين حالياً. يمكنك متابعة حجوزاتك كالمعتاد.")}</p></div><TransactionList bookings={bookings} /></section>}
       {view === 'history' && <section className="student-page"><h2>{t("السجل")}</h2><div className="history-tabs">{[['all', t("الكل")], ['confirmed', t("القادمة")], ['completed', t("المكتملة")], ['cancelled', t("الملغاة")]].map(([id, label]) => <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{t(label)}</button>)}</div>{!shownBookings.length && <Empty text="لا توجد حصص في هذا القسم." />}<div className="history-list">{shownBookings.map(b => <article key={b.id}><BookOpen size={20} /><div><strong>{catalogText(b.subject)}</strong><p>{b.teacher_name} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>{t("التفاصيل")}</button></article>)}</div></section>}
       {view === 'profile' && <section className="student-page account-page"><h2>{t("حسابي")}</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>{t("المعلومات الشخصية")}</h3><label>{t("الاسم الكامل")}<input name="name" defaultValue={user.name} required /></label><label>{t("البريد الإلكتروني")}<input value={user.email} readOnly dir="ltr" /></label><input type="hidden" name="subject" value="" /><input type="hidden" name="bio" value="" /><button className="primary-button" disabled={busy}><Save size={17} />{t("حفظ")}</button></form><aside className="account-facts"><h3>{t("تفاصيل الحساب")}</h3><dl><div><dt>{t("نوع الحساب")}</dt><dd>{t("طالب")}</dd></div><div><dt>{t("حالة الحساب")}</dt><dd><span className={`badge ${user.status}`}>{t(statusNames[user.status])}</span></dd></div><div><dt>{t("تنبيهات الحصص")}</dt><dd><label className="preference-toggle"><input type="checkbox" aria-label={t("تنبيهات الحصص")} checked={reminders.enabled} onChange={reminders.toggle} />{reminders.enabled ? t("مفعّلة") : t("غير مفعّلة")}</label></dd></div></dl></aside></div></section>}
     </>}
@@ -500,12 +513,6 @@ function TutorList({ slots, busy, bookSlot, compact = false }: { slots: Slot[]; 
     <div className="tutor-info"><div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{slotOfferings(slot).map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)}</time></div>
     <div className="tutor-actions"><b>{money(Math.min(...slotOfferings(slot).map(item => item.price)))}<small>{slotOfferings(slot).length > 1 ? t("ابتداءً من") : t("للحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
   </article>)}</div>;
-}
-
-function TransactionList({ bookings }: { bookings: Booking[] }) {
-  usePreferences();
-  const rows = bookings.slice(0, 6);
-  return <div className="transaction-list"><h3>{t("سجل العمليات")}</h3>{!rows.length && <Empty text="لا توجد عمليات بعد." />}{rows.map(b => <article key={b.id}><span className={b.paid ? 'positive' : 'negative'}>{b.paid ? t("دفع حصة") : t("حجز غير مدفوع")}</span><div><strong>{catalogText(b.subject)}</strong><small>{date(b.start)}</small></div><b className={b.paid ? 'negative' : ''}>{b.paid ? '-' : ''}{money(b.price)}</b></article>)}</div>;
 }
 
 function Empty({ text }: { text: string }) {

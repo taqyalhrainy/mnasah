@@ -9,21 +9,26 @@ export type SlotOffering = { minutes: number; price: number };
 export type Slot = { id: string; teacher_id: string; teacher_name?: string; bio?: string; teacher_subjects?: string; start: number; minutes: number; price: number; subject: string; subjects?: string[]; offerings?: SlotOffering[]; status: string; available_until?: number };
 export type Booking = Slot & { slot_id: string; student_id: string; student_name: string; teacher_name: string; notes: string; resource: string; paid: number; payment_ref: string; teacher_present_until?: number; student_present_until?: number };
 export type Message = { id: string; body: string; created: number; name: string };
+export type WalletTransaction = { id: string; type: 'cliq_topup' | 'lesson_payment' | 'lesson_refund'; amount: number; reference: string; created: number };
+export type WalletTopup = { id: string; user_id: string; user_name?: string; user_email?: string; amount: number; status: 'pending' | 'approved' | 'rejected'; transfer_reference: string; proof_name: string; proof_type: string; created: number; reviewed_at: number; rejection_reason: string };
+export type PaymentSettings = { cliq_alias: string; cliq_name: string; ready?: boolean };
+export type WalletData = { balance: number; payment: PaymentSettings; topups: WalletTopup[]; transactions: WalletTransaction[] };
 const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export const apiUrl = (path: string) => `${apiBase}/api/${path}`;
 export const apiMediaUrl = (value: string) => value.startsWith('/api/') ? `${apiBase}${value}` : value;
+export class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', signal, ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
   let data;
   try { data = await response.json(); } catch { throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.')); }
-  if (!response.ok) throw new Error(t(data.error || 'تعذر تنفيذ الطلب.'));
+  if (!response.ok) throw new ApiError(t(data.error || 'تعذر تنفيذ الطلب.'), response.status);
   return data;
 }
 export async function requestFile<T>(path: string, file: File, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
   const query = new URLSearchParams({ ...params, name: file.name, size: String(file.size), type: file.type });
   const response = await fetch(`${apiBase}/api/${path}?${query}`, { method: 'POST', credentials: 'include', cache: 'no-store', headers: { 'Content-Type': 'application/octet-stream' }, body: file, signal });
   let data; try { data = await response.json(); } catch { throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.')); }
-  if (!response.ok) throw new Error(t(data.error || 'تعذر رفع الملف.'));
+  if (!response.ok) throw new ApiError(t(data.error || 'تعذر رفع الملف.'), response.status);
   return data;
 }
 export const portalNames: Record<Portal, string> = { admin: 'الإدارة والأونر', teachers: 'بوابة الأساتذة', students: 'بوابة الطلاب' };

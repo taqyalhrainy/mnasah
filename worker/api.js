@@ -8,6 +8,8 @@ import { workerChatAttachment } from './chat-attachments.js';
 import { serializeCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification } from '../shared/verification.js';
 import { workerVerificationFile } from './verification-files.js';
+import { workerWalletTopup } from './wallet-topups.js';
+import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 
 const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const allowedDurations = [30, 45, 60, 90, 120];
@@ -27,8 +29,11 @@ function slotOfferings(body) {
 }
 const commissionPercent = env => Math.max(0, Math.min(90, Number(env.PLATFORM_COMMISSION_PERCENT || 15)));
 async function walletBalance(env, userId) {
-  const row = await one(env, 'SELECT COALESCE(SUM(amount),0) AS balance FROM wallet_transactions WHERE user_id=?', userId);
-  return Number(row?.balance || 0);
+  await ensureWalletAccount(env, userId);
+  return Number((await one(env, 'SELECT balance FROM wallet_accounts WHERE user_id=?', userId))?.balance || 0);
+}
+async function ensureWalletAccount(env, userId) {
+  await run(env, 'INSERT OR IGNORE INTO wallet_accounts (user_id,balance,updated) SELECT ?,COALESCE(SUM(amount),0),? FROM wallet_transactions WHERE user_id=?', userId, Date.now(), userId);
 }
 async function booking(env, id, user) {
   const row = await one(env, `${bookingSelect} WHERE b.id=?`, id);
@@ -45,6 +50,8 @@ export async function api(request, env, portal, path, body) {
   if (!user.development_access && user.must_change_password && path !== 'password') fail(403, 'يجب تغيير كلمة المرور المؤقتة أولاً.');
   const verificationFile = await workerVerificationFile(request, env, user, path);
   if (verificationFile) return verificationFile;
+  const walletTopup = await workerWalletTopup(request, env, user, path);
+  if (walletTopup) return walletTopup;
   if (path === 'verification/status' && !write && user.role === 'teachers') return { user: publicUser(user), files: await all(env, 'SELECT id,user_id,kind,name,size,content_type,created FROM verification_files WHERE user_id=?', user.id) };
   if (path === 'verification/submit' && write && user.role === 'teachers') {
     const files = await all(env, 'SELECT id,kind FROM verification_files WHERE user_id=?', user.id);
@@ -124,13 +131,39 @@ export async function api(request, env, portal, path, body) {
     return { ok: true };
   }
   if (path === 'audit' && user.role === 'admin' && !write) return { events: await all(env, 'SELECT a.*,u.name FROM audit a JOIN users u ON u.id=a.actor ORDER BY a.created DESC LIMIT 100') };
-  if (path === 'wallet' && user.role === 'students') {
-    if (write) {
-      const amount = Math.round(Number(body.amount) * 100);
-      if (!Number.isInteger(amount) || amount < 100 || amount > 1000000) fail(400, 'أدخل مبلغاً صالحاً.');
-      await run(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) VALUES (?,?,?,?,?,?)", crypto.randomUUID(), user.id, 'sandbox_topup', amount, `sandbox-${random().slice(0, 10)}`, Date.now());
+  if (path === 'wallet' && user.role === 'students' && !write) {
+    const settings = paymentSettings((await one(env, "SELECT value FROM platform_settings WHERE key='payments'"))?.value);
+    return { balance: await walletBalance(env, user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias && settings.cliq_name) }, topups: (await all(env, 'SELECT * FROM wallet_topups WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id)).map(publicTopup), transactions: await all(env, 'SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id) };
+  }
+  if (path === 'wallet-topups' && user.role === 'admin' && !write) {
+    const settings = paymentSettings((await one(env, "SELECT value FROM platform_settings WHERE key='payments'"))?.value);
+    const rows = await all(env, 'SELECT w.*,u.name AS user_name,u.email AS user_email FROM wallet_topups w JOIN users u ON u.id=w.user_id ORDER BY w.created DESC LIMIT 500');
+    return { settings, topups: rows.map(publicTopup) };
+  }
+  if (path === 'wallet-topups/settings' && user.role === 'admin' && write) {
+    const settings = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name, 100) };
+    await env.DB.batch([statement(env, "INSERT INTO platform_settings (key,value) VALUES ('payments',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(settings)), auditEntry(env, user.id, 'wallet:settings', 'payments')]);
+    return { settings };
+  }
+  if (/^wallet-topups\/[^/]+\/(approve|reject)$/.test(path) && user.role === 'admin' && write) {
+    const [, id, action] = path.split('/');
+    const topup = await one(env, 'SELECT * FROM wallet_topups WHERE id=?', id);
+    if (!topup || topup.status !== 'pending') fail(409, 'تمت مراجعة طلب الشحن مسبقاً.');
+    if (action === 'reject') {
+      const result = await env.DB.batch([statement(env, "UPDATE wallet_topups SET status='rejected',reviewed_at=?,reviewed_by=?,rejection_reason=? WHERE id=? AND status='pending'", Date.now(), user.id, field(body.reason, 300), id), auditEntry(env, user.id, 'wallet:topup-reject', id)]);
+      if (!result[0].meta.changes) fail(409, 'تمت مراجعة طلب الشحن مسبقاً.');
+      return { ok: true };
     }
-    return { balance: await walletBalance(env, user.id), transactions: await all(env, 'SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id) };
+    await ensureWalletAccount(env, topup.user_id);
+    const reference = `wallet-topup:${id}`;
+    const result = await env.DB.batch([
+      statement(env, "UPDATE wallet_topups SET status='approved',reviewed_at=?,reviewed_by=?,rejection_reason='' WHERE id=? AND status='pending'", Date.now(), user.id, id),
+      statement(env, "UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND EXISTS (SELECT 1 FROM wallet_topups WHERE id=? AND status='approved') AND NOT EXISTS (SELECT 1 FROM wallet_transactions WHERE reference=?)", topup.amount, Date.now(), topup.user_id, id, reference),
+      statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'cliq_topup',?,?,? WHERE EXISTS (SELECT 1 FROM wallet_topups WHERE id=? AND status='approved') AND NOT EXISTS (SELECT 1 FROM wallet_transactions WHERE reference=?)", crypto.randomUUID(), topup.user_id, topup.amount, reference, Date.now(), id, reference),
+      auditEntry(env, user.id, 'wallet:topup-approve', id),
+    ]);
+    if (!result[0].meta.changes) fail(409, 'تمت مراجعة طلب الشحن مسبقاً.');
+    return { ok: true };
   }
   if (path === 'earnings' && user.role === 'teachers' && !write) {
     const pct = commissionPercent(env);
@@ -191,14 +224,19 @@ export async function api(request, env, portal, path, body) {
     const selectedOffering = slot.offerings.find(item => item.minutes === Number(body.minutes)) || (slot.offerings.length === 1 ? slot.offerings[0] : null);
     if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
     if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
-    const method = body.method === 'wallet' ? 'wallet' : 'sandbox';
-    if (method === 'wallet' && await walletBalance(env, user.id) < selectedOffering.price) fail(402, 'رصيد المحفظة غير كافٍ.');
+    const method = body.method === 'wallet' || !user.development_access ? 'wallet' : 'sandbox';
+    if (method === 'wallet') { await ensureWalletAccount(env, user.id); if (await walletBalance(env, user.id) < selectedOffering.price) fail(402, 'رصيد المحفظة غير كافٍ.'); }
+    const walletCondition = method === 'wallet' ? ' AND EXISTS (SELECT 1 FROM wallet_accounts w WHERE w.user_id=? AND w.balance>=?)' : '';
+    const bookingParams = [bookingId, user.id, random(), Date.now(), id, Date.now(), user.id, selectedOffering.minutes, ...(method === 'wallet' ? [user.id, selectedOffering.price] : [])];
     const statements = [
-      statement(env, `INSERT INTO bookings (id,slot_id,student_id,status,room,created) SELECT ?,s.id,?,'confirmed',?,? FROM slots s JOIN users t ON t.id=s.teacher_id WHERE s.id=? AND s.status='open' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? AND t.status='active' AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE b.student_id=? AND b.status='confirmed' AND x.start<s.start+?*60000 AND x.start+x.minutes*60000>s.start)`, bookingId, user.id, random(), Date.now(), id, Date.now(), user.id, selectedOffering.minutes),
+      statement(env, `INSERT INTO bookings (id,slot_id,student_id,status,room,created) SELECT ?,s.id,?,'confirmed',?,? FROM slots s JOIN users t ON t.id=s.teacher_id WHERE s.id=? AND s.status='open' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? AND t.status='active' AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE b.student_id=? AND b.status='confirmed' AND x.start<s.start+?*60000 AND x.start+x.minutes*60000>s.start)${walletCondition}`, ...bookingParams),
       statement(env, "UPDATE slots SET status='booked',subject=?,minutes=?,price=? WHERE id=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)", selectedSubject, selectedOffering.minutes, selectedOffering.price, id, bookingId),
       statement(env, 'UPDATE bookings SET paid=1,payment_ref=? WHERE id=?', method === 'wallet' ? 'wallet' : `sandbox-${random().slice(0, 10)}`, bookingId),
     ];
-    if (method === 'wallet') statements.push(statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_payment',?,?,? WHERE EXISTS (SELECT 1 FROM bookings WHERE id=?)", crypto.randomUUID(), user.id, -selectedOffering.price, bookingId, Date.now(), bookingId));
+    if (method === 'wallet') statements.push(
+      statement(env, 'UPDATE wallet_accounts SET balance=balance-?,updated=? WHERE user_id=? AND balance>=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)', selectedOffering.price, Date.now(), user.id, selectedOffering.price, bookingId),
+      statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_payment',?,?,? WHERE EXISTS (SELECT 1 FROM bookings WHERE id=?)", crypto.randomUUID(), user.id, -selectedOffering.price, `lesson-payment:${bookingId}`, Date.now(), bookingId),
+    );
     const results = await env.DB.batch(statements);
     if (!results[0].meta.changes) fail(409, 'الموعد لم يعد متاحاً أو يتعارض مع حجز آخر.');
     const teacher = await one(env, 'SELECT teacher_id FROM slots WHERE id=?', id);
@@ -249,11 +287,18 @@ export async function api(request, env, portal, path, body) {
       if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
       const cancellationDeadline = Number(row.available_until) || row.start + row.minutes * 60000;
       if (user.role !== 'admin' && cancellationDeadline <= Date.now()) fail(409, 'انتهى وقت الإلغاء لهذه الحصة.');
-      await env.DB.batch([
+      if (row.payment_ref === 'wallet') await ensureWalletAccount(env, row.student_id);
+      const refundReference = `lesson-refund:${id}`;
+      const results = await env.DB.batch([
         statement(env, "UPDATE bookings SET status='cancelled',room=? WHERE id=? AND status='confirmed'", random(), id),
         statement(env, "UPDATE slots SET status='open' WHERE id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM bookings WHERE slot_id=? AND status='confirmed')", row.slot_id, id, row.slot_id),
+        ...(row.payment_ref === 'wallet' ? [
+          statement(env, "UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", row.price, Date.now(), row.student_id, id, refundReference),
+          statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_refund',?,?,? WHERE EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", crypto.randomUUID(), row.student_id, row.price, refundReference, Date.now(), id, refundReference),
+        ] : []),
         auditEntry(env, user.id, 'booking:cancel', id),
       ]);
+      if (!results[0].meta.changes) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
       return { ok: true };
     }
     if (action === 'complete' && write && user.role === 'teachers') {
@@ -270,6 +315,7 @@ export async function api(request, env, portal, path, body) {
       return { ok: true };
     }
     if (action === 'payment' && write && user.role === 'admin') {
+      if (row.payment_ref === 'wallet') fail(409, 'دفعات المحفظة تُسجّل تلقائياً ولا يمكن تعديلها يدوياً.');
       if (![0, 1].includes(body.paid)) fail(400, 'حالة الدفع غير صالحة.');
       await env.DB.batch([statement(env, 'UPDATE bookings SET paid=?,payment_ref=? WHERE id=?', body.paid, field(body.reference, 200, body.paid ? 1 : 0), id), auditEntry(env, user.id, body.paid ? 'payment:received' : 'payment:reversed', id)]);
       return { ok: true };

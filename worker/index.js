@@ -12,7 +12,7 @@ export default {
         const [, , portal, ...parts] = url.pathname.split('/');
         const path = parts.join('/');
         if (portal === 'media' && parts[0] === 'avatar' && parts[1] && request.method === 'GET') return workerPublicAvatar(env, parts[1]);
-        const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path) || path === 'verification/files';
+        const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path) || path === 'verification/files' || path === 'wallet/topups';
         const write = request.method !== 'GET';
         if (!['GET', 'POST'].includes(request.method)) fail(405, 'طريقة غير مدعومة.');
         if (write && (request.headers.get('origin') !== url.origin || !request.headers.get('content-type')?.startsWith(upload ? 'application/octet-stream' : 'application/json'))) fail(403, 'مصدر الطلب غير صالح.');

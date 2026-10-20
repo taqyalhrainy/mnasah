@@ -11,9 +11,11 @@ import { mongoChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
 import { serveChatAttachment } from './chat-attachments.js';
 import { serveVerificationFile, verificationBytes } from './verification-files.js';
+import { serveWalletTopup, walletProofBytes } from './wallet-topups.js';
 import { attachmentHeaders } from '../shared/chat-attachments.js';
 import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification, registrationProfile } from '../shared/verification.js';
+import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -66,6 +68,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 let db;
 let client;
 let attachmentBytes;
+let topupProofBytes;
 async function connect() {
   if (db) return db;
   if (!MONGODB_URI) fail(500, 'MongoDB غير مضبوط على الخادم.');
@@ -96,6 +99,10 @@ async function connect() {
     db.collection('verification_files').createIndex({ id: 1 }, { unique: true }),
     db.collection('verification_files').createIndex({ user_id: 1, kind: 1 }),
     db.collection('catalog').createIndex({ kind: 1, position: 1 }),
+    db.collection('wallet_accounts').createIndex({ user_id: 1 }, { unique: true }),
+    db.collection('wallet_transactions').createIndex({ reference: 1 }, { unique: true, sparse: true }),
+    db.collection('wallet_topups').createIndex({ proof_hash: 1 }, { unique: true }),
+    db.collection('wallet_topups').createIndex({ status: 1, created: -1 }),
   ]);
   await seedCatalog();
   return db;
@@ -239,8 +246,17 @@ async function enrichBookings(bookings) {
   });
 }
 async function walletBalance(userId) {
-  const rows = await db.collection('wallet_transactions').aggregate([{ $match: { user_id: userId } }, { $group: { _id: null, balance: { $sum: '$amount' } } }]).toArray();
-  return Number(rows[0]?.balance || 0);
+  return Number((await walletAccount(userId))?.balance || 0);
+}
+async function walletAccount(userId) {
+  let account = await db.collection('wallet_accounts').findOne({ user_id: userId });
+  if (!account) {
+    const transactions = await db.collection('wallet_transactions').find({ user_id: userId }).toArray();
+    const balance = transactions.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    await db.collection('wallet_accounts').updateOne({ user_id: userId }, { $setOnInsert: { user_id: userId, balance, updated: Date.now() } }, { upsert: true });
+    account = await db.collection('wallet_accounts').findOne({ user_id: userId });
+  }
+  return account;
 }
 
 app.all('/api/auth/:action', async (req, res, next) => {
@@ -322,6 +338,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
 
     if (await serveVerificationFile(req, res, { db, user, path })) return;
+    if (await serveWalletTopup(req, res, { db, user, path, ...(topupProofBytes ? { bytes: topupProofBytes } : {}) })) return;
     if (path === 'verification/status' && !write && user.role === 'teachers') return res.json({ user: publicUser(user), files: await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0, declared_type: 0 } }).toArray() });
     if (path === 'verification/submit' && write && user.role === 'teachers') {
       const files = await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0 } }).toArray();
@@ -394,13 +411,37 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ temporaryPassword, expires });
     }
     if (path === 'audit' && user.role === 'admin' && !write) return res.json({ events: await db.collection('audit').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
-    if (path === 'wallet' && user.role === 'students') {
-      if (write) {
-        const amount = Math.round(Number(body.amount) * 100);
-        if (!Number.isInteger(amount) || amount < 100 || amount > 1000000) fail(400, 'أدخل مبلغاً صالحاً.');
-        await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'sandbox_topup', amount, reference: `sandbox-${random().slice(0, 10)}`, created: Date.now() });
+    if (path === 'wallet' && user.role === 'students' && !write) {
+      const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
+      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias && settings.cliq_name) }, topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
+    }
+    if (path === 'wallet-topups' && user.role === 'admin' && !write) {
+      const rows = await db.collection('wallet_topups').find({}, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(500).toArray();
+      const users = await db.collection('users').find({ id: { $in: [...new Set(rows.map(row => row.user_id))] } }, { projection: { id: 1, name: 1, email: 1 } }).toArray();
+      const names = new Map(users.map(row => [row.id, row]));
+      const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
+      return res.json({ settings, topups: rows.map(row => publicTopup({ ...row, user_name: names.get(row.user_id)?.name, user_email: names.get(row.user_id)?.email })) });
+    }
+    if (path === 'wallet-topups/settings' && user.role === 'admin' && write) {
+      const value = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name, 100) };
+      await db.collection('platform_settings').updateOne({ key: 'payments' }, { $set: { key: 'payments', value } }, { upsert: true });
+      await audit(user.id, 'wallet:settings', 'payments');
+      return res.json({ settings: value });
+    }
+    if (/^wallet-topups\/[^/]+\/(approve|reject)$/.test(path) && user.role === 'admin' && write) {
+      const [, id, action] = path.split('/');
+      const update = action === 'approve' ? { status: 'approved', reviewed_at: Date.now(), reviewed_by: user.id, rejection_reason: '' } : { status: 'rejected', reviewed_at: Date.now(), reviewed_by: user.id, rejection_reason: field(body.reason, 300) };
+      const result = await db.collection('wallet_topups').updateOne({ id, status: 'pending' }, { $set: update });
+      if (!result.modifiedCount) fail(409, 'تمت مراجعة طلب الشحن مسبقاً.');
+      const topup = await db.collection('wallet_topups').findOne({ id });
+      if (action === 'approve') {
+        await walletAccount(topup.user_id);
+        await db.collection('wallet_accounts').updateOne({ user_id: topup.user_id }, { $inc: { balance: topup.amount }, $set: { updated: Date.now() } });
+        try { await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: topup.user_id, type: 'cliq_topup', amount: topup.amount, reference: `wallet-topup:${id}`, created: Date.now() }); }
+        catch (error) { await db.collection('wallet_accounts').updateOne({ user_id: topup.user_id }, { $inc: { balance: -topup.amount }, $set: { updated: Date.now() } }); await db.collection('wallet_topups').updateOne({ id, reviewed_by: user.id }, { $set: { status: 'pending', reviewed_at: 0, reviewed_by: '' } }); throw error; }
       }
-      return res.json({ balance: await walletBalance(user.id), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
+      await audit(user.id, `wallet:topup-${action}`, id);
+      return res.json({ ok: true });
     }
     if (['overview', 'home', 'booked', 'available', 'history', 'reminders', 'rooms'].includes(path) && !write) {
       const bookings = await bookingRows(user.role === 'admin' ? {} : user.role === 'teachers' ? {} : { student_id: user.id });
@@ -446,10 +487,19 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
       if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
       const bookingId = crypto.randomUUID();
+      await walletAccount(user.id);
+      const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
+      if (!debit.modifiedCount) fail(402, 'رصيد المحفظة غير كافٍ.');
       const reserved = await db.collection('slots').updateOne({ id, status: 'open' }, { $set: { status: 'booked', subject: selectedSubject, minutes: selectedOffering.minutes, price: selectedOffering.price } });
-      if (!reserved.modifiedCount) fail(409, 'الموعد لم يعد متاحاً.');
-      try { await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, status: 'confirmed', room: random(), paid: 1, payment_ref: `sandbox-${random().slice(0, 10)}`, notes: '', resource: '', created: Date.now() }); }
-      catch (error) { await db.collection('slots').updateOne({ id, status: 'booked' }, { $set: { status: 'open', subject: slot.subject, minutes: slot.minutes, price: slot.price } }); throw error; }
+      if (!reserved.modifiedCount) { await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } }); fail(409, 'الموعد لم يعد متاحاً.'); }
+      try {
+        await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, status: 'confirmed', room: random(), paid: 1, payment_ref: 'wallet', notes: '', resource: '', created: Date.now() });
+        await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
+      } catch (error) {
+        await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } });
+        await db.collection('bookings').deleteOne({ id: bookingId });
+        await db.collection('slots').updateOne({ id, status: 'booked' }, { $set: { status: 'open', subject: slot.subject, minutes: slot.minutes, price: slot.price } }); throw error;
+      }
       await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
       io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
       return res.json({ ok: true, id: bookingId });
@@ -494,8 +544,17 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         return res.json({ messages: messages.map(m => ({ ...m, name: names.get(m.author_id) || '' })) });
       }
       if (action === 'cancel' && write) {
-        await db.collection('bookings').updateOne({ id }, { $set: { status: 'cancelled', room: random() } });
+        if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
+        const cancellationDeadline = Number(row.available_until) || row.start + row.minutes * 60000;
+        if (user.role !== 'admin' && cancellationDeadline <= Date.now()) fail(409, 'انتهى وقت الإلغاء لهذه الحصة.');
+        const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: { status: 'cancelled', room: random() } });
+        if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
         await db.collection('slots').updateOne({ id: row.slot_id }, { $set: { status: 'open' } });
+        if (row.payment_ref === 'wallet') {
+          await walletAccount(row.student_id);
+          await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: row.price }, $set: { updated: Date.now() } });
+          await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: row.price, reference: `lesson-refund:${id}`, created: Date.now() });
+        }
         await audit(user.id, 'booking:cancel', id);
         return res.json({ ok: true });
       }
@@ -508,6 +567,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         return res.json({ ok: true });
       }
       if (action === 'payment' && write && user.role === 'admin') {
+        if (row.payment_ref === 'wallet') fail(409, 'دفعات المحفظة تُسجّل تلقائياً ولا يمكن تعديلها يدوياً.');
         await db.collection('bookings').updateOne({ id }, { $set: { paid: body.paid ? 1 : 0, payment_ref: field(body.reference || '', 200, body.paid ? 1 : 0) } });
         await audit(user.id, body.paid ? 'payment:received' : 'payment:reversed', id);
         return res.json({ ok: true });
@@ -535,9 +595,10 @@ app.use((error, _req, res, _next) => {
   res.status(error.status || 500).json({ error: error.status ? error.message : 'تعذر تنفيذ الطلب الآن. حاول مجدداً.' });
 });
 
-export function startPlatformServer({ database, attachmentStore, port = PORT } = {}) {
+export function startPlatformServer({ database, attachmentStore, topupProofStore, port = PORT } = {}) {
   if (database) db = database;
   if (attachmentStore) attachmentBytes = attachmentStore;
+  if (topupProofStore) topupProofBytes = topupProofStore;
   return new Promise(resolve => httpServer.listen(port, () => {
     console.log(`Mansah backend listening on port ${httpServer.address().port}`);
     connect().then(() => console.log('MongoDB connection warmed.')).catch(error => {

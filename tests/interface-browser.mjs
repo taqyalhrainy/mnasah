@@ -24,6 +24,7 @@ const bookings = [
   { ...slots[0], id: 'booking-ui', slot_id: slots[0].id, student_id: student.id, student_name: student.name, notes: 'مراجعة المعادلات', resource: '', status: 'confirmed', paid: 1, payment_ref: 'test', teacher_present_until: now + 60000, student_present_until: 0 },
   { ...slots[1], id: 'booking-completed', slot_id: slots[1].id, student_id: student.id, student_name: student.name, notes: '', resource: '', start: now - 86400000, status: 'completed', paid: 1, payment_ref: 'test' },
 ];
+const walletTopup = { id: 'receipt-ui', user_id: student.id, user_name: student.name, user_email: student.email, amount: 2500, status: 'pending', transfer_reference: 'CLIQ-2026-1001', proof_name: 'receipt.png', proof_type: 'image/png', created: now, reviewed_at: 0, rejection_reason: '' };
 const errors = [];
 const mutations = [];
 
@@ -40,11 +41,14 @@ async function makePage(role, loggedIn = true) {
     if (/\/auth\/(login|register)$/.test(path)) return route.fulfill({ json: { user } });
     if (path.endsWith('/reminders')) return route.fulfill({ json: { bookings: [] } });
     if (path.endsWith('/catalog')) return route.fulfill({ json: { categories } });
+    if (path.endsWith('/students/wallet')) return route.fulfill({ json: { balance: 5000, payment: { cliq_name: 'Mansah', cliq_alias: 'Mansah.CliQ', ready: true }, topups: [], transactions: [] } });
+    if (path.endsWith('/admin/wallet/topups/receipt-ui/proof')) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') });
+    if (path.endsWith('/admin/wallet-topups')) return route.fulfill({ json: { settings: { cliq_name: 'Mansah', cliq_alias: 'Mansah.CliQ' }, topups: [walletTopup] } });
     if (path.endsWith('/payments')) return route.fulfill({ json: paymentSummary(bookings, paymentRange(Object.fromEntries(new URL(request.url()).searchParams))) });
     if (path.endsWith('/messages')) return route.fulfill({ json: { messages: [{ id: 'message-ui', name: teacher.name, body: 'أهلاً، جاهزين للحصة.', created: now }] } });
     return route.fulfill({ json: { user, bookings, slots, users: [teacher, student], events: [{ id: 'audit-ui', name: owner.name, action: 'user:active', target: teacher.id, created: now }] } });
   });
-  await page.goto(`${base}/${role}`);
+  await page.goto(`${base}/${role}`, { waitUntil: 'domcontentloaded' });
   await page.locator(loggedIn ? '.workspace-content' : '.auth-form').waitFor().catch(async error => {
     console.error({ role, errors, visibleText: await page.locator('body').innerText() });
     await page.screenshot({ path: `.private/interface-failure-${role}.png`, fullPage: true });
@@ -64,7 +68,7 @@ async function checkLayout(page, label) {
   const problems = await page.evaluate(() => {
     const issues = [];
     if (document.documentElement.scrollWidth > innerWidth + 1) issues.push(`page width ${document.documentElement.scrollWidth} > ${innerWidth}`);
-    for (const element of document.querySelectorAll('.category-card, .primary-button, .secondary-button, .nav-button, .overview-metric, .auth-role-tabs a')) {
+    for (const element of document.querySelectorAll('.brand, .category-card, .primary-button, .secondary-button, .nav-button, .overview-metric, .auth-role-tabs a')) {
       const bounds = element.getBoundingClientRect();
       if (!bounds.width || !bounds.height) continue;
       if (bounds.left < -1 || bounds.right > innerWidth + 1) issues.push(`outside viewport: ${element.className} ${element.textContent.trim()}`);
@@ -92,13 +96,29 @@ try {
       await page.locator('.nav-list').getByRole('button', { name: new RegExp(`^${name}`) }).click();
       await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
       await checkLayout(page, `${role} ${name} mobile`);
-      if (name === 'الغرف' || name === 'المتاحة' || name === 'الحسابات') {
-        await page.screenshot({ path: `.private/redesign-${role}-${name === 'الغرف' ? 'rooms' : name === 'المتاحة' ? 'availability' : 'accounts'}-mobile.png`, fullPage: true });
+      if (['الغرف', 'المتاحة', 'الحسابات', 'المحفظة', 'شحن المحافظ'].includes(name)) {
+        const screen = name === 'الغرف' ? 'rooms' : name === 'المتاحة' ? 'availability' : name === 'الحسابات' ? 'accounts' : name === 'المحفظة' ? 'wallet' : 'topups';
+        await page.screenshot({ path: `.private/redesign-${role}-${screen}-mobile.png`, fullPage: true });
         await page.setViewportSize({ width: 1440, height: 1000 });
         await checkLayout(page, `${role} ${name} desktop`);
-        await page.screenshot({ path: `.private/redesign-${role}-${name === 'الغرف' ? 'rooms' : name === 'المتاحة' ? 'availability' : 'accounts'}-desktop.png`, fullPage: true });
+        await page.screenshot({ path: `.private/redesign-${role}-${screen}-desktop.png`, fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
       }
+    }
+    if (role === 'students' || role === 'admin') {
+      const target = role === 'students' ? 'المحفظة' : 'شحن المحافظ';
+      const screen = role === 'students' ? 'wallet' : 'topups';
+      await page.locator('.nav-list').getByRole('button', { name: target, exact: true }).click();
+      await checkLayout(page, `${role} ${target} mobile`);
+      await page.screenshot({ path: `.private/redesign-${role}-${screen}-mobile.png`, fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await checkLayout(page, `${role} ${target} desktop`);
+      await page.screenshot({ path: `.private/redesign-${role}-${screen}-desktop.png`, fullPage: true });
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+      await checkLayout(page, `${role} ${target} dark desktop`);
+      await page.screenshot({ path: `.private/redesign-${role}-${screen}-dark-desktop.png`, fullPage: true });
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+      await page.setViewportSize({ width: 390, height: 844 });
     }
     if (role === 'students') {
       await page.locator('.mobile-account > summary:visible').click();
@@ -129,6 +149,7 @@ try {
       assert.equal(await choiceDialog.getByText('أي مادة تريد أن تدرس؟', { exact: true }).count(), 0, 'the selected subject filter should skip the subject question');
       await choiceDialog.getByText('90 دقيقة', { exact: true }).click();
       await choiceDialog.getByRole('button', { name: 'تأكيد الحجز', exact: true }).click();
+      for (let attempt = 0; attempt < 40 && !mutations.some(item => item.path.endsWith('/students/slots/math-slot')); attempt++) await new Promise(resolve => setTimeout(resolve, 50));
       assert.ok(mutations.some(item => item.path.endsWith('/students/slots/math-slot') && item.body.subject === 'رياضيات' && item.body.minutes === 90));
       await page.locator('.nav-list').getByRole('button', { name: 'السجل', exact: true }).click();
       await page.locator('.history-tabs').getByRole('button', { name: 'المكتملة', exact: true }).click();
