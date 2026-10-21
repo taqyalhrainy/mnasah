@@ -28,7 +28,7 @@ export async function serveWalletTopup(req, res, { db, user, path, bytes = walle
   if (req.method !== 'POST' || user.role !== 'students') fail(405, 'طريقة غير مدعومة.');
   if (req.headers['content-type']?.split(';')[0] !== 'application/octet-stream') fail(415, 'ارفع صورة الحوالة بصيغتها الأصلية.');
   const settings = await db.collection('platform_settings').findOne({ key: 'payments' });
-  if (!settings?.value?.cliq_alias || !settings?.value?.cliq_name) fail(503, 'الدفع عبر كليك غير مفعّل بعد.');
+  if (!settings?.value?.cliq_alias) fail(503, 'الدفع عبر كليك غير مفعّل بعد.');
   const meta = topupMetadata(req.query, user.id);
   if (req.headers['content-length'] && Number(req.headers['content-length']) !== meta.proof_size) fail(400, 'حجم صورة الحوالة لا يطابق الملف المرسل.');
   const chunks = []; let received = 0;

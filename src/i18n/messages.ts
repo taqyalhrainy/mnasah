@@ -118,7 +118,7 @@ export const messages: Record<string, string> = {
   'تأكيد حجز حصة {v0} لمدة {v1} دقيقة بقيمة {v2}؟': 'Confirm a {v1}-minute {v0} lesson for {v2}?',
   'شحن المحافظ': 'Wallet top-ups', 'رصيدك المتاح': 'Available balance', 'يُخصم سعر الحصة من المحفظة عند تأكيد الحجز.': 'The lesson price is deducted from your wallet when booking is confirmed.',
   'أكمل رصيدك للحجز': 'Add funds to book', 'المبلغ الناقص': 'Amount needed', 'شحن عبر كليك': 'Top up with CliQ', 'حوّل، ثم أرسل صورة الحوالة': 'Transfer, then upload the receipt',
-  'اسم المستفيد': 'Beneficiary name', 'اسم كليك أو رقم الهاتف': 'CliQ alias or phone number', 'نسخ بيانات كليك': 'Copy CliQ details', 'تم نسخ بيانات كليك.': 'CliQ details copied.',
+  'اسم المستفيد': 'Beneficiary name', 'اسم المستفيد (اختياري)': 'Beneficiary name (optional)', 'اسم كليك أو رقم الهاتف': 'CliQ alias or phone number', 'نسخ بيانات كليك': 'Copy CliQ details', 'تم نسخ بيانات كليك.': 'CliQ details copied.',
   'حوّل المبلغ إلى بيانات كليك الظاهرة.': 'Transfer the amount to the CliQ details shown.', 'احتفظ بصورة واضحة لإيصال الحوالة.': 'Keep a clear image of the transfer receipt.', 'أرسل الطلب وانتظر موافقة الإدارة.': 'Submit the request and wait for admin approval.',
   'المبلغ المحوّل بالدينار': 'Amount transferred in JOD', 'رقم الحوالة (اختياري)': 'Transfer reference (optional)', 'أرفق صورة الحوالة': 'Attach transfer receipt', 'صورة الحوالة جاهزة للإرسال': 'Receipt image ready to submit',
   'إرسال للمراجعة': 'Submit for review', 'جارٍ الإرسال…': 'Submitting…', 'اختر صورة الحوالة أولاً.': 'Choose the transfer receipt first.', 'وصل طلب الشحن. سيظهر الرصيد فور موافقة الإدارة.': 'Your top-up request was received. The balance will appear after admin approval.',

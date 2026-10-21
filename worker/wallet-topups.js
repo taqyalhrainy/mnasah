@@ -18,7 +18,7 @@ export async function workerWalletTopup(request, env, user, path) {
   if (request.method !== 'POST' || user.role !== 'students') fail(405, 'طريقة غير مدعومة.');
   const settings = await one(env, "SELECT value FROM platform_settings WHERE key='payments'");
   let payment = {}; try { payment = JSON.parse(settings?.value || '{}'); } catch { /* invalid configuration is treated as disabled */ }
-  if (!payment.cliq_alias || !payment.cliq_name) fail(503, 'الدفع عبر كليك غير مفعّل بعد.');
+  if (!payment.cliq_alias) fail(503, 'الدفع عبر كليك غير مفعّل بعد.');
   const meta = topupMetadata(Object.fromEntries(new URL(request.url).searchParams), user.id);
   const reader = request.body?.getReader(); if (!reader) fail(400, 'اختر صورة حوالة غير فارغة.');
   const chunks = []; let received = 0, piece = new Uint8Array(CHUNK_BYTES), used = 0;

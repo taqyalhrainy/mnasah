@@ -133,7 +133,7 @@ export async function api(request, env, portal, path, body) {
   if (path === 'audit' && user.role === 'admin' && !write) return { events: await all(env, 'SELECT a.*,u.name FROM audit a JOIN users u ON u.id=a.actor ORDER BY a.created DESC LIMIT 100') };
   if (path === 'wallet' && user.role === 'students' && !write) {
     const settings = paymentSettings((await one(env, "SELECT value FROM platform_settings WHERE key='payments'"))?.value);
-    return { balance: await walletBalance(env, user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias && settings.cliq_name) }, topups: (await all(env, 'SELECT * FROM wallet_topups WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id)).map(publicTopup), transactions: await all(env, 'SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id) };
+    return { balance: await walletBalance(env, user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias) }, topups: (await all(env, 'SELECT * FROM wallet_topups WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id)).map(publicTopup), transactions: await all(env, 'SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created DESC LIMIT 100', user.id) };
   }
   if (path === 'wallet-topups' && user.role === 'admin' && !write) {
     const settings = paymentSettings((await one(env, "SELECT value FROM platform_settings WHERE key='payments'"))?.value);
@@ -141,7 +141,7 @@ export async function api(request, env, portal, path, body) {
     return { settings, topups: rows.map(publicTopup) };
   }
   if (path === 'wallet-topups/settings' && user.role === 'admin' && write) {
-    const settings = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name, 100) };
+    const settings = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name || '', 100, 0) };
     await env.DB.batch([statement(env, "INSERT INTO platform_settings (key,value) VALUES ('payments',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(settings)), auditEntry(env, user.id, 'wallet:settings', 'payments')]);
     return { settings };
   }

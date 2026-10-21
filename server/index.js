@@ -413,7 +413,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path === 'audit' && user.role === 'admin' && !write) return res.json({ events: await db.collection('audit').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
     if (path === 'wallet' && user.role === 'students' && !write) {
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
-      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias && settings.cliq_name) }, topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
+      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias) }, topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
     }
     if (path === 'wallet-topups' && user.role === 'admin' && !write) {
       const rows = await db.collection('wallet_topups').find({}, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(500).toArray();
@@ -423,7 +423,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ settings, topups: rows.map(row => publicTopup({ ...row, user_name: names.get(row.user_id)?.name, user_email: names.get(row.user_id)?.email })) });
     }
     if (path === 'wallet-topups/settings' && user.role === 'admin' && write) {
-      const value = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name, 100) };
+      const value = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name || '', 100, 0) };
       await db.collection('platform_settings').updateOne({ key: 'payments' }, { $set: { key: 'payments', value } }, { upsert: true });
       await audit(user.id, 'wallet:settings', 'payments');
       return res.json({ settings: value });

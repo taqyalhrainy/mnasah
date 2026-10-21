@@ -31,7 +31,10 @@ test('Mongo wallet top-ups require admin approval and bookings debit and refund 
   }
   assert.equal((await json('students', 'wallet')).balance, 0);
   await json('students', 'slots/wallet-slot', { subject: 'رياضيات', minutes: 60, method: 'wallet' }, 402);
-  await json('admin', 'wallet-topups/settings', { cliq_name: 'Mansah', cliq_alias: 'Mansah.CliQ' });
+  await json('admin', 'wallet-topups/settings', { cliq_name: '', cliq_alias: 'TAQY123' });
+  const configuredWallet = await json('students', 'wallet');
+  assert.equal(configuredWallet.payment.ready, true);
+  assert.equal(configuredWallet.payment.cliq_alias, 'TAQY123');
   const receipt = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
   const query = new URLSearchParams({ amount: '15', reference: 'MONGO-1001', name: 'receipt.png', size: String(receipt.length), type: 'image/png' });
   const upload = await fetch(`${base}/api/students/wallet/topups?${query}`, { method: 'POST', headers: { cookie: cookie('students'), origin: base, 'content-type': 'application/octet-stream' }, body: receipt });
