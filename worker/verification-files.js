@@ -5,6 +5,12 @@ import { verificationFileMeta, verifiedContentType } from '../shared/verificatio
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const CHUNK_BYTES = 1024 * 1024;
 export async function workerVerificationFile(request, env, user, path) {
+  if (path === 'verification/avatar/remove') {
+    if (request.method !== 'POST' || user.role !== 'teachers') fail(405, 'طريقة غير مدعومة.');
+    const avatars = await all(env, "SELECT id FROM verification_files WHERE user_id=? AND kind='avatar'", user.id);
+    if (avatars.length) await env.DB.batch(avatars.flatMap(file => [statement(env, 'DELETE FROM verification_file_chunks WHERE file_id=?', file.id), statement(env, 'DELETE FROM verification_files WHERE id=?', file.id)]));
+    return { ok: true };
+  }
   const match = /^verification\/files(?:\/([^/]+))?$/.exec(path);
   if (!match) return null;
   const fileId = match[1];

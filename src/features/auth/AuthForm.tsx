@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import { ArrowLeft, Eye, EyeOff, GraduationCap, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { request, portalNames, type Portal, type User } from '../../services/platformApi';
 import { PreferenceControls, direction, t, usePreferences } from '../../i18n/preferences';
 import { RegistrationFlow } from './RegistrationFlow';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: User) => void }) {
   usePreferences();
@@ -21,6 +22,14 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
       history.replaceState({}, '', location.pathname); onLogin(result.user);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
+  const googleLogin = useCallback(async (credential: string) => {
+    setBusy(true); setError('');
+    try {
+      const result = await request<{ user: User }>('auth/google', { credential, role: portal, loginOnly: true });
+      onLogin(result.user);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }, [onLogin, portal]);
   if (register && portal !== 'admin' && !setupToken) return <main className={`auth-page redesigned-auth registration-page portal-${portal}`} dir={direction()}>
     <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>Mansah<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main registration-main"><RegistrationFlow portal={portal} onLogin={onLogin} onCancel={() => { setRegister(false); setError(''); }} /></div>
@@ -42,6 +51,7 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
           {error && <p className="notice error" role="alert">{t(error)}</p>}
           <button className="primary-button auth-submit" disabled={busy}><LogIn size={18} />{busy ? t("جارٍ المتابعة…") : register ? t("إنشاء الحساب") : t("دخول")}<ArrowLeft size={18} /></button>
         </form>
+        {portal !== 'admin' && !setupToken && !register && <div className="auth-google-option"><div className="registration-divider"><span>{t('أو')}</span></div><GoogleSignInButton onCredential={googleLogin} /></div>}
         {portal !== 'admin' && <div className="auth-register"><span>{register ? t("لديك حساب؟") : t("أول مرة في منصّة؟")}</span><button className="text-button" onClick={() => { setRegister(!register); setError(''); }}><UserPlus size={17} />{register ? t("لدي حساب بالفعل") : t("إنشاء حساب جديد")}</button></div>}
       </section>
       <footer className="auth-footer"><ShieldCheck size={15} /><span>{t(portalNames[portal])}</span><span dir="ltr">Mansah © {new Date().getFullYear()}</span></footer>

@@ -33,13 +33,13 @@ async function makePage(role, loggedIn = true) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block', permissions: ['notifications'] });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: `window.google={accounts:{id:{initialize(){},renderButton(node){const button=document.createElement('button');button.type='button';button.textContent='المتابعة باستخدام Google';node.append(button)}}}};` }));
+  await page.route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: `window.google={accounts:{id:{initialize(options){window.__googleCallback=options.callback},renderButton(node){const button=document.createElement('button');button.type='button';button.textContent='المتابعة باستخدام Google';button.onclick=()=>window.__googleCallback({credential:'header.payload.signature'});node.append(button)}}}};` }));
   await page.route('**/api/**', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (request.method() === 'POST') mutations.push({ path, body: request.postDataJSON() });
     if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: loggedIn ? user : null } });
-    if (/\/auth\/(login|register)$/.test(path)) return route.fulfill({ json: { user } });
+    if (/\/auth\/(login|register|google)$/.test(path)) return route.fulfill({ json: { user } });
     if (path.endsWith('/reminders')) return route.fulfill({ json: { bookings: [] } });
     if (path.endsWith('/catalog')) return route.fulfill({ json: { categories } });
     if (path.endsWith('/students/wallet')) return route.fulfill({ json: { balance: 5000, payment: { cliq_name: 'Mansah', cliq_alias: 'Mansah.CliQ', ready: true }, topups: [], transactions: [] } });
@@ -232,6 +232,12 @@ try {
   await page.getByText('سجّل باستخدام حساب Google للمتابعة.', { exact: true }).waitFor();
   assert.ok(!mutations.some(item => item.path.endsWith('/auth/register')));
   await context.close();
+  const googleLoginPage = await makePage('students', false);
+  await googleLoginPage.page.getByRole('button', { name: 'المتابعة باستخدام Google', exact: true }).click();
+  await googleLoginPage.page.locator('.workspace-content').waitFor();
+  const googleLoginMutation = mutations.findLast(item => item.path.endsWith('/auth/google'));
+  assert.equal(googleLoginMutation?.body.loginOnly, true, 'regular Google sign-in must only open an existing account');
+  await googleLoginPage.context.close();
   assert.deepEqual(errors, []);
   console.log('Interface checks passed: all three portals, 320-1920px, discovery, booking, lesson details, history filters, password visibility and registration.');
 } finally {

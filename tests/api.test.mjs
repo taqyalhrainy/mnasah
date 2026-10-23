@@ -80,6 +80,10 @@ test('authorization and the full reservation lifecycle', async () => {
   await uploadVerification('teacher', 'credential', 'degree.pdf', new TextEncoder().encode('%PDF-1.7'), 'application/pdf');
   const submittedVerification = await call('teacher', 'teachers/verification/submit', {});
   assert.equal(submittedVerification.user.verification.verification_status, 'submitted');
+  await call('teacher', 'teachers/verification/avatar/remove', {});
+  const verificationFiles = (await call('teacher', 'teachers/verification/status')).files;
+  assert.equal(verificationFiles.some(file => file.kind === 'avatar'), false, 'removing an avatar must clear only the profile photo');
+  assert.equal(verificationFiles.some(file => file.kind === 'credential'), true, 'removing an avatar must preserve professional certificates');
   await call('teacher', 'teachers/slots', undefined, 403);
   const customPackages = [{ id: 'robotics', name: 'روبوتكس', description: 'برمجة الروبوت', levels: ['مبتدئ', 'متقدم'] }];
   const savedProfile = await call('teacher', 'teachers/profile', { name: 'Teacher', subject: 'Math', bio: 'Algebra tutor', custom_packages: customPackages });

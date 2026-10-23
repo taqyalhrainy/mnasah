@@ -71,6 +71,7 @@ export async function auth(request, env, action, body) {
     user = await one(env, 'SELECT * FROM users WHERE email=?', email);
     if (user && user.role !== role) fail(409, 'هذا البريد مرتبط بقسم مختلف.');
     if (!user) {
+      if (body.loginOnly === true) fail(404, 'لا يوجد حساب مرتبط بهذا البريد في هذا القسم. أنشئ حساباً جديداً أولاً.');
       if (role === 'admin') fail(403, 'تسجيل Google غير متاح للإدارة.');
       const verification = registrationProfile(body, role);
       user = { id: crypto.randomUUID(), email, name: [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: await passwordHash(random()), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone, verification: JSON.stringify(verification), auth_provider: 'google', email_verified: 1 };

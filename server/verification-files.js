@@ -16,6 +16,14 @@ export function verificationBytes(db) {
 }
 
 export async function serveVerificationFile(req, res, { db, user, path }) {
+  if (path === 'verification/avatar/remove') {
+    if (req.method !== 'POST' || user.role !== 'teachers') fail(405, 'طريقة غير مدعومة.');
+    const avatars = await db.collection('verification_files').find({ user_id: user.id, kind: 'avatar' }).toArray();
+    const bytes = verificationBytes(db);
+    await Promise.all(avatars.map(file => bytes.remove(file.id)));
+    await db.collection('verification_files').deleteMany({ user_id: user.id, kind: 'avatar' });
+    res.json({ ok: true }); return true;
+  }
   const match = /^verification\/files(?:\/([^/]+))?$/.exec(path);
   if (!match) return false;
   const fileId = match[1];

@@ -362,6 +362,7 @@ input[type=checkbox] { accent-color: var(--ink); }
 .auth-submit > svg:last-child { margin-inline-start: auto; }
 .auth-submit > svg:first-child { margin-inline-end: auto; }
 .auth-register { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; color: #655621; font-size: 13px; }
+.auth-google-option { display: grid; gap: 12px; margin-top: 18px; }
 .redesigned-auth .auth-register .text-button { margin: 0; color: var(--ink); font-size: 13px; text-decoration: underline; text-underline-offset: 4px; }
 .auth-footer { display: flex; align-items: center; gap: 7px; margin-top: 34px; padding-top: 18px; border-top: 1px solid #b89f39; color: #756127; font-size: 10px; }
 .auth-footer > span:last-child { margin-inline-start: auto; }
@@ -817,6 +818,8 @@ input[type=checkbox] { accent-color: var(--ink); }
 .registration-actions button { min-height: 47px; }
 .registration-actions .primary-button { min-width: 190px; }
 .profile-photo-editor { position: relative; display: grid !important; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 13px !important; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; cursor: pointer; }
+.profile-photo-settings { display: grid; gap: 8px; }
+.remove-profile-photo { justify-self: start; color: #a92d34; }
 .profile-photo-editor input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .profile-photo-editor > span:not(.profile-photo-preview) { display: grid; }
 .profile-photo-editor small { color: var(--muted); }

@@ -142,4 +142,5 @@ export const messages: Record<string, string> = {
   'إرفاق الشهادات والمؤهلات': 'Attach certificates and qualifications', 'أضف شهادة أو مستنداً داعماً واحداً على الأقل.': 'Add at least one certificate or supporting document.',
   'الصورة الشخصية اختيارية، ويمكنك إضافتها أو تعديلها لاحقاً من حسابك.': 'The profile photo is optional and can be added or changed later.', 'صورة شخصية (اختيارية)': 'Profile photo (optional)',
   'سجّل من 5 إلى 30 ثانية. لن تسمع صوتك أثناء التسجيل.': 'Record for 5 to 30 seconds. You will not hear your voice while recording.', 'اختيارية ويمكن تعديلها في أي وقت': 'Optional and editable at any time', 'تم تحديث الصورة الشخصية.': 'Profile photo updated.',
+  'أو': 'or', 'لا يوجد حساب مرتبط بهذا البريد في هذا القسم. أنشئ حساباً جديداً أولاً.': 'No account is linked to this email in this portal. Create an account first.', 'تُضاف الصورة الشخصية لاحقاً من حسابك، ولا تختلط بملفات الشهادات.': 'Add your profile photo later from your account so it stays separate from certificate files.', 'إزالة الصورة الشخصية': 'Remove profile photo', 'تمت إزالة الصورة الشخصية.': 'Profile photo removed.',
 };
