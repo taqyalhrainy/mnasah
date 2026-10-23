@@ -11,10 +11,24 @@ import { workerVerificationFile } from './verification-files.js';
 import { workerWalletTopup } from './wallet-topups.js';
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 
-const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,s.start,s.minutes,s.price,s.subject,s.available_until,t.name AS teacher_name,p.name AS student_name FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
+const bookingStartSql = 'COALESCE(NULLIF(b.start,0),s.start)';
+const bookingMinutesSql = 'COALESCE(NULLIF(b.minutes,0),s.minutes)';
+const bookingPriceSql = 'COALESCE(NULLIF(b.price,0),s.price)';
+const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,${bookingStartSql} AS start,${bookingMinutesSql} AS minutes,${bookingPriceSql} AS price,COALESCE(NULLIF(b.subject,''),s.subject) AS subject,s.available_until,t.name AS teacher_name,t.phone AS teacher_phone,p.name AS student_name,p.phone AS student_phone FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const allowedDurations = [30, 45, 60, 90, 120];
 const parseList = (value, fallback) => { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) && parsed.length ? parsed : fallback; } catch { return fallback; } };
 const normalizeSlot = slot => slot ? ({ ...slot, legacy_all_subjects: (!slot.subjects || slot.subjects === '[]') && slot.subject === 'كل المواد المختارة', subjects: parseList(slot.subjects, [slot.subject].filter(Boolean)), offerings: parseList(slot.offerings, [{ minutes: slot.minutes, price: slot.price }]) }) : slot;
+const slotHasAvailability = slot => {
+  const minimum = Math.min(...slot.offerings.map(item => Number(item.minutes))) * 60000;
+  const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
+  let cursor = Math.max(Number(slot.start), Date.now());
+  for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
+    if (range.end <= cursor) continue;
+    if (range.start - cursor >= minimum) return true;
+    cursor = Math.max(cursor, range.end);
+  }
+  return end - cursor >= minimum;
+};
 function slotSubjects(body) {
   const values = Array.isArray(body.subjects) ? body.subjects : [body.subject];
   const subjects = [...new Set(values.map(value => field(value, 100)).filter(Boolean))];
@@ -55,7 +69,7 @@ export async function api(request, env, portal, path, body) {
   if (path === 'verification/status' && !write && user.role === 'teachers') return { user: publicUser(user), files: await all(env, 'SELECT id,user_id,kind,name,size,content_type,created FROM verification_files WHERE user_id=?', user.id) };
   if (path === 'verification/submit' && write && user.role === 'teachers') {
     const files = await all(env, 'SELECT id,kind FROM verification_files WHERE user_id=?', user.id);
-    if (!files.some(file => file.kind === 'avatar') || !files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل الصورة وفيديو التحقق والمستند الداعم قبل إرسال الطلب.');
+    if (!files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل فيديو التحقق والمستند الداعم قبل إرسال الطلب.');
     const verification = { ...parseVerification(user.verification), verification_status: 'submitted', submitted_at: Date.now(), reviewed_at: 0, rejection_reason: '' };
     await run(env, 'UPDATE users SET verification=? WHERE id=?', JSON.stringify(verification), user.id);
     return { user: publicUser({ ...user, verification }) };
@@ -80,24 +94,24 @@ export async function api(request, env, portal, path, body) {
   }
   if (path === 'reminders' && !write && user.role !== 'admin') {
     const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
-    return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND s.start>=? AND s.start<=? ORDER BY s.start LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
+    return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? AND b.status='confirmed' AND ${bookingStartSql}>=? AND ${bookingStartSql}<=? ORDER BY ${bookingStartSql} LIMIT 100`, user.id, Date.now() - 300000, Date.now() + 86400000) };
   }
   if (path === 'rooms' && !write && user.role !== 'admin') {
     const ownerColumn = user.role === 'teachers' ? 's.teacher_id' : 'b.student_id';
-    return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? ORDER BY s.start DESC LIMIT 500`, user.id) };
+    return { bookings: await all(env, `${bookingSelect} WHERE ${ownerColumn}=? ORDER BY ${bookingStartSql} DESC LIMIT 500`, user.id) };
   }
   if (path === 'catalog') return catalog(env, user, write, body);
   if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
     const range = paymentRange(Object.fromEntries(new URL(request.url).searchParams));
-    const rows = await all(env, `${bookingSelect} WHERE b.status='completed' AND s.start>=? AND s.start<?${user.role === 'teachers' ? ' AND s.teacher_id=?' : ''} ORDER BY s.start DESC`, range.from, range.until, ...(user.role === 'teachers' ? [user.id] : []));
+    const rows = await all(env, `${bookingSelect} WHERE b.status='completed' AND ${bookingStartSql}>=? AND ${bookingStartSql}<?${user.role === 'teachers' ? ' AND s.teacher_id=?' : ''} ORDER BY ${bookingStartSql} DESC`, range.from, range.until, ...(user.role === 'teachers' ? [user.id] : []));
     return paymentSummary(rows, range, commissionPercent(env));
   }
   if (user.role === 'teachers' && !write && ['home', 'booked', 'available', 'history'].includes(path)) {
-    return { bookings: await all(env, `${bookingSelect} WHERE s.teacher_id=? ORDER BY s.start DESC LIMIT 500`, user.id), slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
+    return { bookings: await all(env, `${bookingSelect} WHERE s.teacher_id=? ORDER BY ${bookingStartSql} DESC LIMIT 500`, user.id), slots: await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id) };
   }
   if (path === 'overview' && !write) {
     const where = user.role === 'admin' ? '' : user.role === 'teachers' ? ' WHERE s.teacher_id=?' : ' WHERE b.student_id=?';
-    return { bookings: await all(env, `${bookingSelect}${where} ORDER BY s.start DESC LIMIT 500`, ...(where ? [user.id] : [])) };
+    return { bookings: await all(env, `${bookingSelect}${where} ORDER BY ${bookingStartSql} DESC LIMIT 500`, ...(where ? [user.id] : [])) };
   }
   if (path === 'users' && user.role === 'admin' && !write) {
     const rows = await all(env, 'SELECT * FROM users ORDER BY created DESC LIMIT 1000');
@@ -167,20 +181,20 @@ export async function api(request, env, portal, path, body) {
   }
   if (path === 'earnings' && user.role === 'teachers' && !write) {
     const pct = commissionPercent(env);
-    const completed = await all(env, `${bookingSelect} WHERE s.teacher_id=? AND b.status='completed' ORDER BY s.start DESC LIMIT 500`, user.id);
+    const completed = await all(env, `${bookingSelect} WHERE s.teacher_id=? AND b.status='completed' ORDER BY ${bookingStartSql} DESC LIMIT 500`, user.id);
     const gross = completed.reduce((sum, b) => sum + b.price, 0);
     const fee = Math.round(gross * pct / 100);
     return { commissionPercent: pct, gross, fee, net: gross - fee, completed, payouts: await all(env, 'SELECT * FROM payouts WHERE teacher_id=? ORDER BY period_end DESC LIMIT 100', user.id) };
   }
   if (path === 'payouts' && user.role === 'admin' && !write) {
     const pct = commissionPercent(env);
-    const rows = await all(env, `SELECT s.teacher_id,u.name AS teacher_name,COALESCE(SUM(s.price),0) AS gross,COUNT(*) AS lessons FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users u ON u.id=s.teacher_id WHERE b.status='completed' GROUP BY s.teacher_id,u.name`);
+    const rows = await all(env, `SELECT s.teacher_id,u.name AS teacher_name,COALESCE(SUM(${bookingPriceSql}),0) AS gross,COUNT(*) AS lessons FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users u ON u.id=s.teacher_id WHERE b.status='completed' GROUP BY s.teacher_id,u.name`);
     return { payouts: rows.map(r => ({ ...r, fee: Math.round(r.gross * pct / 100), net: r.gross - Math.round(r.gross * pct / 100), status: 'pending' })) };
   }
   if (/^payouts\/[^/]+\/paid$/.test(path) && user.role === 'admin' && write) {
     const teacherId = path.split('/')[1];
     const pct = commissionPercent(env);
-    const row = await one(env, `SELECT COALESCE(SUM(s.price),0) AS gross FROM bookings b JOIN slots s ON s.id=b.slot_id WHERE b.status='completed' AND s.teacher_id=?`, teacherId);
+    const row = await one(env, `SELECT COALESCE(SUM(${bookingPriceSql}),0) AS gross FROM bookings b JOIN slots s ON s.id=b.slot_id WHERE b.status='completed' AND s.teacher_id=?`, teacherId);
     const gross = Number(row?.gross || 0);
     await env.DB.batch([
       statement(env, 'INSERT INTO payouts (id,teacher_id,period_start,period_end,amount,status,paid_at,created) VALUES (?,?,?,?,?,?,?,?)', crypto.randomUUID(), teacherId, 0, Date.now(), gross - Math.round(gross * pct / 100), 'paid', Date.now(), Date.now()),
@@ -191,7 +205,9 @@ export async function api(request, env, portal, path, body) {
   if (path === 'slots') {
     if (!write) {
       if (user.role === 'teachers') return { slots: (await all(env, 'SELECT * FROM slots WHERE teacher_id=? ORDER BY start DESC LIMIT 500', user.id)).map(normalizeSlot) };
-      return { slots: (await all(env, `SELECT s.*,u.name AS teacher_name,u.bio,u.subject AS teacher_subjects FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? ORDER BY s.start LIMIT 500`, Date.now())).map(normalizeSlot) };
+      const slots = (await all(env, `SELECT s.*,u.name AS teacher_name,u.bio,u.subject AS teacher_subjects FROM slots s JOIN users u ON u.id=s.teacher_id WHERE s.status='open' AND u.status='active' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? ORDER BY s.start LIMIT 500`, Date.now())).map(normalizeSlot);
+      const reservations = await all(env, `SELECT slot_id,${bookingStartSql} AS start,${bookingMinutesSql} AS minutes FROM bookings b JOIN slots s ON s.id=b.slot_id WHERE b.status='confirmed' AND s.status='open'`);
+      return { slots: slots.map(slot => ({ ...slot, booked_ranges: reservations.filter(item => item.slot_id === slot.id).map(item => ({ start: Number(item.start), end: Number(item.start) + Number(item.minutes) * 60000 })) })).filter(slotHasAvailability) };
     }
     if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
     const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
@@ -210,6 +226,7 @@ export async function api(request, env, portal, path, body) {
   if (path.startsWith('slots/') && write) {
     const id = path.split('/')[1];
     if (user.role === 'teachers') {
+      if (await one(env, "SELECT id FROM bookings WHERE slot_id=? AND status='confirmed' LIMIT 1", id)) fail(409, 'لا يمكن حذف فترة فيها حجوزات مؤكدة. ألغِ الحجوزات أولاً.');
       const r = await run(env, "UPDATE slots SET status='cancelled' WHERE id=? AND teacher_id=? AND status='open'", id, user.id);
       if (!r.meta.changes) fail(409, 'تعذر حذف الموعد لأنه غير متاح.');
       return { ok: true };
@@ -224,13 +241,17 @@ export async function api(request, env, portal, path, body) {
     const selectedOffering = slot.offerings.find(item => item.minutes === Number(body.minutes)) || (slot.offerings.length === 1 ? slot.offerings[0] : null);
     if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
     if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
+    const hasSelectedStart = body.start !== undefined && body.start !== null && body.start !== '';
+    const selectedStart = Number(hasSelectedStart ? body.start : slot.start);
+    const selectedEnd = selectedStart + selectedOffering.minutes * 60000;
+    const slotEnd = Number(slot.available_until || slot.start + slot.minutes * 60000);
+    if (!Number.isSafeInteger(selectedStart) || (hasSelectedStart && (selectedStart < Number(slot.start) || selectedEnd > slotEnd || selectedStart <= Date.now()))) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي نشرها الأستاذ.');
     const method = body.method === 'wallet' || !user.development_access ? 'wallet' : 'sandbox';
     if (method === 'wallet') { await ensureWalletAccount(env, user.id); if (await walletBalance(env, user.id) < selectedOffering.price) fail(402, 'رصيد المحفظة غير كافٍ.'); }
     const walletCondition = method === 'wallet' ? ' AND EXISTS (SELECT 1 FROM wallet_accounts w WHERE w.user_id=? AND w.balance>=?)' : '';
-    const bookingParams = [bookingId, user.id, random(), Date.now(), id, Date.now(), user.id, selectedOffering.minutes, ...(method === 'wallet' ? [user.id, selectedOffering.price] : [])];
+    const bookingParams = [bookingId, user.id, hasSelectedStart ? selectedStart : 0, selectedOffering.minutes, selectedOffering.price, selectedSubject, random(), Date.now(), id, selectedEnd, selectedStart, selectedEnd, selectedStart, user.id, selectedEnd, selectedStart, ...(method === 'wallet' ? [user.id, selectedOffering.price] : [])];
     const statements = [
-      statement(env, `INSERT INTO bookings (id,slot_id,student_id,status,room,created) SELECT ?,s.id,?,'confirmed',?,? FROM slots s JOIN users t ON t.id=s.teacher_id WHERE s.id=? AND s.status='open' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>? AND t.status='active' AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE b.student_id=? AND b.status='confirmed' AND x.start<s.start+?*60000 AND x.start+x.minutes*60000>s.start)${walletCondition}`, ...bookingParams),
-      statement(env, "UPDATE slots SET status='booked',subject=?,minutes=?,price=? WHERE id=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)", selectedSubject, selectedOffering.minutes, selectedOffering.price, id, bookingId),
+      statement(env, `INSERT INTO bookings (id,slot_id,student_id,start,minutes,price,subject,status,room,created) SELECT ?,s.id,?,?,?,?,?,'confirmed',?,? FROM slots s JOIN users t ON t.id=s.teacher_id WHERE s.id=? AND s.status='open' AND COALESCE(NULLIF(s.available_until,0),s.start+s.minutes*60000)>=? AND s.start<=? AND t.status='active' AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE x.teacher_id=s.teacher_id AND b.status='confirmed' AND COALESCE(NULLIF(b.start,0),x.start)<? AND COALESCE(NULLIF(b.start,0),x.start)+COALESCE(NULLIF(b.minutes,0),x.minutes)*60000>?) AND NOT EXISTS (SELECT 1 FROM bookings b JOIN slots x ON x.id=b.slot_id WHERE b.student_id=? AND b.status='confirmed' AND COALESCE(NULLIF(b.start,0),x.start)<? AND COALESCE(NULLIF(b.start,0),x.start)+COALESCE(NULLIF(b.minutes,0),x.minutes)*60000>?)${walletCondition}`, ...bookingParams),
       statement(env, 'UPDATE bookings SET paid=1,payment_ref=? WHERE id=?', method === 'wallet' ? 'wallet' : `sandbox-${random().slice(0, 10)}`, bookingId),
     ];
     if (method === 'wallet') statements.push(
@@ -285,13 +306,12 @@ export async function api(request, env, portal, path, body) {
     }
     if (action === 'cancel' && write) {
       if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-      const cancellationDeadline = Number(row.available_until) || row.start + row.minutes * 60000;
+      const cancellationDeadline = Number(row.start);
       if (user.role !== 'admin' && cancellationDeadline <= Date.now()) fail(409, 'انتهى وقت الإلغاء لهذه الحصة.');
       if (row.payment_ref === 'wallet') await ensureWalletAccount(env, row.student_id);
       const refundReference = `lesson-refund:${id}`;
       const results = await env.DB.batch([
         statement(env, "UPDATE bookings SET status='cancelled',room=? WHERE id=? AND status='confirmed'", random(), id),
-        statement(env, "UPDATE slots SET status='open' WHERE id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM bookings WHERE slot_id=? AND status='confirmed')", row.slot_id, id, row.slot_id),
         ...(row.payment_ref === 'wallet' ? [
           statement(env, "UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", row.price, Date.now(), row.student_id, id, refundReference),
           statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_refund',?,?,? WHERE EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", crypto.randomUUID(), row.student_id, row.price, refundReference, Date.now(), id, refundReference),

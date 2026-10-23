@@ -64,6 +64,7 @@ app.use((req, res, next) => {
   next();
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/public/config', (_req, res) => res.json({ googleClientId: GOOGLE_CLIENT_ID }));
 
 let db;
 let client;
@@ -84,6 +85,7 @@ async function connect() {
     db.collection('slots').createIndex({ start: 1 }),
     db.collection('bookings').createIndex({ slot_id: 1 }),
     db.collection('bookings').createIndex({ student_id: 1 }),
+    db.collection('bookings').createIndex({ student_id: 1, start: 1 }),
     db.collection('messages').createIndex({ booking_id: 1, created: 1 }),
     db.collection('conversations').createIndex({ id: 1 }, { unique: true }),
     db.collection('conversations').createIndex({ teacher_id: 1, student_id: 1 }, { unique: true }),
@@ -130,6 +132,17 @@ function slotOfferings(body) {
 }
 const storedSubjects = slot => Array.isArray(slot.subjects) && slot.subjects.length ? slot.subjects : [slot.subject].filter(Boolean);
 const storedOfferings = slot => Array.isArray(slot.offerings) && slot.offerings.length ? slot.offerings : [{ minutes: slot.minutes, price: slot.price }];
+const slotHasAvailability = slot => {
+  const minimum = Math.min(...storedOfferings(slot).map(item => Number(item.minutes))) * 60000;
+  const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
+  let cursor = Math.max(Number(slot.start), Date.now());
+  for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
+    if (range.end <= cursor) continue;
+    if (range.start - cursor >= minimum) return true;
+    cursor = Math.max(cursor, range.end);
+  }
+  return end - cursor >= minimum;
+};
 const random = () => crypto.randomBytes(32).toString('hex');
 const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 function passwordHash(value, salt = random()) {
@@ -235,14 +248,14 @@ async function enrichBookings(bookings) {
   const slots = await db.collection('slots').find({ id: { $in: slotIds } }, { projection: { _id: 0 } }).toArray();
   const slotMap = new Map(slots.map(s => [s.id, s]));
   const userIds = [...new Set(slots.flatMap(s => [s.teacher_id]).concat(bookings.map(b => b.student_id)))];
-  const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, bio: 1, subject: 1 } }).toArray();
+  const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, phone: 1, bio: 1, subject: 1 } }).toArray();
   const userMap = new Map(users.map(u => [u.id, u]));
   return bookings.map(b => {
     const s = slotMap.get(b.slot_id) || {};
     const teacher = userMap.get(s.teacher_id) || {};
     const student = userMap.get(b.student_id) || {};
     const { room: _room, ...safeBooking } = b;
-    return { ...s, ...safeBooking, teacher_id: s.teacher_id, teacher_name: teacher.name || '', student_name: student.name || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '' };
+    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacher.phone || '', student_name: student.name || '', student_phone: student.phone || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '' };
   });
 }
 async function walletBalance(userId) {
@@ -342,7 +355,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path === 'verification/status' && !write && user.role === 'teachers') return res.json({ user: publicUser(user), files: await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0, declared_type: 0 } }).toArray() });
     if (path === 'verification/submit' && write && user.role === 'teachers') {
       const files = await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0 } }).toArray();
-      if (!files.some(file => file.kind === 'avatar') || !files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل الصورة وفيديو التحقق والمستند الداعم قبل إرسال الطلب.');
+      if (!files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل فيديو التحقق والمستند الداعم قبل إرسال الطلب.');
       const verification = { ...parseVerification(user.verification), verification_status: 'submitted', submitted_at: Date.now(), reviewed_at: 0, rejection_reason: '' };
       await db.collection('users').updateOne({ id: user.id }, { $set: { verification } });
       return res.json({ user: publicUser({ ...user, verification }) });
@@ -455,7 +468,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         const slots = await db.collection('slots').find({ status: 'open', available_until: { $gt: Date.now() } }, { projection: { _id: 0 } }).sort({ start: 1 }).limit(500).toArray();
         const teachers = await db.collection('users').find({ id: { $in: [...new Set(slots.map(s => s.teacher_id))] }, status: 'active' }, { projection: { _id: 0 } }).toArray();
         const teacherMap = new Map(teachers.map(t => [t.id, t]));
-        return res.json({ slots: slots.filter(s => teacherMap.has(s.teacher_id)).map(s => ({ ...s, teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '' })) });
+        const occupied = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, status: 'confirmed' }, { projection: { _id: 0, slot_id: 1, start: 1, minutes: 1 } }).toArray();
+        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => ({ ...s, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '' }));
+        return res.json({ slots: available.filter(slotHasAvailability) });
       }
       if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
       const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
@@ -473,7 +488,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path.startsWith('slots/') && write) {
       const id = path.split('/')[1];
       if (user.role === 'teachers') {
-        await db.collection('slots').updateOne({ id, teacher_id: user.id, status: 'open' }, { $set: { status: 'cancelled' } });
+        if (await db.collection('bookings').findOne({ slot_id: id, status: 'confirmed' })) fail(409, 'لا يمكن حذف فترة فيها حجز مؤكد. ألغِ الحصة أولاً.');
+        const result = await db.collection('slots').updateOne({ id, teacher_id: user.id, status: 'open' }, { $set: { status: 'cancelled' } });
+        if (!result.modifiedCount) fail(409, 'تعذر حذف الموعد لأنه غير متاح.');
         return res.json({ ok: true });
       }
       if (user.role !== 'students') fail(403, 'الحجز متاح للطلاب فقط.');
@@ -486,19 +503,25 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const selectedOffering = offerings.find(item => item.minutes === Number(body.minutes)) || (offerings.length === 1 ? offerings[0] : null);
       if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
       if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
+      const hasSelectedStart = body.start !== undefined && body.start !== null && body.start !== '';
+      const selectedStart = Number(hasSelectedStart ? body.start : slot.start);
+      const selectedEnd = selectedStart + selectedOffering.minutes * 60000;
+      if (!Number.isSafeInteger(selectedStart) || (hasSelectedStart && (selectedStart < Number(slot.start) || selectedEnd > Number(slot.available_until) || selectedStart <= Date.now()))) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي حددها الأستاذ.');
+      const studentBookings = await enrichBookings(await db.collection('bookings').find({ student_id: user.id, status: 'confirmed' }, { projection: { _id: 0 } }).toArray());
+      if (studentBookings.some(row => selectedStart < row.start + row.minutes * 60000 && selectedEnd > row.start)) fail(409, 'لديك حصة أخرى تتعارض مع هذا الوقت.');
       const bookingId = crypto.randomUUID();
+      const reserved = await db.collection('slots').updateOne({ id, status: 'open', start: { $lte: selectedStart }, available_until: { $gte: selectedEnd }, $nor: [{ reservations: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }] }, { $push: { reservations: { booking_id: bookingId, start: selectedStart, end: selectedEnd } } });
+      if (!reserved.modifiedCount) fail(409, 'هذا الوقت حُجز للتو. اختر وقتاً آخر من الفترة المتاحة.');
       await walletAccount(user.id);
       const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
-      if (!debit.modifiedCount) fail(402, 'رصيد المحفظة غير كافٍ.');
-      const reserved = await db.collection('slots').updateOne({ id, status: 'open' }, { $set: { status: 'booked', subject: selectedSubject, minutes: selectedOffering.minutes, price: selectedOffering.price } });
-      if (!reserved.modifiedCount) { await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } }); fail(409, 'الموعد لم يعد متاحاً.'); }
+      if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(402, 'رصيد المحفظة غير كافٍ.'); }
       try {
-        await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, status: 'confirmed', room: random(), paid: 1, payment_ref: 'wallet', notes: '', resource: '', created: Date.now() });
+        await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: selectedOffering.price, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: 'wallet', notes: '', resource: '', created: Date.now() });
         await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
       } catch (error) {
         await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } });
         await db.collection('bookings').deleteOne({ id: bookingId });
-        await db.collection('slots').updateOne({ id, status: 'booked' }, { $set: { status: 'open', subject: slot.subject, minutes: slot.minutes, price: slot.price } }); throw error;
+        await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); throw error;
       }
       await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
       io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
@@ -545,11 +568,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       if (action === 'cancel' && write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        const cancellationDeadline = Number(row.available_until) || row.start + row.minutes * 60000;
+        const cancellationDeadline = Number(row.start);
         if (user.role !== 'admin' && cancellationDeadline <= Date.now()) fail(409, 'انتهى وقت الإلغاء لهذه الحصة.');
         const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: { status: 'cancelled', room: random() } });
         if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        await db.collection('slots').updateOne({ id: row.slot_id }, { $set: { status: 'open' } });
+        await db.collection('slots').updateOne({ id: row.slot_id }, { $pull: { reservations: { booking_id: id } } });
         if (row.payment_ref === 'wallet') {
           await walletAccount(row.student_id);
           await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: row.price }, $set: { updated: Date.now() } });

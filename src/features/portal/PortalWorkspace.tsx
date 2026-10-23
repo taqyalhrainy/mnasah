@@ -1,7 +1,7 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { BookOpen, CalendarPlus, Check, ChevronLeft, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2 } from 'lucide-react';
-import { ApiError, request, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData } from '../../services/platformApi';
+import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
@@ -36,6 +36,19 @@ const slotSubjects = (slot: Slot) => slot.subjects?.filter(Boolean).length
 const slotOfferings = (slot: Slot): SlotOffering[] => slot.offerings?.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).length
   ? [...new Map(slot.offerings.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).map(item => [item.minutes, item])).values()].sort((left, right) => left.minutes - right.minutes)
   : [{ minutes: slot.minutes, price: slot.price }];
+const availableBookingStarts = (slot: Slot, minutes: number) => {
+  if (!minutes) return [];
+  const step = 5 * 60000;
+  const windowEnd = Number(slot.available_until || slot.start + slot.minutes * 60000);
+  const first = Math.max(Number(slot.start), Math.ceil((Date.now() + 1000) / step) * step);
+  const occupied = slot.booked_ranges || [];
+  const starts: number[] = [];
+  for (let start = first; start + minutes * 60000 <= windowEnd; start += step) {
+    const end = start + minutes * 60000;
+    if (!occupied.some(range => start < range.end && end > range.start)) starts.push(start);
+  }
+  return starts;
+};
 type TeachingChoice = { categoryId: string; categoryName: string; subject: string; levels: string[] };
 const teachingChoiceKey = (categoryId: string, subject: string) => `${categoryId}\u0000${subject}`;
 const uniqueTeachingChoices = (choices: TeachingChoice[]) => [...new Map(choices.map(choice => [teachingChoiceKey(choice.categoryId, choice.subject), choice])).values()];
@@ -94,6 +107,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [bookingSlot, setBookingSlot] = useState<Slot | null>(null);
   const [bookingSubject, setBookingSubject] = useState('');
   const [bookingMinutes, setBookingMinutes] = useState(0);
+  const [bookingStart, setBookingStart] = useState(0);
+  const [profileAvatarVersion, setProfileAvatarVersion] = useState(0);
   const [walletRequired, setWalletRequired] = useState(0);
   const [room, setRoom] = useState<Room | null>(null);
   const [callCompact, setCallCompact] = useState(false);
@@ -199,6 +214,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     finally { setBusy(false); }
   }
   const post = (path: string, body: unknown = {}) => request(`${portal}/${path}`, body);
+  const teacherAvatarEditor = portal === 'teachers' && <label className="profile-photo-editor"><span className="profile-photo-preview"><UserRound size={28} />{user.avatar_url && <img src={`${apiMediaUrl(user.avatar_url)}?v=${profileAvatarVersion}`} alt={t('الصورة الشخصية')} onError={event => { event.currentTarget.hidden = true; }} />}</span><span><strong>{t('الصورة الشخصية')}</strong><small>{t('اختيارية ويمكن تعديلها في أي وقت')}</small></span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 5 * 1024 * 1024) { setError(t('الصورة أكبر من 5 ميغابايت.')); return; } void act(async () => { await requestFile('teachers/verification/files', file, { kind: 'avatar' }); setProfileAvatarVersion(Date.now()); }, t('تم تحديث الصورة الشخصية.')); }} /></label>;
   const current = bookings.find(b => b.id === selected);
   const currentSlot = slots.find(s => s.id === selectedSlot);
   const deleteSlot = (id: string) => { if (window.confirm(t("حذف هذا الموعد؟"))) void act(async () => { await post(`slots/${id}`); setSlots(rows => rows.filter(slot => slot.id !== id)); setSelectedSlot(null); }, t("تم حذف الموعد.")); };
@@ -221,7 +237,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     }, t("الغرفة جاهزة."));
   }
   const cancel = (b: Booking) => { if (window.confirm(t("إلغاء حصة {v0} بتاريخ {v1}؟", { v0: catalogText(b.subject), v1: date(b.start) }))) void act(() => post(`bookings/${b.id}/cancel`), t("تم إلغاء الحصة.")); };
-  const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && matches(searchText(slotSubjects(s).join(' '), s.teacher_name || '', s.teacher_subjects || '')));
+  const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && (portal !== 'students' || slotOfferings(s).some(offering => availableBookingStarts(s, offering.minutes).length)) && matches(searchText(slotSubjects(s).join(' '), s.teacher_name || '', s.teacher_subjects || '')));
   const teacherMap = new Map<string, Booking>();
   bookings.forEach(b => { if (!teacherMap.has(b.teacher_id)) teacherMap.set(b.teacher_id, b); });
   const myTutors = [...teacherMap.values()];
@@ -295,13 +311,13 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return fuzzyMatch(specialties, studentSubject) || (s.subject === 'كل المواد المختارة' && teachesSubject(s.teacher_subjects || '', studentSubject));
   });
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label={t("بحث")} placeholder={t("ابحث عن مادة أو أستاذ")} value={query} onChange={e => setQuery(e.target.value)} /></label>;
-  async function completeBooking(slot: Slot, subject: string, offering: SlotOffering) {
+  async function completeBooking(slot: Slot, subject: string, offering: SlotOffering, start: number) {
     setBusy(true); setError(''); setSuccess('');
     try {
       const wallet = await request<WalletData>('students/wallet');
       if (wallet.balance < offering.price) { setWalletRequired(offering.price); setBookingSlot(null); onView('wallet'); return; }
       if (!window.confirm(t("تأكيد حجز حصة {v0} لمدة {v1} دقيقة بقيمة {v2}؟", { v0: catalogText(subject), v1: offering.minutes, v2: money(offering.price) }))) return;
-      await post(`slots/${slot.id}`, { subject, minutes: offering.minutes, method: 'wallet' });
+      await post(`slots/${slot.id}`, { subject, minutes: offering.minutes, start, method: 'wallet' });
       setWalletRequired(0); setBookingSlot(null); setSuccess(t("تم تأكيد الحجز. ستجده في السجل.")); refresh();
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 402) { setWalletRequired(offering.price); setBookingSlot(null); onView('wallet'); }
@@ -313,8 +329,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     const offerings = slotOfferings(slot);
     const filteredSubject = studentSubject && availableSubjects.find(subject => fuzzyMatch(subject, studentSubject));
     const subject = filteredSubject || (availableSubjects.length === 1 ? availableSubjects[0] : '');
-    if (subject && offerings.length === 1) { void completeBooking(slot, subject, offerings[0]); return; }
-    setBookingSlot(slot); setBookingSubject(subject); setBookingMinutes(offerings.length === 1 ? offerings[0].minutes : 0);
+    const minutes = offerings.length === 1 ? offerings[0].minutes : 0;
+    setBookingSlot(slot); setBookingSubject(subject); setBookingMinutes(minutes); setBookingStart(minutes ? availableBookingStarts(slot, minutes)[0] || 0 : 0);
   };
   async function publishAvailability(drafts: AvailabilityDraft[]) {
     setBusy(true); setError(''); setSuccess('');
@@ -347,7 +363,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {selectedCustomPackage && <div className="package-detail custom-package-detail"><button type="button" className="package-back" onClick={() => setTeacherPackageKey('')}><ArrowRight size={18} />{t('كل المواد')}</button><div className="package-detail-copy"><span>{t('باقتك الخاصة')}</span><h2>{selectedCustomPackage.name}</h2><p>{selectedCustomPackage.description || t('باقة مرنة صنعتها بطريقتك.')}</p></div><div className="package-levels static-levels">{selectedCustomPackage.levels.length ? selectedCustomPackage.levels.map(level => <span key={level}>{level}</span>) : <span>{t('مناسبة لجميع المستويات')}</span>}</div><div className="package-actions"><button type="button" className="secondary-button danger-action" disabled={busy} onClick={() => void deleteCustomPackage(selectedCustomPackage)}><Trash2 size={17} />{t('حذف الباقة')}</button></div></div>}
     {buildingCustomPackage && <form className="custom-package-builder" onSubmit={createCustomPackage}><button type="button" className="package-back" onClick={() => setBuildingCustomPackage(false)}><ArrowRight size={18} />{t('كل المواد')}</button><div className="package-detail-copy"><span>{t('صمّمها على كيفك')}</span><h2>{t('باقة جديدة باسمك')}</h2><p>{t('اكتب المادة وحدد المستويات التي تناسبك؛ ستظهر لاحقاً ضمن موادك ومواعيدك.')}</p></div><div className="custom-package-fields"><label>{t('اسم المادة أو الباقة')}<input name="name" maxLength={80} required placeholder={t('مثلاً: روبوتكس للمبتدئين')} /></label><label>{t('وصف قصير')}<textarea name="description" maxLength={240} rows={2} placeholder={t('ما الذي يميز هذه الباقة؟')} /></label></div><fieldset className="custom-level-picker"><legend>{t('اختر المستويات')}</legend>{commonLevels.map(level => <label key={level}><input type="checkbox" name="level" value={level} />{t(level)}</label>)}</fieldset><label className="custom-levels-input">{t('مستويات أخرى (افصل بينها بفاصلة أو سطر)')}<textarea name="custom_levels" rows={2} placeholder={t('مبتدئ، متوسط، متقدم')} /></label><button className="primary-button" disabled={busy}><Plus size={17} />{t('إنشاء الباقة وحفظها')}</button></form>}
   </div>;
-  const lessonDetails = current && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelected(null)} className="detail-dialog" aria-labelledby="lesson-title"><div className="section-heading"><h2 id="lesson-title">{catalogText(current.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelected(null)}><X size={20} /></button></div>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<p>{current.teacher_name} · {current.student_name}</p><p>{date(current.start)} · {money(current.price)}</p><span className={`badge ${current.status}`}>{t(statusNames[current.status])}</span>
+  const lessonDetails = current && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelected(null)} className="detail-dialog" aria-labelledby="lesson-title"><div className="section-heading"><h2 id="lesson-title">{catalogText(current.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelected(null)}><X size={20} /></button></div>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<p>{current.teacher_name} · {current.student_name}</p><p>{date(current.start)} · {money(current.price)}</p>{portal === 'students' && current.teacher_phone && <p className="lesson-contact"><strong>{t('رقم الأستاذ')}</strong><a href={`tel:${current.teacher_phone}`} dir="ltr">{current.teacher_phone}</a></p>}{portal === 'teachers' && current.student_phone && <p className="lesson-contact"><strong>{t('رقم الطالب')}</strong><a href={`tel:${current.student_phone}`} dir="ltr">{current.student_phone}</a></p>}{portal === 'admin' && <p className="lesson-contact"><span>{current.teacher_phone}</span><span>{current.student_phone}</span></p>}<span className={`badge ${current.status}`}>{t(statusNames[current.status])}</span>
     <div className="lesson-notes"><h3>{t("ملخص الحصة والواجب")}</h3><p>{current.notes || t("لا يوجد ملخص بعد.")}</p>{current.resource && <a href={current.resource} target="_blank" rel="noopener noreferrer">{t("فتح المادة التعليمية")}</a>}</div>
     {portal === 'admin' && <form className="work-form" key={`payment-${current.id}-${current.paid}`} onSubmit={e => { e.preventDefault(); const data = formData(e.currentTarget); void act(() => post(`bookings/${current.id}/payment`, { paid: current.paid ? 0 : 1, reference: data.reference || '' })); }}><h3>{current.paid ? t("الدفعة مسجلة") : t("تسجيل دفعة مستلمة")}</h3><label>{t("مرجع الحوالة أو الإيصال")}<input name="reference" defaultValue={current.payment_ref} maxLength={200} required={!current.paid} /></label><button className="secondary-button" disabled={busy}>{current.paid ? t("عكس تسجيل الدفعة") : t("تأكيد الاستلام اليدوي")}</button></form>}
     <div className="row-actions">{current.status === 'confirmed' && <button className="secondary-button" disabled={busy} onClick={() => cancel(current)}>{t("إلغاء الحصة")}</button>}</div>
@@ -381,18 +397,21 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     const availableSubjects = slotSubjects(bookingSlot);
     const offerings = slotOfferings(bookingSlot);
     const selectedOffering = offerings.find(item => item.minutes === bookingMinutes);
+    const startOptions = selectedOffering ? availableBookingStarts(bookingSlot, selectedOffering.minutes) : [];
     const subjectAlreadyFiltered = Boolean(studentSubject && availableSubjects.some(subject => fuzzyMatch(subject, studentSubject)));
     return <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setBookingSlot(null)} className="booking-choice-dialog" aria-labelledby="booking-choice-title">
-      <header><div><span>{t('أكمل اختيار حصتك')}</span><h2 id="booking-choice-title">{bookingSlot.teacher_name}</h2><p>{date(bookingSlot.start)}</p></div><button className="icon-button" type="button" aria-label={t('إغلاق')} onClick={() => setBookingSlot(null)}><X size={20} /></button></header>
+      <header><div><span>{t('أكمل اختيار حصتك')}</span><h2 id="booking-choice-title">{bookingSlot.teacher_name}</h2><p>{date(bookingSlot.start)} – {timeOnly(bookingSlot.available_until || bookingSlot.start + bookingSlot.minutes * 60000)}</p></div><button className="icon-button" type="button" aria-label={t('إغلاق')} onClick={() => setBookingSlot(null)}><X size={20} /></button></header>
       {!subjectAlreadyFiltered && availableSubjects.length > 1 && <fieldset><legend>{t('أي مادة تريد أن تدرس؟')}</legend><div className="booking-choice-grid subjects">{availableSubjects.map(subject => <label className={bookingSubject === subject ? 'selected' : ''} key={subject}><input type="radio" name="booking-subject" checked={bookingSubject === subject} onChange={() => setBookingSubject(subject)} /><span><BookOpen size={18} />{catalogText(subject)}</span></label>)}</div></fieldset>}
-      <fieldset><legend>{offerings.length > 1 ? t('اختر مدة الحصة التي تناسبك') : t('مدة الحصة')}</legend><div className="booking-choice-grid durations">{offerings.map(offering => <label className={bookingMinutes === offering.minutes ? 'selected' : ''} key={offering.minutes}><input type="radio" name="booking-duration" checked={bookingMinutes === offering.minutes} onChange={() => setBookingMinutes(offering.minutes)} /><span><Clock3 size={18} /><strong>{offering.minutes} {t('دقيقة')}</strong><small>{money(offering.price)}</small></span></label>)}</div></fieldset>
-      <footer><div><small>{t('الإجمالي')}</small><strong>{selectedOffering ? money(selectedOffering.price) : '—'}</strong></div><button className="primary-button" type="button" disabled={busy || !bookingSubject || !selectedOffering} onClick={() => selectedOffering && void completeBooking(bookingSlot, bookingSubject, selectedOffering)}><CalendarPlus size={18} />{t('تأكيد الحجز')}</button></footer>
+      <fieldset><legend>{offerings.length > 1 ? t('اختر مدة الحصة التي تناسبك') : t('مدة الحصة')}</legend><div className="booking-choice-grid durations">{offerings.map(offering => <label className={bookingMinutes === offering.minutes ? 'selected' : ''} key={offering.minutes}><input type="radio" name="booking-duration" checked={bookingMinutes === offering.minutes} onChange={() => { const starts = availableBookingStarts(bookingSlot, offering.minutes); setBookingMinutes(offering.minutes); setBookingStart(starts[0] || 0); }} /><span><Clock3 size={18} /><strong>{offering.minutes} {t('دقيقة')}</strong><small>{money(offering.price)}</small></span></label>)}</div></fieldset>
+      {selectedOffering && <fieldset className="booking-time-choice"><legend>{t('اختر وقت بداية الحصة')}</legend>{startOptions.length ? <select value={bookingStart || startOptions[0]} onChange={event => setBookingStart(Number(event.target.value))}>{startOptions.map(start => <option value={start} key={start}>{timeOnly(start)} – {timeOnly(start + selectedOffering.minutes * 60000)}</option>)}</select> : <p className="notice error">{t('لا يوجد وقت متبقٍ يناسب هذه المدة.')}</p>}</fieldset>}
+      <footer><div><small>{t('الإجمالي')}</small><strong>{selectedOffering ? money(selectedOffering.price) : '—'}</strong></div><button className="primary-button" type="button" disabled={busy || !bookingSubject || !selectedOffering || !bookingStart} onClick={() => selectedOffering && bookingStart && void completeBooking(bookingSlot, bookingSubject, selectedOffering, bookingStart)}><CalendarPlus size={18} />{t('تأكيد الحجز')}</button></footer>
     </dialog>;
   })();
   if (view === 'messages') return <>{callLayer}</>;
   if (portal === 'students' && view === 'wallet') return <>{callLayer}<WalletPanel requiredAmount={walletRequired} /></>;
   if (portal === 'admin' && view === 'topups') return <>{callLayer}<TopupReviewPanel /></>;
   if ((portal === 'admin' && view === 'payments') || (portal === 'teachers' && view === 'earnings')) return <>{callLayer}<PaymentsPanel portal={portal === 'admin' ? 'admin' : 'teachers'} /></>;
+  if (portal === 'teachers' && view === 'profile' && !loading) return <>{callLayer}<div className="portal-content tutor-experience"><section className="student-page account-page"><h2>{t('حسابي')}</h2>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<div className="profile-layout"><form className="work-form" onSubmit={async event => { event.preventDefault(); const data = formData(event.currentTarget); await act(async () => { const result = await request<{ user: User }>('teachers/profile', data); onUser(result.user); }); }}><h3>{t('ملف الأستاذ')}</h3>{teacherAvatarEditor}<label>{t('الاسم الكامل')}<input name="name" defaultValue={user.name} required /></label><label>{t('البريد الإلكتروني')}<input value={user.email} readOnly dir="ltr" /></label><label>{t('المواد والمستويات')}<textarea value={teachingChoices.map(choice => teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))).join('\n')} readOnly rows={5} /></label><input type="hidden" name="subject" value={user.subject} /><label>{t('نبذة مهنية')}<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />{t('حفظ')}</button></form><div className="account-settings"><button onClick={() => setSuccess(t('حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب.'))}>{t('حالة التوثيق: حسب موافقة الإدارة')}</button><button onClick={() => onView('available')}>{t('إعدادات التوفر')}</button><button onClick={() => onView('earnings')}>{t('تفاصيل المستحقات')}</button><button onClick={reminders.toggle}>{t('إعدادات الإشعارات')}</button></div></div></section></div></>;
   if (portal === 'students') return <>{callLayer}{lessonDetails}{bookingDialog}<div className="portal-content student-experience">
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />{t("فتح الغرف")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
@@ -510,7 +529,7 @@ function TutorList({ slots, busy, bookSlot, compact = false }: { slots: Slot[]; 
   if (!slots.length) return <Empty text="لا توجد مواعيد مناسبة حالياً." />;
   return <div className={compact ? 'tutor-strip' : 'tutor-market-list'}>{slots.map(slot => <article className="tutor-card" key={slot.id}>
     <div className="tutor-photo">{slot.teacher_name?.slice(0, 1) || 'أ'}</div>
-    <div className="tutor-info"><div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{slotOfferings(slot).map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)}</time></div>
+    <div className="tutor-info"><div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{slotOfferings(slot).map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)} – {timeOnly(slot.available_until || slot.start + slot.minutes * 60000)}</time></div>
     <div className="tutor-actions"><b>{money(Math.min(...slotOfferings(slot).map(item => item.price)))}<small>{slotOfferings(slot).length > 1 ? t("ابتداءً من") : t("للحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
   </article>)}</div>;
 }

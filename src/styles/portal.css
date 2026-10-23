@@ -950,6 +950,10 @@ button.day-event { font: inherit; }
 .booking-choice-dialog header h2, .booking-choice-dialog header p { margin: 3px 0 0; }
 .booking-choice-dialog fieldset { margin: 0; padding: 20px 22px; border: 0; border-bottom: 1px solid var(--line); }
 .booking-choice-dialog legend { padding: 0; font-size: 15px; font-weight: 800; }
+.booking-time-choice select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--surface); font: inherit; }
+.lesson-contact { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); }
+.lesson-contact a { color: var(--brand); font-weight: 800; text-decoration: none; }
+.next-day-note { display: block; margin-top: 4px; color: var(--muted); font-weight: 700; }
 .booking-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 9px; margin-top: 12px; }
 .booking-choice-grid label { min-width: 0; cursor: pointer; }
 .booking-choice-grid input { position: absolute; opacity: 0; }

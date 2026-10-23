@@ -123,6 +123,8 @@
 :root[data-theme=dark] .teaching-category-card:nth-child(3n+2) > summary > span { background: #463b27; color: #e8cd78; }
 :root[data-theme=dark] .teaching-level-option.all-levels,:root[data-theme=dark] .selected-teaching span { background: #453251; color: #e8d4fa; }
 :root[data-theme=dark] .availability-days button,:root[data-theme=dark] .earnings-week article { background: #2a1f35; color: var(--ink); border-color: var(--line); }
+:root[data-theme=dark] .availability-duration-options .duration-price input { color: #f2edf8 !important; background: #21184c !important; border-color: #6b5792 !important; -webkit-text-fill-color: #f2edf8; color-scheme: dark; }
+:root[data-theme=dark] .availability-duration-options .duration-price input:disabled { color: #9f91b0 !important; background: #18213b !important; -webkit-text-fill-color: #9f91b0; }
 :root[data-theme=dark] .availability-days button.selected { background: #49315a; border-color: #8860a5; color: #f4eaff; }
 :root[data-theme=dark] .availability-days button span { color: var(--muted); }
 :root[data-theme=dark] .availability-composer { background: #2a1f35; border-color: var(--line); }

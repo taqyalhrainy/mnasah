@@ -49,11 +49,10 @@ export function registrationProfile(body, role) {
   if (!Number.isInteger(yearsExperience) || yearsExperience < 0 || yearsExperience > 60) fail('تحقق من عدد سنوات الخبرة.');
   const languages = Array.isArray(body.teaching_languages) ? [...new Set(body.teaching_languages.map(String))] : [];
   if (!languages.length || languages.length > 5 || languages.some(value => !['العربية', 'الإنجليزية', 'الفرنسية', 'الألمانية', 'أخرى'].includes(value))) fail('اختر لغة تدريس واحدة على الأقل.');
-  const nationalIdLast4 = clean(body.national_id_last4, 4);
-  if (!/^\d{4}$/.test(nationalIdLast4)) fail('أدخل آخر 4 أرقام من الرقم الوطني.');
+  const otherTeachingLanguage = languages.includes('أخرى') ? clean(body.other_teaching_language, 80, 2) : '';
   const bio = clean(body.professional_bio, 800, 20);
   if (body.confirm_accuracy !== true || body.accept_teaching_policy !== true) fail('يجب تأكيد صحة البيانات والموافقة على سياسة التدريس.');
-  return { ...base, qualifications, other_qualification: otherQualification, years_experience: yearsExperience, teaching_languages: languages, national_id_last4: nationalIdLast4, professional_bio: bio, verification_status: 'incomplete', submitted_at: 0, reviewed_at: 0, rejection_reason: '' };
+  return { ...base, qualifications, other_qualification: otherQualification, years_experience: yearsExperience, teaching_languages: languages, other_teaching_language: otherTeachingLanguage, professional_bio: bio, verification_status: 'incomplete', submitted_at: 0, reviewed_at: 0, rejection_reason: '' };
 }
 
 export function parseVerification(value) {

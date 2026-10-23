@@ -11,6 +11,7 @@ export default {
       if (url.pathname.startsWith('/api/')) {
         const [, , portal, ...parts] = url.pathname.split('/');
         const path = parts.join('/');
+        if (portal === 'public' && path === 'config' && request.method === 'GET') return Response.json({ googleClientId: env.GOOGLE_CLIENT_ID || '' }, { headers });
         if (portal === 'media' && parts[0] === 'avatar' && parts[1] && request.method === 'GET') return workerPublicAvatar(env, parts[1]);
         const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path) || path === 'verification/files' || path === 'wallet/topups';
         const write = request.method !== 'GET';

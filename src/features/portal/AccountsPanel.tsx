@@ -1,45 +1,515 @@
-import { t, usePreferences } from '../../i18n/preferences';
-import { useState, type FormEvent } from 'react';
-import { Users, GraduationCap, KeyRound, Copy, X, Check, Ban, ShieldCheck, FileText, Video, Image as ImageIcon, ExternalLink } from 'lucide-react';
-import { apiUrl, request, statusNames, date, type User } from '../../services/platformApi';
+import { t, usePreferences } from "../../i18n/preferences";
+import { useState, type FormEvent } from "react";
+import {
+  Users,
+  GraduationCap,
+  KeyRound,
+  Copy,
+  X,
+  Check,
+  Ban,
+  ShieldCheck,
+  FileText,
+  Video,
+  Image as ImageIcon,
+  ExternalLink,
+} from "lucide-react";
+import {
+  apiUrl,
+  request,
+  statusNames,
+  date,
+  type User,
+} from "../../services/platformApi";
 
-export function AccountsPanel({ users, query, onChanged }: { users: User[]; query: string; onChanged: () => void }) {
+export function AccountsPanel({
+  users,
+  query,
+  onChanged,
+}: {
+  users: User[];
+  query: string;
+  onChanged: () => void;
+}) {
   usePreferences();
-  const [role, setRole] = useState<'teachers' | 'students'>('teachers');
+  const [role, setRole] = useState<"teachers" | "students">("teachers");
   const [target, setTarget] = useState<User | null>(null);
-  const [result, setResult] = useState<{ temporaryPassword: string; expires: number } | null>(null);
-  const [error, setError] = useState('');
+  const [result, setResult] = useState<{
+    temporaryPassword: string;
+    expires: number;
+  } | null>(null);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<User | null>(null);
-  const list = users.filter(u => u.role === role && `${u.name} ${u.email}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  function close() { if (busy) return; const changed = Boolean(result); setTarget(null); setResult(null); setCopied(false); setError(''); if (changed) onChanged(); }
+  const list = users.filter(
+    (u) =>
+      u.role === role &&
+      `${u.name} ${u.email}`
+        .toLocaleLowerCase()
+        .includes(query.toLocaleLowerCase()),
+  );
+  function close() {
+    if (busy) return;
+    const changed = Boolean(result);
+    setTarget(null);
+    setResult(null);
+    setCopied(false);
+    setError("");
+    if (changed) onChanged();
+  }
   async function reset(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!target) return;
+    event.preventDefault();
+    if (!target) return;
     const form = event.currentTarget;
     const body = Object.fromEntries(new FormData(form));
-    setBusy(true); setError('');
-    try { setResult(await request(`admin/users/${target.id}/reset-password`, body)); form.reset(); }
-    catch(e) { setError((e as Error).message); } finally { setBusy(false); }
+    setBusy(true);
+    setError("");
+    try {
+      setResult(await request(`admin/users/${target.id}/reset-password`, body));
+      form.reset();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
   async function changeStatus(user: User) {
-    const status = user.status === 'active' ? 'suspended' : 'active';
-    if (!window.confirm(t("{v0} حساب {v1}؟", { v0: t(status === 'active' ? 'تفعيل' : 'إيقاف'), v1: user.name }))) return;
-    setBusy(true); setError('');
-    try { await request(`admin/users/${user.id}`, { status }); onChanged(); }
-    catch(e) { setError((e as Error).message); } finally { setBusy(false); }
+    const status = user.status === "active" ? "suspended" : "active";
+    if (
+      !window.confirm(
+        t("{v0} حساب {v1}؟", {
+          v0: t(status === "active" ? "تفعيل" : "إيقاف"),
+          v1: user.name,
+        }),
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(`admin/users/${user.id}`, { status });
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
-  return <section className="accounts-panel">
-    <div className="account-tabs" role="tablist" aria-label={t("نوع الحسابات")}>{(['teachers', 'students'] as const).map(value => <button key={value} id={`tab-${value}`} role="tab" aria-selected={role === value} aria-controls="account-results" className={role === value ? 'selected' : ''} onClick={() => { setRole(value); setError(''); }}>{value === 'teachers' ? <Users size={19} /> : <GraduationCap size={19} />}{value === 'teachers' ? t("حسابات الأساتذة") : t("حسابات الطلاب")}<span>{users.filter(u => u.role === value).length}</span></button>)}</div>
-    {error && !target && <p className="notice error" role="alert">{t(error)}</p>}
-    <div role="tabpanel" id="account-results" aria-labelledby={`tab-${role}`}>
-      {!list.length && <p className="empty-state">{query ? t("لا توجد حسابات مطابقة للبحث.") : t("لا توجد حسابات في هذا القسم بعد.")}</p>}
-      {list.map(user => <article className="user-row account-row" key={user.id}><div><h2>{user.name}</h2><p className="account-email" dir="ltr">{user.email}</p>{user.role === 'teachers' && <small>{user.subject || t("لم يحدد المادة")}</small>}{user.bio && <p>{user.bio}</p>}{user.role === 'teachers' && <span className={`verification-status ${user.verification?.verification_status || 'incomplete'}`}><ShieldCheck size={14} />{t(user.verification?.verification_status === 'approved' ? 'تم اعتماد الهوية' : user.verification?.verification_status === 'submitted' ? 'طلب التحقق جاهز للمراجعة' : 'طلب التحقق غير مكتمل')}</span>}<p className="muted">{user.mustChangePassword ? t("يلزم تغيير كلمة المرور المؤقتة") : t("كلمة المرور خاصة بصاحب الحساب")}</p></div><span className={`badge ${user.status}`}>{t(statusNames[user.status])}</span><div className="row-actions">{user.role === 'teachers' && <button className="secondary-button" onClick={() => setReviewTarget(user)}><ShieldCheck size={17} />{t('مراجعة التحقق')}</button>}<button className="secondary-button" disabled={busy} onClick={() => changeStatus(user)}>{user.status === 'active' ? <Ban size={17} /> : <Check size={17} />}{user.status === 'active' ? t("إيقاف الحساب") : t("قبول وتفعيل")}</button><button className="secondary-button" disabled={busy} onClick={() => { setTarget(user); setResult(null); setError(''); setCopied(false); }}><KeyRound size={17} />{t("كلمة مرور مؤقتة")}</button></div></article>)}
-    </div>
-    {target && <dialog className="detail-dialog" aria-labelledby="reset-title" ref={node => { if (node && !node.open) node.showModal(); }} onCancel={event => { event.preventDefault(); close(); }}><div className="section-heading"><h2 id="reset-title">{t("كلمة مرور مؤقتة")}</h2><button className="icon-button" disabled={busy} onClick={close} title={t("إغلاق")}><X size={20} /></button></div><p>{target.name}</p><p className="account-email" dir="ltr">{target.email}</p>
-      {error && <p className="notice error" role="alert">{t(error)}</p>}
-      {result ? <div className="temporary-credential"><p role="status">{t("تم إصدار كلمة المرور. تظهر هنا مرة واحدة فقط؛ أرسلها لصاحب الحساب بشكل خاص.")}</p><label>{t("كلمة المرور المؤقتة")}<input dir="ltr" readOnly value={result.temporaryPassword} autoComplete="off" /></label><p>{t("صالحة حتى ")}{date(result.expires)}{t(". يجب تغييرها عند الدخول، والكلمة السابقة لم تعد تعمل.")}</p><button className="secondary-button" onClick={async () => { try { await navigator.clipboard.writeText(result.temporaryPassword); setCopied(true); } catch { setError(t("تعذر النسخ التلقائي. حدد كلمة المرور وانسخها يدويًا.")); } }}><Copy size={17} />{copied ? t("تم النسخ") : t("نسخ كلمة المرور")}</button><button className="primary-button" onClick={close}>{t("تم")}</button></div> : <form className="work-form" onSubmit={reset}><p>{t("سيتم إلغاء كلمة المرور السابقة وتسجيل خروج هذا الحساب من جميع الأجهزة.")}</p><label>{t("كلمة مرور الأدمن للتأكيد")}<input name="adminPassword" type="password" autoComplete="current-password" required minLength={12} maxLength={128} /></label><button className="primary-button" disabled={busy}><KeyRound size={18} />{busy ? t("جارٍ الإصدار…") : t("إصدار كلمة مرور مؤقتة")}</button></form>}
-    </dialog>}
-    {reviewTarget && <dialog className="detail-dialog verification-review-dialog" aria-labelledby="verification-review-title" ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setReviewTarget(null)}><div className="section-heading"><div><span>{t('طلب اعتماد أستاذ')}</span><h2 id="verification-review-title">{reviewTarget.name}</h2></div><button className="icon-button" onClick={() => setReviewTarget(null)} title={t('إغلاق')}><X size={20} /></button></div><div className="verification-review-hero">{reviewTarget.verification_files?.find(file => file.kind === 'avatar') ? <img src={apiUrl(`admin/verification/files/${reviewTarget.verification_files.find(file => file.kind === 'avatar')!.id}?preview=1`)} alt={t('الصورة الشخصية')} /> : <span><ImageIcon size={28} /></span>}<div><strong>{reviewTarget.name}</strong><p dir="ltr">{reviewTarget.email}</p><small>{reviewTarget.email_verified ? t('البريد موثّق عبر Google') : t('البريد مسجل بكلمة مرور')}</small></div><span className={`verification-status ${reviewTarget.verification?.verification_status || 'incomplete'}`}><ShieldCheck size={15} />{t(reviewTarget.verification?.verification_status === 'approved' ? 'تم اعتماد الهوية' : reviewTarget.verification?.verification_status === 'submitted' ? 'جاهز للمراجعة' : 'غير مكتمل')}</span></div><div className="verification-review-grid"><div><small>{t('تاريخ الميلاد والعمر')}</small><strong>{reviewTarget.verification?.birth_date || '—'} · {reviewTarget.verification?.age ?? '—'} {t('سنة')}</strong></div><div><small>{t('رقم الهاتف')}</small><strong dir="ltr">{reviewTarget.verification?.phone || reviewTarget.phone || '—'}</strong></div><div><small>{t('الجنس')}</small><strong>{t(reviewTarget.verification?.gender === 'male' ? 'ذكر' : reviewTarget.verification?.gender === 'female' ? 'أنثى' : 'أفضل عدم الإجابة')}</strong></div><div><small>{t('آخر 4 أرقام من الرقم الوطني')}</small><strong dir="ltr">•••• {reviewTarget.verification?.national_id_last4 || '—'}</strong></div><div><small>{t('سنوات الخبرة')}</small><strong>{reviewTarget.verification?.years_experience ?? 0}</strong></div><div><small>{t('لغات التدريس')}</small><strong>{reviewTarget.verification?.teaching_languages?.map(t).join('، ') || '—'}</strong></div></div><section className="verification-review-section"><h3>{t('المؤهلات')}</h3><div>{reviewTarget.verification?.qualifications?.map(value => <span key={value}><GraduationCap size={14} />{t(value)}</span>)}</div>{reviewTarget.verification?.other_qualification && <p>{reviewTarget.verification.other_qualification}</p>}</section><section className="verification-review-section"><h3>{t('النبذة المهنية')}</h3><p>{reviewTarget.verification?.professional_bio || '—'}</p></section><section className="verification-review-section"><h3>{t('ملفات التحقق')}</h3><div className="verification-review-files">{reviewTarget.verification_files?.filter(file => file.kind === 'intro_video').map(file => <article key={file.id}><Video size={18} /><strong>{t('فيديو التعريف المباشر')}</strong><video controls preload="metadata" src={apiUrl(`admin/verification/files/${file.id}?preview=1`)} /></article>)}{reviewTarget.verification_files?.filter(file => file.kind === 'credential').map(file => <a key={file.id} href={apiUrl(`admin/verification/files/${file.id}`)} target="_blank" rel="noreferrer"><FileText size={18} /><span>{file.name}</span><ExternalLink size={14} /></a>)}{!reviewTarget.verification_files?.length && <p>{t('لم تُرفع ملفات التحقق بعد.')}</p>}</div></section>{reviewTarget.verification?.submitted_at ? <p className="muted">{t('أُرسل الطلب في ')}{date(reviewTarget.verification.submitted_at)}</p> : null}<div className="row-actions"><button className="primary-button" disabled={busy || reviewTarget.verification?.verification_status !== 'submitted'} onClick={async () => { await changeStatus(reviewTarget); setReviewTarget(null); }}><Check size={17} />{t('قبول وتفعيل')}</button><button className="secondary-button" onClick={() => setReviewTarget(null)}>{t('إغلاق')}</button></div></dialog>}
-  </section>;
+  return (
+    <section className="accounts-panel">
+      <div
+        className="account-tabs"
+        role="tablist"
+        aria-label={t("نوع الحسابات")}
+      >
+        {(["teachers", "students"] as const).map((value) => (
+          <button
+            key={value}
+            id={`tab-${value}`}
+            role="tab"
+            aria-selected={role === value}
+            aria-controls="account-results"
+            className={role === value ? "selected" : ""}
+            onClick={() => {
+              setRole(value);
+              setError("");
+            }}
+          >
+            {value === "teachers" ? (
+              <Users size={19} />
+            ) : (
+              <GraduationCap size={19} />
+            )}
+            {value === "teachers" ? t("حسابات الأساتذة") : t("حسابات الطلاب")}
+            <span>{users.filter((u) => u.role === value).length}</span>
+          </button>
+        ))}
+      </div>
+      {error && !target && (
+        <p className="notice error" role="alert">
+          {t(error)}
+        </p>
+      )}
+      <div role="tabpanel" id="account-results" aria-labelledby={`tab-${role}`}>
+        {!list.length && (
+          <p className="empty-state">
+            {query
+              ? t("لا توجد حسابات مطابقة للبحث.")
+              : t("لا توجد حسابات في هذا القسم بعد.")}
+          </p>
+        )}
+        {list.map((user) => (
+          <article className="user-row account-row" key={user.id}>
+            <div>
+              <h2>{user.name}</h2>
+              <p className="account-email" dir="ltr">
+                {user.email}
+              </p>
+              {user.role === "teachers" && (
+                <small>{user.subject || t("لم يحدد المادة")}</small>
+              )}
+              {user.bio && <p>{user.bio}</p>}
+              {user.role === "teachers" && (
+                <span
+                  className={`verification-status ${user.verification?.verification_status || "incomplete"}`}
+                >
+                  <ShieldCheck size={14} />
+                  {t(
+                    user.verification?.verification_status === "approved"
+                      ? "تم اعتماد الهوية"
+                      : user.verification?.verification_status === "submitted"
+                        ? "طلب التحقق جاهز للمراجعة"
+                        : "طلب التحقق غير مكتمل",
+                  )}
+                </span>
+              )}
+              <p className="muted">
+                {user.mustChangePassword
+                  ? t("يلزم تغيير كلمة المرور المؤقتة")
+                  : t("كلمة المرور خاصة بصاحب الحساب")}
+              </p>
+            </div>
+            <span className={`badge ${user.status}`}>
+              {t(statusNames[user.status])}
+            </span>
+            <div className="row-actions">
+              {user.role === "teachers" && (
+                <button
+                  className="secondary-button"
+                  onClick={() => setReviewTarget(user)}
+                >
+                  <ShieldCheck size={17} />
+                  {t("مراجعة التحقق")}
+                </button>
+              )}
+              <button
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => changeStatus(user)}
+              >
+                {user.status === "active" ? (
+                  <Ban size={17} />
+                ) : (
+                  <Check size={17} />
+                )}
+                {user.status === "active"
+                  ? t("إيقاف الحساب")
+                  : t("قبول وتفعيل")}
+              </button>
+              <button
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => {
+                  setTarget(user);
+                  setResult(null);
+                  setError("");
+                  setCopied(false);
+                }}
+              >
+                <KeyRound size={17} />
+                {t("كلمة مرور مؤقتة")}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {target && (
+        <dialog
+          className="detail-dialog"
+          aria-labelledby="reset-title"
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          onCancel={(event) => {
+            event.preventDefault();
+            close();
+          }}
+        >
+          <div className="section-heading">
+            <h2 id="reset-title">{t("كلمة مرور مؤقتة")}</h2>
+            <button
+              className="icon-button"
+              disabled={busy}
+              onClick={close}
+              title={t("إغلاق")}
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <p>{target.name}</p>
+          <p className="account-email" dir="ltr">
+            {target.email}
+          </p>
+          {error && (
+            <p className="notice error" role="alert">
+              {t(error)}
+            </p>
+          )}
+          {result ? (
+            <div className="temporary-credential">
+              <p role="status">
+                {t(
+                  "تم إصدار كلمة المرور. تظهر هنا مرة واحدة فقط؛ أرسلها لصاحب الحساب بشكل خاص.",
+                )}
+              </p>
+              <label>
+                {t("كلمة المرور المؤقتة")}
+                <input
+                  dir="ltr"
+                  readOnly
+                  value={result.temporaryPassword}
+                  autoComplete="off"
+                />
+              </label>
+              <p>
+                {t("صالحة حتى ")}
+                {date(result.expires)}
+                {t(". يجب تغييرها عند الدخول، والكلمة السابقة لم تعد تعمل.")}
+              </p>
+              <button
+                className="secondary-button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      result.temporaryPassword,
+                    );
+                    setCopied(true);
+                  } catch {
+                    setError(
+                      t("تعذر النسخ التلقائي. حدد كلمة المرور وانسخها يدويًا."),
+                    );
+                  }
+                }}
+              >
+                <Copy size={17} />
+                {copied ? t("تم النسخ") : t("نسخ كلمة المرور")}
+              </button>
+              <button className="primary-button" onClick={close}>
+                {t("تم")}
+              </button>
+            </div>
+          ) : (
+            <form className="work-form" onSubmit={reset}>
+              <p>
+                {t(
+                  "سيتم إلغاء كلمة المرور السابقة وتسجيل خروج هذا الحساب من جميع الأجهزة.",
+                )}
+              </p>
+              <label>
+                {t("كلمة مرور الأدمن للتأكيد")}
+                <input
+                  name="adminPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  minLength={12}
+                  maxLength={128}
+                />
+              </label>
+              <button className="primary-button" disabled={busy}>
+                <KeyRound size={18} />
+                {busy ? t("جارٍ الإصدار…") : t("إصدار كلمة مرور مؤقتة")}
+              </button>
+            </form>
+          )}
+        </dialog>
+      )}
+      {reviewTarget && (
+        <dialog
+          className="detail-dialog verification-review-dialog"
+          aria-labelledby="verification-review-title"
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          onCancel={() => setReviewTarget(null)}
+        >
+          <div className="section-heading">
+            <div>
+              <span>{t("طلب اعتماد أستاذ")}</span>
+              <h2 id="verification-review-title">{reviewTarget.name}</h2>
+            </div>
+            <button
+              className="icon-button"
+              onClick={() => setReviewTarget(null)}
+              title={t("إغلاق")}
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="verification-review-hero">
+            {reviewTarget.verification_files?.find(
+              (file) => file.kind === "avatar",
+            ) ? (
+              <img
+                src={apiUrl(
+                  `admin/verification/files/${reviewTarget.verification_files.find((file) => file.kind === "avatar")!.id}?preview=1`,
+                )}
+                alt={t("الصورة الشخصية")}
+              />
+            ) : (
+              <span>
+                <ImageIcon size={28} />
+              </span>
+            )}
+            <div>
+              <strong>{reviewTarget.name}</strong>
+              <p dir="ltr">{reviewTarget.email}</p>
+              <small>
+                {reviewTarget.email_verified
+                  ? t("البريد موثّق عبر Google")
+                  : t("البريد مسجل بكلمة مرور")}
+              </small>
+            </div>
+            <span
+              className={`verification-status ${reviewTarget.verification?.verification_status || "incomplete"}`}
+            >
+              <ShieldCheck size={15} />
+              {t(
+                reviewTarget.verification?.verification_status === "approved"
+                  ? "تم اعتماد الهوية"
+                  : reviewTarget.verification?.verification_status ===
+                      "submitted"
+                    ? "جاهز للمراجعة"
+                    : "غير مكتمل",
+              )}
+            </span>
+          </div>
+          <div className="verification-review-grid">
+            <div>
+              <small>{t("تاريخ الميلاد والعمر")}</small>
+              <strong>
+                {reviewTarget.verification?.birth_date || "—"} ·{" "}
+                {reviewTarget.verification?.age ?? "—"} {t("سنة")}
+              </strong>
+            </div>
+            <div>
+              <small>{t("رقم الهاتف")}</small>
+              <strong dir="ltr">
+                {reviewTarget.verification?.phone || reviewTarget.phone || "—"}
+              </strong>
+            </div>
+            <div>
+              <small>{t("الجنس")}</small>
+              <strong>
+                {t(
+                  reviewTarget.verification?.gender === "male"
+                    ? "ذكر"
+                    : reviewTarget.verification?.gender === "female"
+                      ? "أنثى"
+                      : "أفضل عدم الإجابة",
+                )}
+              </strong>
+            </div>
+            <div>
+              <small>{t("سنوات الخبرة")}</small>
+              <strong>
+                {reviewTarget.verification?.years_experience ?? 0}
+              </strong>
+            </div>
+            <div>
+              <small>{t("لغات التدريس")}</small>
+              <strong>
+                {reviewTarget.verification?.teaching_languages
+                  ?.map((language) =>
+                    language === "أخرى"
+                      ? reviewTarget.verification?.other_teaching_language ||
+                        t("أخرى")
+                      : t(language),
+                  )
+                  .join("، ") || "—"}
+              </strong>
+            </div>
+          </div>
+          <section className="verification-review-section">
+            <h3>{t("المؤهلات")}</h3>
+            <div>
+              {reviewTarget.verification?.qualifications?.map((value) => (
+                <span key={value}>
+                  <GraduationCap size={14} />
+                  {t(value)}
+                </span>
+              ))}
+            </div>
+            {reviewTarget.verification?.other_qualification && (
+              <p>{reviewTarget.verification.other_qualification}</p>
+            )}
+            <div className="verification-review-files qualification-files">
+              {reviewTarget.verification_files
+                ?.filter((file) => file.kind === "credential")
+                .map((file) => (
+                  <a
+                    key={file.id}
+                    href={apiUrl(`admin/verification/files/${file.id}`)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <FileText size={18} />
+                    <span>{file.name}</span>
+                    <ExternalLink size={14} />
+                  </a>
+                ))}
+            </div>
+          </section>
+          <section className="verification-review-section">
+            <h3>{t("النبذة المهنية")}</h3>
+            <p>{reviewTarget.verification?.professional_bio || "—"}</p>
+          </section>
+          <section className="verification-review-section">
+            <h3>{t("ملفات التحقق")}</h3>
+            <div className="verification-review-files">
+              {reviewTarget.verification_files
+                ?.filter((file) => file.kind === "intro_video")
+                .map((file) => (
+                  <article key={file.id}>
+                    <Video size={18} />
+                    <strong>{t("فيديو التعريف المباشر")}</strong>
+                    <video
+                      controls
+                      preload="metadata"
+                      src={apiUrl(
+                        `admin/verification/files/${file.id}?preview=1`,
+                      )}
+                    />
+                  </article>
+                ))}
+              {!reviewTarget.verification_files?.some(
+                (file) => file.kind === "intro_video",
+              ) && (
+                <p>{t("لم تُرفع ملفات التحقق بعد.")}</p>
+              )}
+            </div>
+          </section>
+          {reviewTarget.verification?.submitted_at ? (
+            <p className="muted">
+              {t("أُرسل الطلب في ")}
+              {date(reviewTarget.verification.submitted_at)}
+            </p>
+          ) : null}
+          <div className="row-actions">
+            <button
+              className="primary-button"
+              disabled={
+                busy ||
+                reviewTarget.verification?.verification_status !== "submitted"
+              }
+              onClick={async () => {
+                await changeStatus(reviewTarget);
+                setReviewTarget(null);
+              }}
+            >
+              <Check size={17} />
+              {t("قبول وتفعيل")}
+            </button>
+            <button
+              className="secondary-button"
+              onClick={() => setReviewTarget(null)}
+            >
+              {t("إغلاق")}
+            </button>
+          </div>
+        </dialog>
+      )}
+    </section>
+  );
 }

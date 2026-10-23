@@ -35,6 +35,8 @@ export const slots = sqliteTable('slots', {
 export const bookings = sqliteTable('bookings', {
   id: text('id').primaryKey(), slotId: text('slot_id').notNull().references(() => slots.id),
   studentId: text('student_id').notNull().references(() => users.id), status: text('status').notNull(),
+  start: integer('start').notNull().default(0), minutes: integer('minutes').notNull().default(0),
+  price: integer('price').notNull().default(0), subject: text('subject').notNull().default(''),
   room: text('room').notNull(), paid: integer('paid').notNull().default(0), paymentRef: text('payment_ref').notNull().default(''),
   notes: text('notes').notNull().default(''), resource: text('resource').notNull().default(''), created: integer('created').notNull(),
 });

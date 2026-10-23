@@ -118,8 +118,9 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('teacher', 'teachers/slots', { start: Date.now() - 1000, minutes: 60, price: 1500, subject: 'Math' }, 400);
   const activeRangeStart = Date.now() - 7200000;
   await call('teacher', 'teachers/slots', { start: activeRangeStart, available_until: Date.now() + 60000, minutes: 60, price: 1500, subject: 'Active range' });
-  const activeRange = (await call('student', 'students/slots')).slots.find(row => row.subject === 'Active range');
-  assert.ok(activeRange, 'an availability range that already started but has not ended must be visible');
+  const activeRange = (await call('teacher', 'teachers/slots')).slots.find(row => row.subject === 'Active range');
+  assert.ok(activeRange, 'the teacher must still see an active availability range');
+  assert.ok(!(await call('student', 'students/slots')).slots.some(row => row.id === activeRange.id), 'a range too short for its minimum lesson must not be offered to students');
   await call('teacher', `teachers/slots/${activeRange.id}`, {});
   const start = Date.now() + 300000;
   await call('teacher', 'teachers/slots', { start, minutes: 60, price: 1500, subject: 'Math' });
@@ -264,10 +265,13 @@ test('authorization and the full reservation lifecycle', async () => {
   assert.deepEqual(flexibleSlot.offerings, [{ minutes: 30, price: 900 }, { minutes: 90, price: 2200 }]);
   await call('student', `students/slots/${flexibleSlot.id}`, {}, 400);
   const flexibleBooking = await call('student', `students/slots/${flexibleSlot.id}`, { subject: 'Physics', minutes: 90 });
+  const remainingBooking = await call('other', `students/slots/${flexibleSlot.id}`, { subject: 'Math', minutes: 30, start: flexibleStart + 90 * 60000 });
   const selectedLesson = (await call('student', 'students/overview')).bookings.find(row => row.id === flexibleBooking.id);
   assert.equal(selectedLesson.subject, 'Physics');
   assert.equal(selectedLesson.minutes, 90);
   assert.equal(selectedLesson.price, 2200);
+  assert.equal((await call('teacher', 'teachers/overview')).bookings.filter(row => row.slot_id === flexibleSlot.id && row.status === 'confirmed').length, 2, 'non-overlapping lessons share one availability range');
+  await call('other', `students/bookings/${remainingBooking.id}/cancel`, {});
   await call('student', `students/bookings/${flexibleBooking.id}/cancel`, {});
   await call('teacher', `teachers/slots/${flexibleSlot.id}`, {});
   assert.equal((await call('student', 'students/slots')).slots.length, 0);

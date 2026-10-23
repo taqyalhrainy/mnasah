@@ -5,13 +5,16 @@ const get = (item, key) => key.split('.').reduce((value, part) => value?.[part],
 function matches(item, filter) {
   return Object.entries(filter).every(([key, value]) => {
     if (key === '$or') return value.some(part => matches(item, part));
+    if (key === '$nor') return value.every(part => !matches(item, part));
     const current = get(item, key);
     if (value && typeof value === 'object' && !Array.isArray(value)) return Object.entries(value).every(([operator, expected]) => {
       if (operator === '$gt') return current > expected;
       if (operator === '$gte') return current >= expected;
       if (operator === '$lt') return current < expected;
+      if (operator === '$lte') return current <= expected;
       if (operator === '$ne') return current !== expected;
       if (operator === '$in') return expected.includes(current);
+      if (operator === '$elemMatch') return Array.isArray(current) && current.some(entry => matches(entry, expected));
       throw new Error(`Unsupported operator ${operator}`);
     });
     return current === value;
@@ -49,6 +52,8 @@ export function memoryMongo(seed = {}) {
         Object.assign(row, structuredClone(update.$set || {}));
         for (const [key, value] of Object.entries(update.$inc || {})) row[key] = Number(row[key] || 0) + Number(value);
         for (const [key, value] of Object.entries(update.$max || {})) row[key] = Math.max(row[key] || 0, value);
+        for (const [key, value] of Object.entries(update.$push || {})) { if (!Array.isArray(row[key])) row[key] = []; row[key].push(structuredClone(value)); }
+        for (const [key, value] of Object.entries(update.$pull || {})) { if (Array.isArray(row[key])) row[key] = row[key].filter(item => !matches(item, value)); }
         for (const key of Object.keys(update.$unset || {})) delete row[key];
         return { modifiedCount: 1, upsertedCount: inserted ? 1 : 0 };
       },
