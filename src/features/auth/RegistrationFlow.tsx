@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BadgeCheck, Camera, Check, FileCheck2, GraduationCap, LoaderCircle, Phone, ShieldCheck, Upload, UserRound, Video, X } from 'lucide-react';
 import { direction, t, usePreferences } from '../../i18n/preferences';
 import { request, requestFile, type Portal, type User, type VerificationFile } from '../../services/platformApi';
+import { GOOGLE_WEB_CLIENT_ID } from '../../../shared/google.js';
 
 const qualifications = ['دبلوم متوسط', 'بكالوريوس', 'دبلوم عالٍ', 'ماجستير', 'دكتوراه', 'رخصة مزاولة تعليم', 'شهادة تدريب مهني', 'إجازة في القرآن الكريم', 'أخرى'];
 const teachingLanguages = ['العربية', 'الإنجليزية', 'الفرنسية', 'الألمانية', 'أخرى'];
@@ -16,7 +17,7 @@ function validJordanPhone(value: string) { return /^(?:\+?962|0)7[789]\d{7}$/.te
 function decodeGoogleName(credential: string) { try { return JSON.parse(atob(credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { return {}; } }
 
 function GoogleLink({ onCredential }: { onCredential: (credential: string, profile: { email?: string; given_name?: string; family_name?: string }) => void }) {
-  const host = useRef<HTMLDivElement>(null); const [clientId, setClientId] = useState(() => (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '');
+  const host = useRef<HTMLDivElement>(null); const [clientId, setClientId] = useState(() => (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || GOOGLE_WEB_CLIENT_ID);
   useEffect(() => {
     if (clientId) return;
     let active = true;

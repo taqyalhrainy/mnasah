@@ -47,11 +47,11 @@ test('authorization and the full reservation lifecycle', async () => {
     const request = new Request(`https://mansah.test/api/students/wallet/topups?${query}`, { method: 'POST', headers: { cookie: clients[who] || '', origin: 'https://mansah.test', 'content-type': 'application/octet-stream' }, body: bytes });
     const response = await worker.fetch(request, env); const body = await response.json(); assert.equal(response.status, expected, JSON.stringify(body)); return body;
   }
-  const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role, ...(role === 'admin' ? {} : { first_name: 'Test', father_name: 'Account', family_name: role === 'teachers' ? 'Teacher' : 'Student', birth_date: '1990-01-01', gender: 'male', phone: '0791234567', accept_terms: true }), ...(role === 'teachers' ? { qualifications: ['بكالوريوس'], years_experience: 4, teaching_languages: ['العربية'], national_id_last4: '1234', professional_bio: 'Experienced mathematics teacher for school learners.', confirm_accuracy: true, accept_teaching_policy: true } : {}) });
+  const credentials = (email, role) => ({ email, role, password: 'Long-test-password-123', name: role, ...(role === 'admin' ? {} : { first_name: 'Test', father_name: 'Account', family_name: role === 'teachers' ? 'Teacher' : 'Student', birth_date: '1990-01-01', gender: 'male', phone: '0791234567', accept_terms: true }), ...(role === 'teachers' ? { qualifications: ['بكالوريوس'], years_experience: 4, teaching_languages: ['العربية'], professional_bio: 'Experienced mathematics teacher for school learners.', confirm_accuracy: true, accept_teaching_policy: true } : {}) });
   await call('guest', 'admin/users', undefined, 401);
   await call('guest', 'auth/register', credentials('evil@test.com', 'admin'), 403);
   await call('guest', 'auth/register', { ...credentials('bad-phone@test.com', 'students'), phone: '0712345678' }, 400);
-  await call('guest', 'auth/google', { ...credentials('google@test.com', 'students'), credential: 'not-a-google-token' }, 503);
+  await call('guest', 'auth/google', { ...credentials('google@test.com', 'students'), credential: 'not-a-google-token' }, 401);
   await call('guest', 'auth/setup', { ...credentials('owner@test.com', 'admin'), token: 'wrong' }, 403);
   await call('owner', 'auth/setup', { ...credentials('owner@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN });
   await call('guest', 'auth/setup', { ...credentials('owner2@test.com', 'admin'), token: env.OWNER_SETUP_TOKEN }, 409);

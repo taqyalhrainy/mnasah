@@ -33,6 +33,7 @@ async function makePage(role, loggedIn = true) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block', permissions: ['notifications'] });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
+  await page.route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: `window.google={accounts:{id:{initialize(){},renderButton(node){const button=document.createElement('button');button.type='button';button.textContent='المتابعة باستخدام Google';node.append(button)}}}};` }));
   await page.route('**/api/**', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -225,7 +226,7 @@ try {
   await page.getByLabel('رقم الهاتف الأردني').fill('0791234567');
   await page.getByRole('button', { name: 'التالي', exact: true }).click();
   assert.equal(await page.getByLabel('البريد الإلكتروني').count(), 0, 'first-time registration must not expose email/password fields');
-  await page.getByText('يتطلب تسجيل Google إضافة مفتاح Google Client ID إلى إعدادات الخادم.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'المتابعة باستخدام Google', exact: true }).waitFor();
   await page.getByRole('checkbox', { name: /أوافق على شروط الاستخدام/ }).check();
   await page.getByRole('button', { name: 'إنشاء حساب الطالب', exact: true }).click();
   await page.getByText('سجّل باستخدام حساب Google للمتابعة.', { exact: true }).waitFor();

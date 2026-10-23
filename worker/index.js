@@ -3,6 +3,7 @@ import { auth } from './auth.js';
 import { api } from './api.js';
 import { fail } from './db.js';
 import { workerPublicAvatar } from './verification-files.js';
+import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -11,7 +12,7 @@ export default {
       if (url.pathname.startsWith('/api/')) {
         const [, , portal, ...parts] = url.pathname.split('/');
         const path = parts.join('/');
-        if (portal === 'public' && path === 'config' && request.method === 'GET') return Response.json({ googleClientId: env.GOOGLE_CLIENT_ID || '' }, { headers });
+        if (portal === 'public' && path === 'config' && request.method === 'GET') return Response.json({ googleClientId: env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID }, { headers });
         if (portal === 'media' && parts[0] === 'avatar' && parts[1] && request.method === 'GET') return workerPublicAvatar(env, parts[1]);
         const upload = /^chat\/threads\/[^/]+\/attachments$/.test(path) || path === 'verification/files' || path === 'wallet/topups';
         const write = request.method !== 'GET';

@@ -1,6 +1,7 @@
 import { one, run, statement, field, fail, auditEntry } from './db.js';
 import { parseCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification, registrationProfile } from '../shared/verification.js';
+import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 const encoder = new TextEncoder();
 const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 export const random = () => hex(crypto.getRandomValues(new Uint8Array(32)));
@@ -44,10 +45,10 @@ export async function auth(request, env, action, body) {
   if (!['login', 'register', 'setup', 'google'].includes(action)) fail(404, 'الطلب غير موجود.');
   let google = null;
   if (action === 'google') {
-    if (!env.GOOGLE_CLIENT_ID) fail(503, 'تسجيل Google غير مفعّل على الخادم بعد.');
+    const googleClientId = env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
     const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(field(body.credential, 5000))}`);
     const profile = await response.json().catch(() => ({}));
-    if (!response.ok || profile.aud !== env.GOOGLE_CLIENT_ID || profile.email_verified !== 'true' || !profile.email) fail(401, 'تعذر التحقق من حساب Google.');
+    if (!response.ok || profile.aud !== googleClientId || profile.email_verified !== 'true' || !profile.email) fail(401, 'تعذر التحقق من حساب Google.');
     google = { email: String(profile.email).toLowerCase(), name: String(profile.name || ''), sub: String(profile.sub || '') };
   }
   const email = google?.email || field(body.email, 254).toLowerCase();
