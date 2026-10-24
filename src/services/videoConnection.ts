@@ -103,6 +103,12 @@ export class VideoConnection {
       throw new Error(t("ابدأ الجلسة قبل مشاركة الشاشة"));
     }
 
+    const navigatorWithPlatform = navigator as Navigator & { userAgentData?: { platform?: string } };
+    const platform = navigatorWithPlatform.userAgentData?.platform || navigator.platform || navigator.userAgent;
+    if (!/windows|win32|win64/i.test(platform)) {
+      throw new Error(t("هذا الخيار متاح للويندوز فقط حالياً"));
+    }
+
     if (!navigator.mediaDevices.getDisplayMedia) {
       throw new Error(t("مشاركة الشاشة غير مدعومة على هذا المتصفح"));
     }

@@ -548,7 +548,7 @@ function TutorList({ slots, busy, bookSlot, compact = false }: { slots: Slot[]; 
   return <div className={compact ? 'tutor-strip' : 'tutor-market-list'}>{slots.map(slot => <article className="tutor-card" key={slot.id}>
     <div className="tutor-photo">{slot.teacher_name?.slice(0, 1) || 'أ'}</div>
     <div className="tutor-info"><div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{slotOfferings(slot).map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)} – {timeOnly(slot.available_until || slot.start + slot.minutes * 60000)}</time></div>
-    <div className="tutor-actions"><b>{money(Math.min(...slotOfferings(slot).map(item => item.price)))}<small>{slotOfferings(slot).length > 1 ? t("ابتداءً من") : t("للحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
+    <div className="tutor-actions"><b>{slotOfferings(slot).length > 1 ? <span className="variable-lesson-price">{t("السعر حسب طول الحصة")}</span> : money(slotOfferings(slot)[0].price)}<small>{slotOfferings(slot).length > 1 ? t("اختر المدة لترى السعر") : t("سعر الحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
   </article>)}</div>;
 }
 

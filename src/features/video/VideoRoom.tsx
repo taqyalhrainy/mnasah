@@ -1,10 +1,9 @@
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { Camera, CameraOff, Download, Grid2X2, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Undo2, Users } from 'lucide-react';
+import { Camera, CameraOff, Download, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
-const ANDROID_APP_DOWNLOAD_URL = '/downloads/mansah.apk';
 const MIN_WHITEBOARD_ZOOM = 0.005;
 const MAX_WHITEBOARD_ZOOM = 5;
 const MIN_STROKE_POINT_DISTANCE = 1.5;
@@ -16,15 +15,22 @@ type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: 'screen') =>
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }> };
 type WhiteboardPoint = { x: number; y: number };
 type WhiteboardStroke = { id: string; color: string; size: number; points: WhiteboardPoint[] };
+type WhiteboardTextItem = { id: string; type: 'text'; x: number; y: number; width: number; height: number; text: string; color: string; fontSize: number };
+type WhiteboardImageItem = { id: string; type: 'image'; x: number; y: number; width: number; height: number; src: string };
+type WhiteboardItem = WhiteboardTextItem | WhiteboardImageItem;
 type WhiteboardMessage =
   | { kind: 'stroke-start'; stroke: WhiteboardStroke }
   | { kind: 'stroke-points'; id: string; points: WhiteboardPoint[] }
   | { kind: 'stroke'; stroke: WhiteboardStroke }
   | { kind: 'clear' }
   | { kind: 'erase'; ids: string[] }
+  | { kind: 'item-upsert'; item: WhiteboardItem }
+  | { kind: 'item-delete'; id: string }
   | { kind: 'mode'; mode: StageMode }
-  | { kind: 'sync'; strokes: WhiteboardStroke[]; mode?: StageMode };
+  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode };
 type StageMode = 'video' | 'whiteboard';
+type WhiteboardTool = 'select' | 'draw' | 'pan' | 'text';
+type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem };
 type CallMessage = { id: string; body: string; created: number; name: string };
 type VideoRoomProps = {
   assignedRole: VideoRole;
@@ -58,8 +64,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showAndroidAppPrompt, setShowAndroidAppPrompt] = useState(false);
-  const [screenShareMobileOS, setScreenShareMobileOS] = useState<'android' | 'ios' | null>(null);
+  const [showWindowsShareNotice, setShowWindowsShareNotice] = useState(false);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
@@ -73,27 +78,33 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
   const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
+  const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
   const [activeStroke, setActiveStroke] = useState<WhiteboardStroke | null>(null);
   const [whiteboardColor, setWhiteboardColor] = useState('#d8f264');
   const [whiteboardSize, setWhiteboardSize] = useState(4);
   const [whiteboardViewport, setWhiteboardViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [whiteboardAspect, setWhiteboardAspect] = useState(1.55);
-  const [whiteboardTool, setWhiteboardTool] = useState<'draw' | 'pan'>('draw');
+  const [whiteboardTool, setWhiteboardTool] = useState<WhiteboardTool>('draw');
+  const [selectedWhiteboardItem, setSelectedWhiteboardItem] = useState<string | null>(null);
+  const [editingWhiteboardText, setEditingWhiteboardText] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const whiteboardSvgRef = useRef<SVGSVGElement>(null);
+  const whiteboardImageInputRef = useRef<HTMLInputElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const autoJoinStartedRef = useRef(false);
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
+  const whiteboardItemsRef = useRef<WhiteboardItem[]>([]);
   const activeStrokeRef = useRef<WhiteboardStroke | null>(null);
   const activeStrokeFrameRef = useRef<number | null>(null);
   const liveStrokePointsRef = useRef<WhiteboardPoint[]>([]);
   const liveStrokeTimerRef = useRef<number | null>(null);
   const lastLiveStrokeBroadcastRef = useRef(0);
   const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const whiteboardItemInteractionRef = useRef<WhiteboardItemInteraction | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const presenceRef = useRef(onPresenceChange);
   const localPeerIdRef = useRef<string | null>(null);
@@ -205,7 +216,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       remoteStreamRef.current = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setIsScreenSharing(false);
-      setShowAndroidAppPrompt(false);
+      setShowWindowsShareNotice(false);
       setRemoteVideoSource('camera');
       setHasRemoteStream(false);
       setFocusedParticipant(null);
@@ -230,7 +241,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           setRemoteTyping(typing);
           if (typing) remoteTypingTimerRef.current = window.setTimeout(() => setRemoteTyping(false), 1800);
         },
-        onDataOpen: () => sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, mode: stageMode }),
+        onDataOpen: () => sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageMode }),
         onLocalPeerId: (peerId) => {
           localPeerIdRef.current = peerId;
           const update = presenceRef.current?.(Boolean(peerId), peerId);
@@ -281,7 +292,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setIsJoining(false);
     setIsScreenSharing(false);
     setIsPictureInPicture(false);
-    setShowAndroidAppPrompt(false);
+    setShowWindowsShareNotice(false);
     setRemoteVideoSource('camera');
     setHasRemoteStream(false);
     setFocusedParticipant(null);
@@ -331,13 +342,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     connectionRef.current?.toggleVideo(nextValue);
   };
 
-  const getMobileScreenShareOS = () => {
-    const userAgent = navigator.userAgent;
-    const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isAndroid = /Android/i.test(userAgent);
-    if (isIOS) return 'ios';
-    if (isAndroid) return 'android';
-    return null;
+  const isWindowsDevice = () => {
+    const navigatorWithPlatform = navigator as Navigator & { userAgentData?: { platform?: string } };
+    const platform = navigatorWithPlatform.userAgentData?.platform || navigator.platform || navigator.userAgent;
+    return /windows|win32|win64/i.test(platform);
   };
 
   const handleScreenShareToggle = async () => {
@@ -350,26 +358,21 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         setIsScreenSharing(false);
         return;
       }
-      const mobileOS = getMobileScreenShareOS();
-      if (mobileOS) {
-        setScreenShareMobileOS(mobileOS);
-        setShowAndroidAppPrompt(true);
-        setStatus(t("مشاركة شاشة الهاتف تحتاج تنزيل التطبيق"));
+      if (!isWindowsDevice()) {
+        setShowWindowsShareNotice(true);
+        setStatus(t("هذا الخيار متاح للويندوز فقط حالياً"));
         return;
       }
       const screenStream = await connectionRef.current.startScreenShare();
       localStreamRef.current = screenStream;
       if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
       setIsScreenSharing(true);
-      setShowAndroidAppPrompt(false);
+      setShowWindowsShareNotice(false);
       setStageMode('video');
       setFocusedParticipant('local');
     } catch (error) {
       const message = error instanceof Error ? error.message : t("تعذر مشاركة الشاشة");
-      if (message.includes(t("غير مدعومة"))) {
-        setShowAndroidAppPrompt(true);
-        setStatus(t("مشاركة شاشة الهاتف تحتاج تطبيق أندرويد"));
-      } else setStatus(message);
+      setStatus(message);
       setIsScreenSharing(false);
     }
   };
@@ -425,7 +428,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'erase';
+    return kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -436,15 +439,54 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     });
   };
 
+  const setSyncedWhiteboardItems = (next: WhiteboardItem[] | ((current: WhiteboardItem[]) => WhiteboardItem[])) => {
+    setWhiteboardItems((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      whiteboardItemsRef.current = value;
+      return value;
+    });
+  };
+
+  const upsertWhiteboardItem = (item: WhiteboardItem, broadcast = false) => {
+    setSyncedWhiteboardItems((current) => {
+      const existingIndex = current.findIndex((candidate) => candidate.id === item.id);
+      if (existingIndex < 0) return [...current, item];
+      return current.map((candidate, index) => index === existingIndex ? item : candidate);
+    });
+    if (broadcast) sendWhiteboard({ kind: 'item-upsert', item });
+  };
+
+  const deleteWhiteboardItem = (id: string, broadcast = true) => {
+    setSyncedWhiteboardItems((current) => current.filter((item) => item.id !== id));
+    setSelectedWhiteboardItem((current) => current === id ? null : current);
+    setEditingWhiteboardText((current) => current === id ? null : current);
+    if (broadcast) sendWhiteboard({ kind: 'item-delete', id });
+  };
+
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
-    if (message.kind === 'clear') return setSyncedWhiteboardStrokes([]);
+    if (message.kind === 'clear') {
+      setSyncedWhiteboardStrokes([]);
+      setSyncedWhiteboardItems([]);
+      setSelectedWhiteboardItem(null);
+      setEditingWhiteboardText(null);
+      return;
+    }
     if (message.kind === 'erase') return setSyncedWhiteboardStrokes((current) => current.filter((stroke) => !message.ids.includes(stroke.id)));
+    if (message.kind === 'item-delete') return deleteWhiteboardItem(message.id, false);
+    if (message.kind === 'item-upsert') {
+      upsertWhiteboardItem(message.item);
+      ensureWhiteboardContentVisible(whiteboardStrokesRef.current, [...whiteboardItemsRef.current.filter((item) => item.id !== message.item.id), message.item]);
+      return;
+    }
     if (message.kind === 'mode') return setStageMode(message.mode);
     if (message.kind === 'sync') {
       if (message.mode) setStageMode(message.mode);
-      ensureWhiteboardContentVisible(message.strokes);
-      return setSyncedWhiteboardStrokes(message.strokes);
+      const items = message.items || [];
+      ensureWhiteboardContentVisible(message.strokes, items);
+      setSyncedWhiteboardStrokes(message.strokes);
+      setSyncedWhiteboardItems(items);
+      return;
     }
     if (message.kind === 'stroke-start') {
       return setSyncedWhiteboardStrokes((current) => {
@@ -533,7 +575,99 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     liveStrokeTimerRef.current = window.setTimeout(flushLiveStrokePoints, delay);
   };
 
+  const startWhiteboardItemInteraction = (event: PointerEvent<SVGGElement | SVGCircleElement>, item: WhiteboardItem, mode: 'move' | 'resize') => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const svg = whiteboardSvgRef.current;
+    if (!svg) return;
+    const syntheticEvent = { currentTarget: svg, clientX: event.clientX, clientY: event.clientY } as PointerEvent<SVGSVGElement>;
+    whiteboardItemInteractionRef.current = { id: item.id, mode, start: whiteboardPoint(syntheticEvent), item: { ...item } };
+    setSelectedWhiteboardItem(item.id);
+    if (mode === 'move') setEditingWhiteboardText(null);
+    setWhiteboardTool('select');
+  };
+
+  const addWhiteboardText = (point: WhiteboardPoint) => {
+    const item: WhiteboardTextItem = {
+      id: `${Date.now()}-text-${Math.random().toString(36).slice(2)}`,
+      type: 'text',
+      x: point.x,
+      y: point.y,
+      width: 300 / whiteboardViewport.zoom,
+      height: 100 / whiteboardViewport.zoom,
+      text: '',
+      color: whiteboardColor,
+      fontSize: 34 / whiteboardViewport.zoom,
+    };
+    upsertWhiteboardItem(item, true);
+    setSelectedWhiteboardItem(item.id);
+    setEditingWhiteboardText(null);
+    setWhiteboardTool('select');
+    window.setTimeout(() => setEditingWhiteboardText(item.id), 0);
+  };
+
+  const loadWhiteboardImage = async (file: File) => {
+    if (!file.type.startsWith('image/')) throw new Error(t('اختر ملف صورة صالحاً.'));
+    if (file.size > 12 * 1024 * 1024) throw new Error(t('الصورة أكبر من 12 ميغابايت.'));
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error(t('تعذر قراءة الصورة.')));
+        element.src = objectUrl;
+      });
+      const scale = Math.min(1, 1400 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error(t('تعذر تجهيز الصورة للوح.'));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const src = canvas.toDataURL('image/webp', 0.8);
+      const maxWidth = 620 / whiteboardViewport.zoom;
+      const maxHeight = 430 / whiteboardViewport.zoom;
+      const displayScale = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
+      const width = canvas.width * displayScale;
+      const height = width * (canvas.height / canvas.width);
+      const currentViewWidth = 1000 / whiteboardViewport.zoom;
+      const currentViewHeight = currentViewWidth / getLiveWhiteboardAspect();
+      const item: WhiteboardImageItem = {
+        id: `${Date.now()}-image-${Math.random().toString(36).slice(2)}`,
+        type: 'image',
+        x: whiteboardViewport.x + (currentViewWidth - width) / 2,
+        y: whiteboardViewport.y + (currentViewHeight - height) / 2,
+        width,
+        height,
+        src,
+      };
+      upsertWhiteboardItem(item, true);
+      setSelectedWhiteboardItem(item.id);
+      setEditingWhiteboardText(null);
+      setWhiteboardTool('select');
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  const handleWhiteboardImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    void loadWhiteboardImage(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر إضافة الصورة إلى اللوح.')));
+  };
+
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    if (whiteboardTool === 'text') {
+      addWhiteboardText(whiteboardPoint(event));
+      return;
+    }
+    if (whiteboardTool === 'select') {
+      setSelectedWhiteboardItem(null);
+      setEditingWhiteboardText(null);
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     if (whiteboardTool === 'pan') {
       panStartRef.current = { clientX: event.clientX, clientY: event.clientY, x: whiteboardViewport.x, y: whiteboardViewport.y };
@@ -547,6 +681,25 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    const itemInteraction = whiteboardItemInteractionRef.current;
+    if (itemInteraction) {
+      const point = whiteboardPoint(event);
+      const deltaX = point.x - itemInteraction.start.x;
+      const deltaY = point.y - itemInteraction.start.y;
+      const original = itemInteraction.item;
+      let next: WhiteboardItem;
+      if (itemInteraction.mode === 'move') {
+        next = { ...original, x: original.x + deltaX, y: original.y + deltaY };
+      } else if (original.type === 'image') {
+        const ratio = original.width / original.height;
+        const width = Math.max(80 / whiteboardViewport.zoom, original.width + deltaX);
+        next = { ...original, width, height: width / ratio };
+      } else {
+        next = { ...original, width: Math.max(160 / whiteboardViewport.zoom, original.width + deltaX), height: Math.max(70 / whiteboardViewport.zoom, original.height + deltaY) };
+      }
+      upsertWhiteboardItem(next);
+      return;
+    }
     if (whiteboardTool === 'pan' && panStartRef.current) {
       const rect = event.currentTarget.getBoundingClientRect();
       const viewWidth = 1000 / whiteboardViewport.zoom;
@@ -570,6 +723,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const finishWhiteboardStroke = () => {
+    const itemInteraction = whiteboardItemInteractionRef.current;
+    if (itemInteraction) {
+      whiteboardItemInteractionRef.current = null;
+      const item = whiteboardItemsRef.current.find((candidate) => candidate.id === itemInteraction.id);
+      if (item) sendWhiteboard({ kind: 'item-upsert', item });
+      return;
+    }
     panStartRef.current = null;
     if (activeStrokeFrameRef.current !== null) {
       cancelAnimationFrame(activeStrokeFrameRef.current);
@@ -589,6 +749,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const clearWhiteboard = () => {
     if (role !== 'teacher') return;
     setSyncedWhiteboardStrokes([]);
+    setSyncedWhiteboardItems([]);
+    setSelectedWhiteboardItem(null);
+    setEditingWhiteboardText(null);
     sendWhiteboard({ kind: 'clear' });
   };
 
@@ -600,9 +763,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     sendWhiteboard({ kind: 'erase', ids: [lastStroke.id] });
   };
 
-  const fitWhiteboardToStrokes = (strokes: WhiteboardStroke[]) => {
+  const whiteboardContentPoints = (strokes: WhiteboardStroke[], items: WhiteboardItem[]) => [
+    ...strokes.flatMap((stroke) => stroke.points),
+    ...items.flatMap((item) => [{ x: item.x, y: item.y }, { x: item.x + item.width, y: item.y + item.height }]),
+  ];
+
+  const fitWhiteboardToContent = (strokes: WhiteboardStroke[], items: WhiteboardItem[]) => {
     const aspect = getLiveWhiteboardAspect();
-    const points = strokes.flatMap((stroke) => stroke.points);
+    const points = whiteboardContentPoints(strokes, items);
     if (!points.length) {
       setWhiteboardViewport({ x: 0, y: 0, zoom: 1 });
       return;
@@ -624,9 +792,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     });
   };
 
-  const ensureWhiteboardContentVisible = (strokes: WhiteboardStroke[]) => {
+  const ensureWhiteboardContentVisible = (strokes: WhiteboardStroke[], items: WhiteboardItem[] = whiteboardItemsRef.current) => {
     const aspect = getLiveWhiteboardAspect();
-    const points = strokes.flatMap((stroke) => stroke.points);
+    const points = whiteboardContentPoints(strokes, items);
     if (!points.length) return;
     setWhiteboardViewport((current) => {
       const minX = Math.min(...points.map((point) => point.x));
@@ -683,19 +851,59 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const viewWidth = 1000 / whiteboardViewport.zoom;
   const viewHeight = viewWidth / whiteboardAspect;
 
+  const renderWhiteboardItem = (item: WhiteboardItem) => {
+    const selected = selectedWhiteboardItem === item.id;
+    const commonProps = {
+      className: `whiteboard-item ${selected ? 'selected' : ''}`,
+      onPointerDown: (event: PointerEvent<SVGGElement>) => startWhiteboardItemInteraction(event, item, 'move'),
+    };
+    return (
+      <g key={item.id} {...commonProps} onDoubleClick={() => item.type === 'text' && setEditingWhiteboardText(item.id)}>
+        {item.type === 'image' ? (
+          <image href={item.src} x={item.x} y={item.y} width={item.width} height={item.height} preserveAspectRatio="xMidYMid meet" />
+        ) : (
+          <foreignObject x={item.x} y={item.y} width={item.width} height={item.height}>
+            {editingWhiteboardText === item.id ? <textarea
+              autoFocus
+              className="whiteboard-text-editor"
+              dir="auto"
+              value={item.text}
+              style={{ color: item.color, fontSize: item.fontSize }}
+              placeholder={t('اكتب هنا')}
+              onPointerDown={(event) => event.stopPropagation()}
+              onChange={(event) => upsertWhiteboardItem({ ...item, text: event.target.value }, true)}
+              onBlur={() => { if (!item.text.trim()) deleteWhiteboardItem(item.id); else setEditingWhiteboardText(null); }}
+            /> : <div className="whiteboard-text-content" dir="auto" style={{ color: item.color, fontSize: item.fontSize }}>{item.text || t('اكتب هنا')}</div>}
+          </foreignObject>
+        )}
+        {selected && <>
+          <rect className="whiteboard-selection-box" x={item.x} y={item.y} width={item.width} height={item.height} />
+          <circle className="whiteboard-resize-handle" cx={item.x + item.width} cy={item.y + item.height} r={10 / whiteboardViewport.zoom} onPointerDown={(event) => startWhiteboardItemInteraction(event, item, 'resize')} />
+        </>}
+      </g>
+    );
+  };
+
   const renderWhiteboard = () => (
     <div className="whiteboard-panel">
       <div className="whiteboard-tools">
-        <button className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool(whiteboardTool === 'pan' ? 'draw' : 'pan')} aria-label={t("تحريك اللوح")}>✋</button>
+        <button data-whiteboard-tool="select" className={whiteboardTool === 'select' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('select')} aria-label={t('تحديد وتحريك العناصر')} title={t('تحديد وتحريك العناصر')}><MousePointer2 size={17} /></button>
+        <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={t('الرسم بالقلم')}><Pencil size={17} /></button>
+        <button data-whiteboard-tool="pan" className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('pan')} aria-label={t("تحريك اللوح")} title={t("تحريك اللوح")}><Hand size={17} /></button>
+        <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
+        <button data-whiteboard-tool="image" className="tool-mode" type="button" onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}><ImagePlus size={17} /></button>
+        <input ref={whiteboardImageInputRef} className="whiteboard-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardImageChange} />
         {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardStroke} aria-label={t("تراجع خطوة")} title={t("تراجع خطوة")}><Undo2 size={17} /></button>}
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label={t("تصغير")}>-</button>
-        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToStrokes(whiteboardStrokesRef.current); }} aria-label={t("إظهار كامل الرسم")} title={t("إظهار كامل الرسم")}><Maximize2 size={17} /></button>
+        <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToContent(whiteboardStrokesRef.current, whiteboardItemsRef.current); }} aria-label={t("إظهار كامل الرسم")} title={t("إظهار كامل الرسم")}><Maximize2 size={17} /></button>
         {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label={t("لون القلم")} />)}
         <input aria-label={t("حجم القلم")} min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
+        {selectedWhiteboardItem && <button className="whiteboard-delete-item" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardItem)} title={t('حذف العنصر')} aria-label={t('حذف العنصر')}><Trash2 size={17} /></button>}
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
       </div>
       <svg ref={whiteboardSvgRef} className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+        {whiteboardItems.map(renderWhiteboardItem)}
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}
       </svg>
     </div>
@@ -748,7 +956,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       </div>
       {mediaIssue && <div className="call-diagnostic" role="alert"><div><strong>{t('تعذر ربط الصوت والفيديو')}</strong><p>{t(status)}</p><small>{t('وجود الطرف الآخر في الغرفة لا يعني أن مسار الوسائط اكتمل. افحص الإنترنت والكاميرا، ثم أعد المحاولة. إذا تكرر الخطأ فسيظهر السبب التقني أعلاه للدعم.')}</small></div><button type="button" className="secondary-button" onClick={startCall}><RefreshCw size={17} />{t('إعادة فحص الاتصال')}</button></div>}
 
-      {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>{t("مشاركة شاشة الهاتف تحتاج التطبيق")}</strong><p>{t("متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. اختر التطبيق المناسب لجهازك.")}</p></div><div className="mobile-app-actions"><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />{t("تطبيق أندرويد")}</a><button className="download-app-button pending" type="button" disabled>{screenShareMobileOS === 'ios' ? t("تطبيق iOS غير متوفر حالياً") : t("تطبيق iOS قريباً")}</button></div></div>}
+      {showWindowsShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('هذا الخيار متاح للويندوز فقط حالياً')}</strong><p>{t('يمكنك متابعة الحصة من هذا الجهاز، لكن بدء مشاركة الشاشة متاح من جهاز ويندوز فقط حالياً.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowWindowsShareNotice(false)}>{t('حسناً')}</button></div>}
 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (

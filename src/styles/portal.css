@@ -1245,6 +1245,8 @@ button.day-event { font: inherit; }
   font-weight: 900;
 }
 .whiteboard-tools input { flex: 1; min-width: 72px; accent-color: #DBEAFE; }
+.whiteboard-tools .whiteboard-image-input { display: none; }
+.whiteboard-delete-item { color: #ffd3d3 !important; background: #6b2930 !important; }
 .whiteboard-clear { background: #3a3d46 !important; }
 .whiteboard-canvas {
   display: block;
@@ -1265,6 +1267,44 @@ button.day-event { font: inherit; }
   contain: layout paint style;
 }
 .whiteboard-canvas.panning { cursor: grab; }
+.whiteboard-item { cursor: move; }
+.whiteboard-item image { user-select: none; }
+.whiteboard-selection-box {
+  fill: none;
+  stroke: #f4cf4d;
+  stroke-width: 2px;
+  stroke-dasharray: 7 5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.whiteboard-resize-handle {
+  fill: #f4cf4d;
+  stroke: #111216;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  cursor: nwse-resize;
+}
+.whiteboard-text-content,
+.whiteboard-text-editor {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  font-family: inherit;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+.whiteboard-text-editor { padding: 6px; background: #111216cc; }
+.whiteboard-text-content { padding: 6px; pointer-events: none; }
 .whiteboard-mode .call-stage {
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
@@ -1637,7 +1677,9 @@ button.day-event { font: inherit; }
   background: #e7f7ef;
   border: 1px solid #ccebdc;
 }
-.tutor-actions b { font-size: 20px; color: #111827; }
+.tutor-actions b { display: grid; gap: 2px; font-size: 20px; color: #111827; }
+.tutor-actions b small { color: #667085; font-size: 12px; font-weight: 700; }
+.tutor-actions .variable-lesson-price { max-width: 170px; font-size: 15px; line-height: 1.45; }
 .tutor-actions .secondary-button { color: #344054; font-size: 13px; }
 
 .teacher-metrics {

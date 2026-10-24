@@ -9,8 +9,12 @@ const browser = await chromium.launch({
 const context = await browser.newContext({ permissions: ['camera', 'microphone'] });
 const teacher = await context.newPage();
 const student = await context.newPage();
+teacher.setDefaultTimeout(15000);
+student.setDefaultTimeout(15000);
 const errors = [];
 const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8787';
+const stressSteps = Number(process.env.WHITEBOARD_STRESS_STEPS || 600);
+const reconnectAttempts = Number(process.env.VIDEO_RECONNECT_ATTEMPTS || 3);
 teacher.on('pageerror', error => errors.push(error.message));
 student.on('pageerror', error => errors.push(error.message));
 
@@ -45,7 +49,7 @@ try {
   assert.ok(board);
   await teacher.mouse.move(board.x + 30, board.y + board.height / 2);
   await teacher.mouse.down();
-  const teacherDrawing = teacher.mouse.move(board.x + board.width - 30, board.y + board.height / 2 + 40, { steps: 600 });
+  const teacherDrawing = teacher.mouse.move(board.x + board.width - 30, board.y + board.height / 2 + 40, { steps: stressSteps });
   await student.waitForFunction(() => (document.querySelector('.whiteboard-canvas path')?.getAttribute('d')?.includes('L') ?? false), undefined, { timeout: 10000 });
   await teacherDrawing;
   await teacher.mouse.up();
@@ -55,7 +59,7 @@ try {
   assert.ok(studentBoard);
   await student.mouse.move(studentBoard.x + 40, studentBoard.y + 80);
   await student.mouse.down();
-  const studentDrawing = student.mouse.move(studentBoard.x + studentBoard.width - 40, studentBoard.y + 130, { steps: 600 });
+  const studentDrawing = student.mouse.move(studentBoard.x + studentBoard.width - 40, studentBoard.y + 130, { steps: stressSteps });
   await teacher.waitForFunction(() => document.querySelectorAll('.whiteboard-canvas path').length >= 2
     && (document.querySelectorAll('.whiteboard-canvas path')[1]?.getAttribute('d')?.includes('L') ?? false), undefined, { timeout: 10000 });
   await studentDrawing;
@@ -69,6 +73,22 @@ try {
     }), true, 'drawing must not detach or stop the camera and microphone streams');
   }
 
+  await teacher.locator('[data-whiteboard-tool="text"]').click();
+  const textBoard = teacher.locator('.whiteboard-canvas');
+  const textBoardBox = await textBoard.boundingBox();
+  assert.ok(textBoardBox);
+  await textBoard.click({ position: { x: textBoardBox.width * 0.35, y: textBoardBox.height * 0.28 } });
+  const textEditor = teacher.locator('.whiteboard-text-editor');
+  await textEditor.fill('Shared board text');
+  await teacher.locator('[data-whiteboard-tool="select"]').click();
+  await student.waitForFunction(() => [...document.querySelectorAll('.whiteboard-text-content')].some(element => element.textContent === 'Shared board text'), undefined, { timeout: 10000 });
+
+  const imageBuffer = await teacher.locator('.call-header').screenshot();
+  await teacher.locator('.whiteboard-image-input').setInputFiles({ name: 'board-image.png', mimeType: 'image/png', buffer: imageBuffer });
+  await student.locator('.whiteboard-item image').waitFor({ timeout: 10000 });
+  assert.ok((await student.locator('.whiteboard-item image').getAttribute('href'))?.startsWith('data:image/webp'));
+  await teacher.screenshot({ path: '.private/whiteboard-text-image.png' });
+
   async function leaveAndReturn(leaver, waitingParticipant) {
     await waitingParticipant.evaluate(() => { window.remoteStreamBeforeReturn = document.querySelectorAll('video')[0]?.srcObject; });
     await leaver.locator('.call-toolbar .danger').click();
@@ -80,8 +100,8 @@ try {
     }, undefined, { timeout: 30000 });
   }
 
-  for (let attempt = 0; attempt < 3; attempt += 1) await leaveAndReturn(teacher, student);
-  for (let attempt = 0; attempt < 3; attempt += 1) await leaveAndReturn(student, teacher);
+  for (let attempt = 0; attempt < reconnectAttempts; attempt += 1) await leaveAndReturn(teacher, student);
+  for (let attempt = 0; attempt < reconnectAttempts; attempt += 1) await leaveAndReturn(student, teacher);
 
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log('Direct video route, whiteboard stability, and repeated teacher/student leave-and-return checks passed.');

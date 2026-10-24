@@ -131,6 +131,9 @@ try {
       await reminders.uncheck();
       assert.equal(await reminders.isChecked(), false);
       await page.locator('.nav-list').getByRole('button', { name: 'الرئيسية', exact: true }).click();
+      assert.equal(await page.locator('.tutor-card').first().getByText('السعر حسب طول الحصة', { exact: true }).count(), 1);
+      assert.equal(await page.getByText('ابتداءً من', { exact: true }).count(), 0);
+      assert.equal(await page.locator('.tutor-card').nth(1).getByText('سعر الحصة', { exact: true }).count(), 1);
       await page.locator('.student-search input').focus();
       await page.waitForFunction(() => document.activeElement?.matches('.student-search input'));
       await page.getByTitle('عرض ملخّص الأسبوع').click();
