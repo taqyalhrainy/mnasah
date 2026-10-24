@@ -17,6 +17,15 @@ type PeerCallbacks = {
 export type VideoRole = 'teacher' | 'student';
 export type VideoSource = 'camera' | 'screen';
 
+const turnUrls = String(import.meta.env.VITE_TURN_URLS || import.meta.env.VITE_TURN_URL || '').split(',').map(value => value.trim()).filter(Boolean);
+const turnUsername = String(import.meta.env.VITE_TURN_USERNAME || '').trim();
+const turnCredential = String(import.meta.env.VITE_TURN_CREDENTIAL || '').trim();
+const hasTurnServer = turnUrls.length > 0 && Boolean(turnUsername && turnCredential);
+const iceServers: RTCIceServer[] = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] },
+  ...(hasTurnServer ? [{ urls: turnUrls, username: turnUsername, credential: turnCredential }] : []),
+];
+
 function normalizeRoomId(roomId: string) {
   return roomId
     .trim()
@@ -41,6 +50,8 @@ export class VideoConnection {
   private closed = false;
   private remotePeerId?: string;
   private discoveryInFlight = false;
+  private callTimeouts = new WeakMap<MediaConnection, number>();
+  private diagnosedCalls = new WeakSet<MediaConnection>();
 
   constructor(
     private readonly roomId: string,
@@ -243,10 +254,8 @@ export class VideoConnection {
     const peer = new Peer({
       debug: 1,
       config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' },
-        ],
+        iceServers,
+        iceCandidatePoolSize: 8,
       },
     });
     this.peer = peer;
@@ -344,6 +353,18 @@ export class VideoConnection {
 
   private bindCallEvents(call: MediaConnection) {
     this.pendingCalls.add(call);
+    this.bindIceDiagnostics(call);
+    const callTimeout = window.setTimeout(() => {
+      if (this.closed || this.hasRemoteStream || (!this.pendingCalls.has(call) && this.activeCall !== call)) return;
+      this.callbacks.onStatus(hasTurnServer
+        ? t('تعذر تمرير الصوت والفيديو عبر الشبكة. تحقق من الجدار الناري أو جرّب شبكة أخرى ثم أعد الاتصال.')
+        : t('تعذر إنشاء مسار للصوت والفيديو بين الجهازين. يلزم إعداد خادم TURN للمكالمات عبر الشبكات المختلفة.'));
+      this.pendingCalls.delete(call);
+      if (this.activeCall === call) this.activeCall = undefined;
+      call.close();
+      this.startPeerSearch();
+    }, 18000);
+    this.callTimeouts.set(call, callTimeout);
 
     call.on('stream', (remoteStream) => {
       if (this.closed) {
@@ -354,6 +375,7 @@ export class VideoConnection {
       this.activeCall = call;
       this.hasRemoteStream = true;
       this.pendingCalls.delete(call);
+      this.clearCallTimeout(call);
       this.pendingCalls.forEach(candidate => candidate.close());
       this.pendingCalls.clear();
       if (previousCall && previousCall !== call) previousCall.close();
@@ -367,17 +389,63 @@ export class VideoConnection {
 
     call.on('close', () => {
       this.pendingCalls.delete(call);
+      this.clearCallTimeout(call);
       this.handleCallEnded(call);
     });
 
     call.on('error', (error) => {
       this.pendingCalls.delete(call);
+      this.clearCallTimeout(call);
       if (this.closed || this.activeCall !== call) return;
       this.hasRemoteStream = false;
       this.activeCall = undefined;
       this.callbacks.onPeerLeft();
       this.callbacks.onStatus(error.message || t("تعذر إكمال المكالمة"));
       this.startPeerSearch();
+    });
+  }
+
+  private clearCallTimeout(call: MediaConnection) {
+    const timer = this.callTimeouts.get(call);
+    if (timer) window.clearTimeout(timer);
+    this.callTimeouts.delete(call);
+  }
+
+  private bindIceDiagnostics(call: MediaConnection) {
+    if (this.diagnosedCalls.has(call)) return;
+    this.diagnosedCalls.add(call);
+    const connection = call.peerConnection;
+    let disconnectedTimer = 0;
+    const recover = () => {
+      if (this.closed || (this.activeCall !== call && !this.pendingCalls.has(call))) return;
+      this.hasRemoteStream = false;
+      if (this.activeCall === call) this.activeCall = undefined;
+      this.pendingCalls.delete(call);
+      this.clearCallTimeout(call);
+      this.callbacks.onPeerLeft();
+      call.close();
+      this.startPeerSearch();
+    };
+    connection.addEventListener('connectionstatechange', () => {
+      if (connection.connectionState === 'connected') {
+        if (disconnectedTimer) window.clearTimeout(disconnectedTimer);
+        return;
+      }
+      if (connection.connectionState === 'disconnected') {
+        this.callbacks.onStatus(t('انقطع مسار الصوت والفيديو مؤقتاً، جاري إعادة الاتصال…'));
+        if (disconnectedTimer) window.clearTimeout(disconnectedTimer);
+        disconnectedTimer = window.setTimeout(recover, 7000);
+      }
+      if (connection.connectionState === 'failed') {
+        if (disconnectedTimer) window.clearTimeout(disconnectedTimer);
+        this.callbacks.onStatus(hasTurnServer
+          ? t('فشل اتصال الوسائط. تحقق من الإنترنت أو الجدار الناري وسيُعاد الاتصال تلقائياً.')
+          : t('فشل اتصال الوسائط بين الشبكتين لأن خادم TURN غير مفعّل.'));
+        recover();
+      }
+    });
+    connection.addEventListener('icecandidateerror', () => {
+      if (!this.hasRemoteStream) this.callbacks.onStatus(hasTurnServer ? t('تعذر الوصول إلى خادم تمرير المكالمة. جاري المحاولة…') : t('جاري فحص مسار مباشر للصوت والفيديو…'));
     });
   }
 

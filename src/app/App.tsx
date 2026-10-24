@@ -59,12 +59,19 @@ function PortalApp() {
   const [retry, setRetry] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [lessonReminders, setLessonReminders] = useState({ enabled: false, hint: '' });
+  const [supportWhatsapp, setSupportWhatsapp] = useState('');
   const toggleLessonReminders = useRef<() => void>(() => undefined);
   const captureLessonReminders = useCallback((enabled: boolean, hint: string, toggle: () => void) => {
     toggleLessonReminders.current = toggle;
     setLessonReminders(current => current.enabled === enabled && current.hint === hint ? current : { enabled, hint });
   }, []);
   const chat = useDirectChat(portal, user, view === 'messages', () => setView('messages'));
+  useEffect(() => {
+    let alive = true;
+    if (!user || portal === 'admin' || user.status !== 'active') { setSupportWhatsapp(''); return; }
+    request<{ whatsapp: string }>(`${portal}/support`).then(result => { if (alive) setSupportWhatsapp(String(result.whatsapp || '').replace(/\D/g, '')); }).catch(() => { if (alive) setSupportWhatsapp(''); });
+    return () => { alive = false; };
+  }, [portal, user]);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [view]);
   useEffect(() => {
     const pop = () => { const next = currentPortal(); setPortal(next); setView(next === 'students' || next === 'teachers' ? 'home' : 'bookings'); setRoomLive(false); };
@@ -144,5 +151,6 @@ function PortalApp() {
       {user.status === 'suspended' ? <p className="notice error">{t("حسابك موقوف. راجع الإدارة.")}</p> : user.status === 'pending' && portal === 'teachers' && user.verification?.verification_status !== 'submitted' && user.verification?.verification_status !== 'approved' ? <RegistrationFlow portal="teachers" existingUser={user} onLogin={setUser} onCancel={logout} /> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><ShieldCheck size={34} /><h2>{t("طلبك قيد المراجعة")}</h2><p>{t("وصلت بياناتك وصورتك وفيديو التحقق والمستندات إلى الأونر. سنفعّل الحساب بعد المراجعة.")}</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>{t("تحديث حالة الطلب")}</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} onRoomLiveChange={setRoomLive} onReminderControls={captureLessonReminders} searchFocusKey={searchFocusKey} />}
       {portal !== 'admin' && user.status === 'active' && <div hidden={view !== 'messages'}><Suspense fallback={<p role="status">{t("جارٍ تجهيز الرسائل…")}</p>}><DirectMessages key={user.id} portal={portal} user={user} chat={chat} active={view === 'messages'} /></Suspense></div>}
       </div></section>
+    {supportWhatsapp && <a className="support-whatsapp" href={`https://wa.me/${supportWhatsapp}?text=${encodeURIComponent(t('مرحباً، أحتاج مساعدة في منصة Mansah'))}`} target="_blank" rel="noreferrer" aria-label={t('التواصل مع الدعم عبر واتساب')}><MessageCircle size={23} /><span>{t('الدعم')}</span></a>}
   </main>;
 }

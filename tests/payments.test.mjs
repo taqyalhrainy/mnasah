@@ -4,10 +4,19 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { paymentRange, paymentSummary, paymentMidnight, paymentDay } from '../shared/payments.js';
+import { cancellationQuote } from '../shared/cancellation.js';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 import worker from '../dist/server/index.js';
 import { digest } from '../worker/auth.js';
+
+test('cancellation policy refunds the wallet and splits late fees deterministically', () => {
+  const now = Date.parse('2026-10-24T09:00:00Z');
+  assert.deepEqual(cancellationQuote({ start: now + 25 * 3600000, price: 1000, actorRole: 'students', now, commissionPercent: 20 }), { tier: 'student_24h', hoursBefore: 25, refund: 1000, teacherCompensation: 0, platformFee: 0, refundPercent: 100 });
+  assert.deepEqual(cancellationQuote({ start: now + 12 * 3600000, price: 1000, actorRole: 'students', now, commissionPercent: 20 }), { tier: 'student_6h', hoursBefore: 12, refund: 500, teacherCompensation: 400, platformFee: 100, refundPercent: 50 });
+  assert.deepEqual(cancellationQuote({ start: now + 2 * 3600000, price: 1000, actorRole: 'students', now, commissionPercent: 20 }), { tier: 'student_late', hoursBefore: 2, refund: 0, teacherCompensation: 800, platformFee: 200, refundPercent: 0 });
+  assert.deepEqual(cancellationQuote({ start: now - 1, price: 1000, actorRole: 'teachers', now }), { tier: 'teacher_cancelled', hoursBefore: -1 / 3600000, refund: 1000, teacherCompensation: 0, platformFee: 0, refundPercent: 100 });
+});
 
 test('Amman date boundaries, ranges, integer accounting and completion-only totals', () => {
   const now = Date.parse('2026-10-05T12:00:00Z');

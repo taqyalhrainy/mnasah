@@ -48,7 +48,13 @@ test('Mongo wallet top-ups require admin approval and bookings debit and refund 
   assert.equal((await json('students', 'wallet')).balance, 500);
   await json('students', `bookings/${booking.id}/cancel`, {});
   await json('students', `bookings/${booking.id}/cancel`, {}, 409);
-  assert.equal((await json('students', 'wallet')).balance, 1500);
+  assert.equal((await json('students', 'wallet')).balance, 500);
   const transactions = (await json('students', 'wallet')).transactions;
-  assert.deepEqual(transactions.map(row => row.type).sort(), ['cliq_topup', 'lesson_payment', 'lesson_refund'].sort());
+  assert.deepEqual(transactions.map(row => row.type).sort(), ['cliq_topup', 'lesson_payment'].sort());
+  const review = await json('admin', 'wallet-topups');
+  assert.equal(review.accounts.find(row => row.user_id === 'student-wallet').balance, 500);
+  await json('admin', 'wallet-adjustments', { user_id: 'student-wallet', amount: 200, reason: 'تصحيح تجريبي' });
+  await json('admin', 'wallet-adjustments', { user_id: 'student-wallet', amount: -100, reason: 'خصم تجريبي' });
+  assert.equal((await json('students', 'wallet')).balance, 600);
+  await json('admin', 'wallet-adjustments', { user_id: 'student-wallet', amount: -700, reason: 'لا يسمح بالسالب' }, 409);
 });

@@ -9,6 +9,7 @@ import { Server } from 'socket.io';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
+import { cancellationQuote } from '../shared/cancellation.js';
 import { serveChatAttachment } from './chat-attachments.js';
 import { serveVerificationFile, verificationBytes } from './verification-files.js';
 import { serveWalletTopup, walletProofBytes } from './wallet-topups.js';
@@ -136,7 +137,7 @@ const storedOfferings = slot => Array.isArray(slot.offerings) && slot.offerings.
 const slotHasAvailability = slot => {
   const minimum = Math.min(...storedOfferings(slot).map(item => Number(item.minutes))) * 60000;
   const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
-  let cursor = Math.max(Number(slot.start), Date.now());
+  let cursor = Math.max(Number(slot.start), Math.floor(Date.now() / 60000) * 60000);
   for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
     if (range.end <= cursor) continue;
     if (range.start - cursor >= minimum) return true;
@@ -393,7 +394,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
       const range = paymentRange(req.query);
       const slots = await db.collection('slots').find({ start: { $gte: range.from, $lt: range.until }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { id: 1 } }).toArray();
-      const bookings = await db.collection('bookings').find({ status: 'completed', slot_id: { $in: slots.map(slot => slot.id) } }, { projection: { _id: 0 } }).toArray();
+      const bookings = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, $or: [{ status: 'completed' }, { status: 'cancelled', teacher_compensation: { $gt: 0 } }] }, { projection: { _id: 0 } }).toArray();
       return res.json(paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 15));
     }
     if (path === 'users' && user.role === 'admin' && !write) {
@@ -432,13 +433,40 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
     if (path === 'wallet-topups' && user.role === 'admin' && !write) {
       const rows = await db.collection('wallet_topups').find({}, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(500).toArray();
-      const users = await db.collection('users').find({ id: { $in: [...new Set(rows.map(row => row.user_id))] } }, { projection: { id: 1, name: 1, email: 1 } }).toArray();
+      const users = await db.collection('users').find({ role: 'students' }, { projection: { id: 1, name: 1, email: 1 } }).sort({ name: 1 }).limit(2000).toArray();
+      const accounts = await db.collection('wallet_accounts').find({ user_id: { $in: users.map(row => row.id) } }, { projection: { _id: 0 } }).toArray();
+      const accountMap = new Map(accounts.map(row => [row.user_id, row]));
       const names = new Map(users.map(row => [row.id, row]));
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
-      return res.json({ settings, topups: rows.map(row => publicTopup({ ...row, user_name: names.get(row.user_id)?.name, user_email: names.get(row.user_id)?.email })) });
+      return res.json({ settings, topups: rows.map(row => publicTopup({ ...row, user_name: names.get(row.user_id)?.name, user_email: names.get(row.user_id)?.email })), accounts: users.map(row => ({ user_id: row.id, user_name: row.name, user_email: row.email, balance: Number(accountMap.get(row.id)?.balance || 0), updated: Number(accountMap.get(row.id)?.updated || 0) })) });
+    }
+    if (path === 'support' && ['students', 'teachers'].includes(user.role) && !write) {
+      const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
+      return res.json({ whatsapp: settings.support_whatsapp || '' });
+    }
+    if (path === 'wallet-adjustments' && user.role === 'admin' && write) {
+      const studentId = field(body.user_id, 100);
+      const amount = Math.round(Number(body.amount));
+      const reason = field(body.reason, 300);
+      if (!Number.isSafeInteger(amount) || amount === 0 || Math.abs(amount) > 1000000) fail(400, 'أدخل مبلغ تعديل صحيحاً.');
+      const student = await db.collection('users').findOne({ id: studentId, role: 'students' }, { projection: { id: 1 } });
+      if (!student) fail(404, 'حساب الطالب غير موجود.');
+      await walletAccount(studentId);
+      const reference = `admin-adjustment:${crypto.randomUUID()}`;
+      const filter = amount < 0 ? { user_id: studentId, balance: { $gte: Math.abs(amount) } } : { user_id: studentId };
+      const adjusted = await db.collection('wallet_accounts').updateOne(filter, { $inc: { balance: amount }, $set: { updated: Date.now() } });
+      if (!adjusted.modifiedCount) fail(409, 'لا يمكن أن يصبح رصيد الطالب سالباً.');
+      try {
+        await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: studentId, type: 'admin_adjustment', amount, reference, note: reason, created: Date.now() });
+      } catch (error) {
+        await db.collection('wallet_accounts').updateOne({ user_id: studentId }, { $inc: { balance: -amount }, $set: { updated: Date.now() } });
+        throw error;
+      }
+      await audit(user.id, 'wallet:adjustment', `${studentId}:${amount}:${reason}`);
+      return res.json({ ok: true, balance: await walletBalance(studentId) });
     }
     if (path === 'wallet-topups/settings' && user.role === 'admin' && write) {
-      const value = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name || '', 100, 0) };
+      const value = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name || '', 100, 0), support_whatsapp: field(body.support_whatsapp || '', 30, 0).replace(/[^0-9+]/g, '') };
       await db.collection('platform_settings').updateOne({ key: 'payments' }, { $set: { key: 'payments', value } }, { upsert: true });
       await audit(user.id, 'wallet:settings', 'payments');
       return res.json({ settings: value });
@@ -516,7 +544,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (!reserved.modifiedCount) fail(409, 'هذا الوقت حُجز للتو. اختر وقتاً آخر من الفترة المتاحة.');
       await walletAccount(user.id);
       const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
-      if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(402, 'رصيد المحفظة غير كافٍ.'); }
+      if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال عملية الشراء.'); }
       try {
         await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: selectedOffering.price, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: 'wallet', notes: '', resource: '', created: Date.now() });
         await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
@@ -544,11 +572,14 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (write) {
           const key = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
           const peerKey = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
+          const joinedKey = user.role === 'teachers' ? 'teacher_joined_at' : 'student_joined_at';
           const until = body.active === false ? 0 : Date.now() + 45000;
           const peerId = body.active === false ? '' : field(body.peerId || '', 160, 0);
           await db.collection('bookings').updateOne({ id }, { $set: { [key]: until, [peerKey]: peerId } });
+          if (body.active !== false) await db.collection('bookings').updateOne({ id, $or: [{ [joinedKey]: { $exists: false } }, { [joinedKey]: 0 }] }, { $set: { [joinedKey]: Date.now() } });
           row[key] = until;
           row[peerKey] = peerId;
+          if (body.active !== false && !Number(row[joinedKey] || 0)) row[joinedKey] = Date.now();
         }
         const teacherLive = Number(row.teacher_present_until || 0) > Date.now();
         const studentLive = Number(row.student_present_until || 0) > Date.now();
@@ -557,6 +588,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           studentLive,
           teacher_present_until: Number(row.teacher_present_until || 0),
           student_present_until: Number(row.student_present_until || 0),
+          teacher_joined_at: Number(row.teacher_joined_at || 0),
+          student_joined_at: Number(row.student_joined_at || 0),
           teacherPeerId: teacherLive ? row.teacher_peer_id || null : null,
           studentPeerId: studentLive ? row.student_peer_id || null : null,
         });
@@ -568,20 +601,41 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         const names = new Map(users.map(u => [u.id, u.name]));
         return res.json({ messages: messages.map(m => ({ ...m, name: names.get(m.author_id) || '' })) });
       }
+      if (action === 'cancellation' && !write) {
+        if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
+        return res.json({ quote: cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 }) });
+      }
       if (action === 'cancel' && write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        const cancellationDeadline = Number(row.start);
-        if (user.role !== 'admin' && cancellationDeadline <= Date.now()) fail(409, 'انتهى وقت الإلغاء لهذه الحصة.');
-        const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: { status: 'cancelled', room: random() } });
+        if (user.role === 'students' && Number(row.start) <= Date.now()) fail(409, 'بعد بدء الحصة استخدم بلاغ عدم حضور الأستاذ إن لم يدخل خلال 10 دقائق.');
+        const quote = cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 });
+        const cancellation = { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: user.role, cancellation_reason: field(body.reason || '', 300, 0), refund_amount: quote.refund, teacher_compensation: quote.teacherCompensation, platform_fee: quote.platformFee };
+        const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: cancellation });
         if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
+        await db.collection('slots').updateOne({ id: row.slot_id }, { $pull: { reservations: { booking_id: id } } });
+        if (row.payment_ref === 'wallet' && quote.refund > 0) {
+          await walletAccount(row.student_id);
+          await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: quote.refund }, $set: { updated: Date.now() } });
+          await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: quote.refund, reference: `lesson-refund:${id}`, created: Date.now() });
+        }
+        await audit(user.id, 'booking:cancel', id);
+        return res.json({ ok: true, quote });
+      }
+      if (action === 'report-no-show' && write && user.role === 'students') {
+        if (row.status !== 'confirmed') fail(409, 'هذه الحصة لم تعد قابلة لبلاغ عدم الحضور.');
+        if (Date.now() < Number(row.start) + 10 * 60000) fail(409, 'يمكن تقديم البلاغ بعد مرور 10 دقائق من موعد الحصة.');
+        if (Number(row.teacher_joined_at || 0) > 0) fail(409, 'سجل الحضور يبين أن الأستاذ دخل الغرفة. تواصل مع الدعم لمراجعة الحالة.');
+        const quote = cancellationQuote({ start: row.start, price: row.price, actorRole: 'teachers' });
+        const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed', $or: [{ teacher_joined_at: 0 }, { teacher_joined_at: { $exists: false } }] }, { $set: { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: 'teacher_no_show', cancellation_reason: field(body.reason || 'عدم حضور الأستاذ', 300, 0), refund_amount: quote.refund, teacher_compensation: 0, platform_fee: 0 } });
+        if (!cancelled.modifiedCount) fail(409, 'تعذر قبول البلاغ لأن حالة الحضور تغيّرت.');
         await db.collection('slots').updateOne({ id: row.slot_id }, { $pull: { reservations: { booking_id: id } } });
         if (row.payment_ref === 'wallet') {
           await walletAccount(row.student_id);
           await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: row.price }, $set: { updated: Date.now() } });
-          await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: row.price, reference: `lesson-refund:${id}`, created: Date.now() });
+          await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: row.price, reference: `lesson-no-show-refund:${id}`, created: Date.now() });
         }
-        await audit(user.id, 'booking:cancel', id);
-        return res.json({ ok: true });
+        await audit(user.id, 'booking:teacher-no-show', id);
+        return res.json({ ok: true, quote });
       }
       if (action === 'complete' && write && user.role === 'teachers') {
         await db.collection('bookings').updateOne({ id }, { $set: { status: 'completed', room: random() } });

@@ -732,6 +732,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setSidePanel(null);
     setShowMore(false);
   };
+  const mediaIssue = !hasRemoteStream && /(?:فشل|تعذر|TURN|الجدار الناري|الشبكتين)/i.test(status);
 
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
@@ -745,6 +746,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
       </div>
+      {mediaIssue && <div className="call-diagnostic" role="alert"><div><strong>{t('تعذر ربط الصوت والفيديو')}</strong><p>{t(status)}</p><small>{t('وجود الطرف الآخر في الغرفة لا يعني أن مسار الوسائط اكتمل. افحص الإنترنت والكاميرا، ثم أعد المحاولة. إذا تكرر الخطأ فسيظهر السبب التقني أعلاه للدعم.')}</small></div><button type="button" className="secondary-button" onClick={startCall}><RefreshCw size={17} />{t('إعادة فحص الاتصال')}</button></div>}
 
       {showAndroidAppPrompt && <div className="unsupported-share-panel" role="status"><div><strong>{t("مشاركة شاشة الهاتف تحتاج التطبيق")}</strong><p>{t("متصفح الهاتف لا يعطي مشاركة الشاشة كاملة. اختر التطبيق المناسب لجهازك.")}</p></div><div className="mobile-app-actions"><a className="download-app-button" href={ANDROID_APP_DOWNLOAD_URL} download><Download size={18} />{t("تطبيق أندرويد")}</a><button className="download-app-button pending" type="button" disabled>{screenShareMobileOS === 'ios' ? t("تطبيق iOS غير متوفر حالياً") : t("تطبيق iOS قريباً")}</button></div></div>}
 

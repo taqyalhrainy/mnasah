@@ -5,7 +5,7 @@ import { request, type Booking, type Portal } from '../../services/platformApi';
 export function reminderPhase(booking: Pick<Booking, 'start' | 'status'>, now: number) {
   if (booking.status !== 'confirmed') return null;
   const remaining = booking.start - now;
-  return remaining > 0 && remaining <= 15 * 60000 ? 'soon' : remaining <= 0 && remaining >= -5 * 60000 ? 'started' : null;
+  return remaining > 0 && remaining <= 10 * 60000 ? 'soon' : remaining <= 0 && remaining >= -10 * 60000 ? 'started' : null;
 }
 function readPreference(key: string) { try { return localStorage.getItem(key) === '1'; } catch { return false; } }
 

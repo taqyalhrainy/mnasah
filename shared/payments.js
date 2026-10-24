@@ -35,9 +35,11 @@ export function paymentRange(query, now = Date.now()) {
 }
 export function paymentSummary(rows, range, percent = 15) {
   const commissionPercent = Number.isFinite(Number(percent)) ? Math.max(0, Math.min(90, Number(percent))) : 15;
-  const bookings = rows.filter(row => row.status === 'completed' && row.start >= range.from && row.start < range.until).map(row => {
-    const price = Math.max(0, Number(row.price) || 0);
-    const fee = Math.round(price * commissionPercent / 100);
+  const bookings = rows.filter(row => (row.status === 'completed' || Number(row.teacher_compensation || 0) > 0) && row.start >= range.from && row.start < range.until).map(row => {
+    const cancellationCompensation = Math.max(0, Number(row.teacher_compensation) || 0);
+    const cancellationFee = Math.max(0, Number(row.platform_fee) || 0);
+    const price = row.status === 'cancelled' ? cancellationCompensation + cancellationFee : Math.max(0, Number(row.price) || 0);
+    const fee = row.status === 'cancelled' ? cancellationFee : Math.round(price * commissionPercent / 100);
     return { ...row, price, fee, net: price - fee };
   }).sort((a, b) => b.start - a.start);
   const summarize = list => {

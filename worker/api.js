@@ -4,6 +4,7 @@ import { catalog } from './catalog.js';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { sqlChatStore } from './chat-store.js';
 import { paymentRange, paymentSummary } from '../shared/payments.js';
+import { cancellationQuote } from '../shared/cancellation.js';
 import { workerChatAttachment } from './chat-attachments.js';
 import { serializeCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification } from '../shared/verification.js';
@@ -14,14 +15,15 @@ import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 const bookingStartSql = 'COALESCE(NULLIF(b.start,0),s.start)';
 const bookingMinutesSql = 'COALESCE(NULLIF(b.minutes,0),s.minutes)';
 const bookingPriceSql = 'COALESCE(NULLIF(b.price,0),s.price)';
-const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,s.teacher_id,${bookingStartSql} AS start,${bookingMinutesSql} AS minutes,${bookingPriceSql} AS price,COALESCE(NULLIF(b.subject,''),s.subject) AS subject,s.available_until,t.name AS teacher_name,t.phone AS teacher_phone,p.name AS student_name,p.phone AS student_phone FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
+const earningGrossSql = `CASE WHEN b.status='cancelled' THEN b.teacher_compensation+b.platform_fee ELSE ${bookingPriceSql} END`;
+const bookingSelect = `SELECT b.id,b.slot_id,b.student_id,b.status,b.paid,b.payment_ref,b.notes,b.resource,b.created,b.teacher_present_until,b.student_present_until,b.teacher_peer_id,b.student_peer_id,b.teacher_joined_at,b.student_joined_at,b.cancelled_at,b.cancelled_by,b.cancellation_reason,b.refund_amount,b.teacher_compensation,b.platform_fee,s.teacher_id,${bookingStartSql} AS start,${bookingMinutesSql} AS minutes,${bookingPriceSql} AS price,COALESCE(NULLIF(b.subject,''),s.subject) AS subject,s.available_until,t.name AS teacher_name,t.phone AS teacher_phone,p.name AS student_name,p.phone AS student_phone FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users t ON t.id=s.teacher_id JOIN users p ON p.id=b.student_id`;
 const allowedDurations = [30, 45, 60, 90, 120];
 const parseList = (value, fallback) => { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) && parsed.length ? parsed : fallback; } catch { return fallback; } };
 const normalizeSlot = slot => slot ? ({ ...slot, legacy_all_subjects: (!slot.subjects || slot.subjects === '[]') && slot.subject === 'كل المواد المختارة', subjects: parseList(slot.subjects, [slot.subject].filter(Boolean)), offerings: parseList(slot.offerings, [{ minutes: slot.minutes, price: slot.price }]) }) : slot;
 const slotHasAvailability = slot => {
   const minimum = Math.min(...slot.offerings.map(item => Number(item.minutes))) * 60000;
   const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
-  let cursor = Math.max(Number(slot.start), Date.now());
+  let cursor = Math.max(Number(slot.start), Math.floor(Date.now() / 60000) * 60000);
   for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
     if (range.end <= cursor) continue;
     if (range.start - cursor >= minimum) return true;
@@ -103,7 +105,7 @@ export async function api(request, env, portal, path, body) {
   if (path === 'catalog') return catalog(env, user, write, body);
   if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
     const range = paymentRange(Object.fromEntries(new URL(request.url).searchParams));
-    const rows = await all(env, `${bookingSelect} WHERE b.status='completed' AND ${bookingStartSql}>=? AND ${bookingStartSql}<?${user.role === 'teachers' ? ' AND s.teacher_id=?' : ''} ORDER BY ${bookingStartSql} DESC`, range.from, range.until, ...(user.role === 'teachers' ? [user.id] : []));
+    const rows = await all(env, `${bookingSelect} WHERE (b.status='completed' OR (b.status='cancelled' AND b.teacher_compensation>0)) AND ${bookingStartSql}>=? AND ${bookingStartSql}<?${user.role === 'teachers' ? ' AND s.teacher_id=?' : ''} ORDER BY ${bookingStartSql} DESC`, range.from, range.until, ...(user.role === 'teachers' ? [user.id] : []));
     return paymentSummary(rows, range, commissionPercent(env));
   }
   if (user.role === 'teachers' && !write && ['home', 'booked', 'available', 'history'].includes(path)) {
@@ -152,10 +154,31 @@ export async function api(request, env, portal, path, body) {
   if (path === 'wallet-topups' && user.role === 'admin' && !write) {
     const settings = paymentSettings((await one(env, "SELECT value FROM platform_settings WHERE key='payments'"))?.value);
     const rows = await all(env, 'SELECT w.*,u.name AS user_name,u.email AS user_email FROM wallet_topups w JOIN users u ON u.id=w.user_id ORDER BY w.created DESC LIMIT 500');
-    return { settings, topups: rows.map(publicTopup) };
+    const accounts = await all(env, "SELECT u.id AS user_id,u.name AS user_name,u.email AS user_email,COALESCE(w.balance,0) AS balance,COALESCE(w.updated,0) AS updated FROM users u LEFT JOIN wallet_accounts w ON w.user_id=u.id WHERE u.role='students' ORDER BY u.name LIMIT 2000");
+    return { settings, topups: rows.map(publicTopup), accounts };
+  }
+  if (path === 'support' && ['students', 'teachers'].includes(user.role) && !write) {
+    const settings = paymentSettings((await one(env, "SELECT value FROM platform_settings WHERE key='payments'"))?.value);
+    return { whatsapp: settings.support_whatsapp || '' };
+  }
+  if (path === 'wallet-adjustments' && user.role === 'admin' && write) {
+    const studentId = field(body.user_id, 100);
+    const amount = Math.round(Number(body.amount));
+    const reason = field(body.reason, 300);
+    if (!Number.isSafeInteger(amount) || amount === 0 || Math.abs(amount) > 1000000) fail(400, 'أدخل مبلغ تعديل صحيحاً.');
+    if (!(await one(env, "SELECT id FROM users WHERE id=? AND role='students'", studentId))) fail(404, 'حساب الطالب غير موجود.');
+    await ensureWalletAccount(env, studentId);
+    const reference = `admin-adjustment:${crypto.randomUUID()}`;
+    const adjusted = await run(env, 'UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND balance+?>=0', amount, Date.now(), studentId, amount);
+    if (!adjusted.meta.changes) fail(409, 'لا يمكن أن يصبح رصيد الطالب سالباً.');
+    await env.DB.batch([
+      statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) VALUES (?,?,'admin_adjustment',?,?,?)", crypto.randomUUID(), studentId, amount, reference, Date.now()),
+      auditEntry(env, user.id, 'wallet:adjustment', `${studentId}:${amount}:${reason}`),
+    ]);
+    return { ok: true, balance: await walletBalance(env, studentId) };
   }
   if (path === 'wallet-topups/settings' && user.role === 'admin' && write) {
-    const settings = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name || '', 100, 0) };
+    const settings = { cliq_alias: field(body.cliq_alias, 100), cliq_name: field(body.cliq_name || '', 100, 0), support_whatsapp: field(body.support_whatsapp || '', 30, 0).replace(/[^0-9+]/g, '') };
     await env.DB.batch([statement(env, "INSERT INTO platform_settings (key,value) VALUES ('payments',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(settings)), auditEntry(env, user.id, 'wallet:settings', 'payments')]);
     return { settings };
   }
@@ -181,23 +204,23 @@ export async function api(request, env, portal, path, body) {
   }
   if (path === 'earnings' && user.role === 'teachers' && !write) {
     const pct = commissionPercent(env);
-    const completed = await all(env, `${bookingSelect} WHERE s.teacher_id=? AND b.status='completed' ORDER BY ${bookingStartSql} DESC LIMIT 500`, user.id);
-    const gross = completed.reduce((sum, b) => sum + b.price, 0);
-    const fee = Math.round(gross * pct / 100);
+    const completed = await all(env, `${bookingSelect} WHERE s.teacher_id=? AND (b.status='completed' OR (b.status='cancelled' AND b.teacher_compensation>0)) ORDER BY ${bookingStartSql} DESC LIMIT 500`, user.id);
+    const gross = completed.reduce((sum, b) => sum + (b.status === 'cancelled' ? Number(b.teacher_compensation || 0) + Number(b.platform_fee || 0) : b.price), 0);
+    const fee = completed.reduce((sum, b) => sum + (b.status === 'cancelled' ? Number(b.platform_fee || 0) : Math.round(b.price * pct / 100)), 0);
     return { commissionPercent: pct, gross, fee, net: gross - fee, completed, payouts: await all(env, 'SELECT * FROM payouts WHERE teacher_id=? ORDER BY period_end DESC LIMIT 100', user.id) };
   }
   if (path === 'payouts' && user.role === 'admin' && !write) {
     const pct = commissionPercent(env);
-    const rows = await all(env, `SELECT s.teacher_id,u.name AS teacher_name,COALESCE(SUM(${bookingPriceSql}),0) AS gross,COUNT(*) AS lessons FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users u ON u.id=s.teacher_id WHERE b.status='completed' GROUP BY s.teacher_id,u.name`);
-    return { payouts: rows.map(r => ({ ...r, fee: Math.round(r.gross * pct / 100), net: r.gross - Math.round(r.gross * pct / 100), status: 'pending' })) };
+    const rows = await all(env, `SELECT s.teacher_id,u.name AS teacher_name,COALESCE(SUM(${earningGrossSql}),0) AS gross,COALESCE(SUM(CASE WHEN b.status='cancelled' THEN b.platform_fee ELSE ROUND(${bookingPriceSql}*${pct}/100.0) END),0) AS fee,COUNT(*) AS lessons FROM bookings b JOIN slots s ON s.id=b.slot_id JOIN users u ON u.id=s.teacher_id WHERE b.status='completed' OR (b.status='cancelled' AND b.teacher_compensation>0) GROUP BY s.teacher_id,u.name`);
+    return { payouts: rows.map(r => ({ ...r, net: r.gross - r.fee, status: 'pending' })) };
   }
   if (/^payouts\/[^/]+\/paid$/.test(path) && user.role === 'admin' && write) {
     const teacherId = path.split('/')[1];
     const pct = commissionPercent(env);
-    const row = await one(env, `SELECT COALESCE(SUM(${bookingPriceSql}),0) AS gross FROM bookings b JOIN slots s ON s.id=b.slot_id WHERE b.status='completed' AND s.teacher_id=?`, teacherId);
-    const gross = Number(row?.gross || 0);
+    const row = await one(env, `SELECT COALESCE(SUM(${earningGrossSql}),0) AS gross,COALESCE(SUM(CASE WHEN b.status='cancelled' THEN b.platform_fee ELSE ROUND(${bookingPriceSql}*${pct}/100.0) END),0) AS fee FROM bookings b JOIN slots s ON s.id=b.slot_id WHERE (b.status='completed' OR (b.status='cancelled' AND b.teacher_compensation>0)) AND s.teacher_id=?`, teacherId);
+    const gross = Number(row?.gross || 0), fee = Number(row?.fee || 0);
     await env.DB.batch([
-      statement(env, 'INSERT INTO payouts (id,teacher_id,period_start,period_end,amount,status,paid_at,created) VALUES (?,?,?,?,?,?,?,?)', crypto.randomUUID(), teacherId, 0, Date.now(), gross - Math.round(gross * pct / 100), 'paid', Date.now(), Date.now()),
+      statement(env, 'INSERT INTO payouts (id,teacher_id,period_start,period_end,amount,status,paid_at,created) VALUES (?,?,?,?,?,?,?,?)', crypto.randomUUID(), teacherId, 0, Date.now(), gross - fee, 'paid', Date.now(), Date.now()),
       auditEntry(env, user.id, 'payout:paid', teacherId),
     ]);
     return { ok: true };
@@ -247,7 +270,7 @@ export async function api(request, env, portal, path, body) {
     const slotEnd = Number(slot.available_until || slot.start + slot.minutes * 60000);
     if (!Number.isSafeInteger(selectedStart) || (hasSelectedStart && (selectedStart < Number(slot.start) || selectedEnd > slotEnd || selectedStart <= Date.now()))) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي نشرها الأستاذ.');
     const method = body.method === 'wallet' || !user.development_access ? 'wallet' : 'sandbox';
-    if (method === 'wallet') { await ensureWalletAccount(env, user.id); if (await walletBalance(env, user.id) < selectedOffering.price) fail(402, 'رصيد المحفظة غير كافٍ.'); }
+    if (method === 'wallet') { await ensureWalletAccount(env, user.id); if (await walletBalance(env, user.id) < selectedOffering.price) fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال عملية الشراء.'); }
     const walletCondition = method === 'wallet' ? ' AND EXISTS (SELECT 1 FROM wallet_accounts w WHERE w.user_id=? AND w.balance>=?)' : '';
     const bookingParams = [bookingId, user.id, hasSelectedStart ? selectedStart : 0, selectedOffering.minutes, selectedOffering.price, selectedSubject, random(), Date.now(), id, selectedEnd, selectedStart, selectedEnd, selectedStart, user.id, selectedEnd, selectedStart, ...(method === 'wallet' ? [user.id, selectedOffering.price] : [])];
     const statements = [
@@ -280,11 +303,13 @@ export async function api(request, env, portal, path, body) {
       if (write) {
         const column = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
         const peerColumn = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
+        const joinedColumn = user.role === 'teachers' ? 'teacher_joined_at' : 'student_joined_at';
         const until = body.active === false ? 0 : Date.now() + 45000;
         const peerId = body.active === false ? '' : field(body.peerId || '', 160, 0);
-        await run(env, `UPDATE bookings SET ${column}=?,${peerColumn}=? WHERE id=?`, until, peerId, id);
+        await run(env, `UPDATE bookings SET ${column}=?,${peerColumn}=?,${joinedColumn}=CASE WHEN ?=0 THEN ${joinedColumn} WHEN ${joinedColumn}=0 THEN ? ELSE ${joinedColumn} END WHERE id=?`, until, peerId, body.active === false ? 0 : 1, Date.now(), id);
         row[column] = until;
         row[peerColumn] = peerId;
+        if (body.active !== false && !Number(row[joinedColumn] || 0)) row[joinedColumn] = Date.now();
       }
       const teacherLive = Number(row.teacher_present_until || 0) > Date.now();
       const studentLive = Number(row.student_present_until || 0) > Date.now();
@@ -293,6 +318,8 @@ export async function api(request, env, portal, path, body) {
         studentLive,
         teacher_present_until: Number(row.teacher_present_until || 0),
         student_present_until: Number(row.student_present_until || 0),
+        teacher_joined_at: Number(row.teacher_joined_at || 0),
+        student_joined_at: Number(row.student_joined_at || 0),
         teacherPeerId: teacherLive ? row.teacher_peer_id || null : null,
         studentPeerId: studentLive ? row.student_peer_id || null : null,
       };
@@ -304,22 +331,43 @@ export async function api(request, env, portal, path, body) {
       }
       return { messages: await all(env, 'SELECT m.id,m.body,m.created,u.name FROM messages m JOIN users u ON u.id=m.author_id WHERE booking_id=? ORDER BY m.created LIMIT 500', id) };
     }
+    if (action === 'cancellation' && !write) {
+      if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
+      return { quote: cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: env.PLATFORM_COMMISSION_PERCENT || 20 }) };
+    }
     if (action === 'cancel' && write) {
       if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-      const cancellationDeadline = Number(row.start);
-      if (user.role !== 'admin' && cancellationDeadline <= Date.now()) fail(409, 'انتهى وقت الإلغاء لهذه الحصة.');
+      if (user.role === 'students' && Number(row.start) <= Date.now()) fail(409, 'بعد بدء الحصة استخدم بلاغ عدم حضور الأستاذ إن لم يدخل خلال 10 دقائق.');
+      const quote = cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: env.PLATFORM_COMMISSION_PERCENT || 20 });
       if (row.payment_ref === 'wallet') await ensureWalletAccount(env, row.student_id);
       const refundReference = `lesson-refund:${id}`;
       const results = await env.DB.batch([
-        statement(env, "UPDATE bookings SET status='cancelled',room=? WHERE id=? AND status='confirmed'", random(), id),
-        ...(row.payment_ref === 'wallet' ? [
-          statement(env, "UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", row.price, Date.now(), row.student_id, id, refundReference),
-          statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_refund',?,?,? WHERE EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", crypto.randomUUID(), row.student_id, row.price, refundReference, Date.now(), id, refundReference),
+        statement(env, "UPDATE bookings SET status='cancelled',room=?,cancelled_at=?,cancelled_by=?,cancellation_reason=?,refund_amount=?,teacher_compensation=?,platform_fee=? WHERE id=? AND status='confirmed'", random(), Date.now(), user.role, field(body.reason || '', 300, 0), quote.refund, quote.teacherCompensation, quote.platformFee, id),
+        ...(row.payment_ref === 'wallet' && quote.refund > 0 ? [
+          statement(env, "UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", quote.refund, Date.now(), row.student_id, id, refundReference),
+          statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_refund',?,?,? WHERE EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", crypto.randomUUID(), row.student_id, quote.refund, refundReference, Date.now(), id, refundReference),
         ] : []),
         auditEntry(env, user.id, 'booking:cancel', id),
       ]);
       if (!results[0].meta.changes) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-      return { ok: true };
+      return { ok: true, quote };
+    }
+    if (action === 'report-no-show' && write && user.role === 'students') {
+      if (row.status !== 'confirmed') fail(409, 'هذه الحصة لم تعد قابلة لبلاغ عدم الحضور.');
+      if (Date.now() < Number(row.start) + 10 * 60000) fail(409, 'يمكن تقديم البلاغ بعد مرور 10 دقائق من موعد الحصة.');
+      if (Number(row.teacher_joined_at || 0) > 0) fail(409, 'سجل الحضور يبين أن الأستاذ دخل الغرفة. تواصل مع الدعم لمراجعة الحالة.');
+      if (row.payment_ref === 'wallet') await ensureWalletAccount(env, row.student_id);
+      const refundReference = `lesson-no-show-refund:${id}`;
+      const results = await env.DB.batch([
+        statement(env, "UPDATE bookings SET status='cancelled',room=?,cancelled_at=?,cancelled_by='teacher_no_show',cancellation_reason=?,refund_amount=?,teacher_compensation=0,platform_fee=0 WHERE id=? AND status='confirmed' AND teacher_joined_at=0", random(), Date.now(), field(body.reason || 'عدم حضور الأستاذ', 300, 0), row.price, id),
+        ...(row.payment_ref === 'wallet' ? [
+          statement(env, "UPDATE wallet_accounts SET balance=balance+?,updated=? WHERE user_id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled' AND cancelled_by='teacher_no_show') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", row.price, Date.now(), row.student_id, id, refundReference),
+          statement(env, "INSERT INTO wallet_transactions (id,user_id,type,amount,reference,created) SELECT ?,?,'lesson_refund',?,?,? WHERE EXISTS(SELECT 1 FROM bookings WHERE id=? AND status='cancelled' AND cancelled_by='teacher_no_show') AND NOT EXISTS(SELECT 1 FROM wallet_transactions WHERE reference=?)", crypto.randomUUID(), row.student_id, row.price, refundReference, Date.now(), id, refundReference),
+        ] : []),
+        auditEntry(env, user.id, 'booking:teacher-no-show', id),
+      ]);
+      if (!results[0].meta.changes) fail(409, 'تعذر قبول البلاغ لأن حالة الحضور تغيّرت.');
+      return { ok: true, quote: cancellationQuote({ start: row.start, price: row.price, actorRole: 'teachers' }) };
     }
     if (action === 'complete' && write && user.role === 'teachers') {
       if (row.start + row.minutes * 60000 > Date.now()) fail(409, 'لا يمكن إكمال الحصة قبل انتهاء موعدها.');
