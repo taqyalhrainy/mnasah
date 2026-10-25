@@ -32,7 +32,7 @@ function apply() {
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#20172c' : '#ffffff');
-  document.title = t('Mansah | منصة تعليم خصوصي');
+  document.title = t('امتداد | منصة تعليم خصوصي');
 }
 apply();
 function update(nextLanguage: Language, nextTheme: Theme, persist = true) {

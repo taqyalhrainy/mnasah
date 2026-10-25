@@ -58,6 +58,8 @@ async function makePage(role, loggedIn = true) {
   await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
   await page.evaluate(() => document.fonts.ready);
   await page.locator('img').evaluateAll(images => Promise.all(images.map(image => image.decode())));
+  assert.equal((await page.locator(loggedIn ? '.brand strong' : '.auth-brand strong').first().innerText()).replace('.', '').trim(), 'امتداد');
+  assert.match(await page.title(), /^امتداد \|/);
   return { context, page };
 }
 

@@ -226,7 +226,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     const safe = (value: unknown) => `"${String(value).replace(/^[=+@-]/, "'").replaceAll('"', '""')}"`;
     const rows = [[t("المادة"), t("الأستاذ"), t("الطالب"), t("الموعد"), t("الحالة"), t("السعر بالدينار"), t("مدفوع"), t("مرجع الدفعة")], ...shownBookings.map(b => [b.subject, b.teacher_name, b.student_name, date(b.start), statusNames[b.status], b.price / 100, b.paid ? t("نعم") : t("لا"), b.payment_ref])];
     const url = URL.createObjectURL(new Blob(['\uFEFF' + rows.map(r => r.map(safe).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a'); a.href = url; a.download = 'mansah-bookings.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const a = document.createElement('a'); a.href = url; a.download = 'imtidad-bookings.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async function join(b: Booking) {
     await act(async () => {

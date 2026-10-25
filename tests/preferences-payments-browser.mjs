@@ -175,7 +175,7 @@ try {
     await page.locator('.payment-summary-card').click(); await page.locator('.payment-breakdown').waitFor();
     if (role === 'admin') { await page.getByLabel('فلترة حسب الأستاذ').selectOption('teacher'); assert.equal(await page.locator('.payment-total .payment-amount').textContent(), new Intl.NumberFormat('ar-JO', { style: 'currency', currency: 'JOD' }).format(15)); await page.getByLabel('فلترة حسب الأستاذ').selectOption('all'); }
     await page.locator('.payment-lessons-toggle').click(); assert.equal(await page.locator('.payment-lesson-row').count(), role === 'admin' ? 2 : 1);
-    const download = page.waitForEvent('download'); await page.getByTitle('تنزيل التقرير CSV').click(); const file = await download; assert.match(file.suggestedFilename(), /mansah-payments-.*\.csv/); const csv = await readFile(await file.path(), 'utf8'); assert.match(csv, /رياضيات/); assert.doesNotMatch(csv, /cancelled|990\.000/);
+    const download = page.waitForEvent('download'); await page.getByTitle('تنزيل التقرير CSV').click(); const file = await download; assert.match(file.suggestedFilename(), /imtidad-payments-.*\.csv/); const csv = await readFile(await file.path(), 'utf8'); assert.match(csv, /رياضيات/); assert.doesNotMatch(csv, /cancelled|990\.000/);
     if (role === 'teachers') await page.locator('.sidebar-account summary').click();
     await page.locator('.language-control select:visible').selectOption('en'); await page.locator('.theme-control:visible').click();
     for (const width of [1440, 390, 320]) { await page.setViewportSize({ width, height: 1000 }); await layout(page, `Payments details ${role} ${width}`); if (width !== 320) await page.screenshot({ path: `.private/payments-${role}-en-dark-${width}.png`, fullPage: true }); }

@@ -1,4 +1,4 @@
-# Mansah
+# امتداد
 
 Arabic tutoring platform with separate `/admin`, `/teachers`, and `/students` portals. React runs in the browser; a Cloudflare Worker enforces account permissions and stores shared data in D1. The public `/video` shortcut redirects into the signed-in portal; rooms are opened from reservations.
 
