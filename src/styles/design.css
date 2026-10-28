@@ -482,6 +482,10 @@ input[type=checkbox] { accent-color: var(--ink); }
 .lesson-package-marketplace, .package-matching-slots { display: grid; gap: 18px; padding-top: 30px; border-top: 1px solid var(--line); }
 .lesson-package-marketplace .section-heading p, .package-matching-slots .section-heading p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .lesson-package-offer-grid, .owned-package-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(275px, 360px)); gap: 16px; }
+.student-home-market-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 26px; padding-top: 30px; border-top: 1px solid var(--line); }
+.student-home-market-grid > .home-nearest-tutors, .student-home-market-grid > .lesson-package-marketplace { min-width: 0; padding-top: 0; border-top: 0; }
+.student-home-market-grid .tutor-strip, .student-home-market-grid .lesson-package-offer-grid { grid-template-columns: 1fr; }
+.student-home-market-grid .lesson-package-offer, .student-home-market-grid .tutor-card { max-width: none; }
 .lesson-package-offer, .owned-package-card, .teacher-package-card { display: grid; align-content: start; gap: 16px; padding: 20px; border: 1px solid #e2d9b7; border-radius: 14px; color: var(--ink); background: linear-gradient(160deg,#fffdf5,#fff9df); box-shadow: 0 12px 34px #4d3d1710; }
 .lesson-package-offer > header, .owned-package-card > header, .teacher-package-card-head { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: 11px; }
 .lesson-package-offer h4, .owned-package-card h3, .teacher-package-card strong { margin: 0; font-size: 17px; line-height: 1.35; }
@@ -792,6 +796,7 @@ input[type=checkbox] { accent-color: var(--ink); }
   .home-showcase + .overview-metrics { margin-top: 0; }
   .home-nearest-tutors { padding-top: 4px; }
   .lesson-package-offer-grid, .owned-package-grid { grid-template-columns: 1fr; }
+  .student-home-market-grid { grid-template-columns: 1fr; }
   .lesson-package-hero, .my-packages-hero { align-items: flex-start; padding: 22px; }
   .lesson-package-hero > strong, .my-packages-hero > strong { min-width: 84px; padding: 12px; font-size: 27px; }
   .lesson-package-layout { grid-template-columns: 1fr; }

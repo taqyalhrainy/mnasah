@@ -62,8 +62,8 @@ async function makePage(role, loggedIn = true) {
   await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
   await page.evaluate(() => document.fonts.ready);
   await page.locator('img').evaluateAll(images => Promise.all(images.map(image => image.decode())));
-  assert.equal((await page.locator(loggedIn ? '.brand strong' : '.auth-brand strong').first().innerText()).replace('.', '').trim(), 'امتداد');
-  assert.match(await page.title(), /^امتداد \|/);
+  assert.equal((await page.locator(loggedIn ? '.brand strong' : '.auth-brand strong').first().innerText()).replace('.', '').trim(), 'امتداد العلم');
+  assert.match(await page.title(), /^امتداد العلم \|/);
   return { context, page };
 }
 
@@ -103,8 +103,8 @@ try {
       await page.locator('.nav-list').getByRole('button', { name: new RegExp(`^${name}`) }).click();
       await page.locator('.workspace-skeleton').waitFor({ state: 'detached' });
       await checkLayout(page, `${role} ${name} mobile`);
-      if (['الغرف', 'المتاحة', 'الحسابات', 'المحفظة', 'شحن المحافظ'].includes(name)) {
-        const screen = name === 'الغرف' ? 'rooms' : name === 'المتاحة' ? 'availability' : name === 'الحسابات' ? 'accounts' : name === 'المحفظة' ? 'wallet' : 'topups';
+      if (['الحصص المحجوزة', 'المتاحة', 'الحسابات', 'المحفظة', 'شحن المحافظ'].includes(name)) {
+        const screen = name === 'الحصص المحجوزة' ? 'rooms' : name === 'المتاحة' ? 'availability' : name === 'الحسابات' ? 'accounts' : name === 'المحفظة' ? 'wallet' : 'topups';
         await page.screenshot({ path: `.private/redesign-${role}-${screen}-mobile.png`, fullPage: true });
         await page.setViewportSize({ width: 1440, height: 1000 });
         await checkLayout(page, `${role} ${name} desktop`);
@@ -212,15 +212,29 @@ try {
       assert.match(await page.locator('.availability-subject-trigger').innerText(), /كل المواد/);
       await page.locator('.availability-day-strip button').nth(1).click();
       await page.locator('.availability-inline-settings').waitFor();
-      const fromTime = page.locator('.schedule-row select').nth(0);
-      const toTime = page.locator('.schedule-row select').nth(1);
-      await toTime.selectOption('02:00');
-      await fromTime.selectOption('23:00');
-      assert.equal(await toTime.inputValue(), '02:00', 'an end time after midnight must remain selected');
-      assert.equal(await toTime.locator('option[value="02:00"]').evaluate(option => option.disabled), false, 'next-day end times must stay available');
+      const fromTime = page.locator('.time-wheel [role="spinbutton"]').nth(0);
+      const toTime = page.locator('.time-wheel [role="spinbutton"]').nth(1);
+      const setWheel = async (wheel, target) => {
+        const minutes = value => value.split(':').map(Number).reduce((hours, part, index) => index ? hours + part : part * 60, 0);
+        await wheel.focus();
+        for (let index = 0; index < 288; index++) {
+          const current = await wheel.getAttribute('data-value');
+          if (current === target) return;
+          const currentIndex = minutes(current) / 5;
+          const targetIndex = minutes(target) / 5;
+          const forward = (targetIndex - currentIndex + 288) % 288;
+          const backward = (currentIndex - targetIndex + 288) % 288;
+          await wheel.press(forward <= backward ? 'ArrowDown' : 'ArrowUp');
+          await page.waitForTimeout(2);
+        }
+        throw new Error(`Could not move time wheel to ${target}`);
+      };
+      await setWheel(toTime, '02:00');
+      await setWheel(fromTime, '23:00');
+      assert.equal(await toTime.getAttribute('data-value'), '02:00', 'an end time after midnight must remain selected');
       assert.equal(await page.locator('.next-day-note').innerText(), 'اليوم التالي');
-      await fromTime.selectOption('19:00');
-      await toTime.selectOption('21:00');
+      await setWheel(fromTime, '19:00');
+      await setWheel(toTime, '21:00');
       await checkLayout(page, 'teacher availability settings mobile');
       await page.screenshot({ path: '.private/redesign-teachers-availability-settings-mobile.png', fullPage: true });
       await page.setViewportSize({ width: 1440, height: 760 });
@@ -236,7 +250,7 @@ try {
       await page.getByRole('button', { name: 'نشر المواعيد', exact: true }).click();
       await page.locator('.availability-tabs [aria-selected=true]').filter({ hasText: 'جدولي والمحجوز' }).waitFor({ timeout: 3000 });
       assert.equal(mutations.filter(item => item.path.endsWith('/teachers/slots') && item.body.subject === 'كل المواد المختارة').length, 1);
-      await page.locator('.month-grid button.today').click();
+      await page.locator('.month-grid button.has-booked').first().click();
       await page.locator('.day-event.booked').first().click();
       await page.getByRole('dialog').waitFor();
       await page.getByTitle('إغلاق التفاصيل').click();

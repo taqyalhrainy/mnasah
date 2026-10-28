@@ -159,7 +159,7 @@ try {
     await page.screenshot({ path: '.private/teacher-legacy-ar-390.png', fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.locator('.package-grid').waitFor({ timeout: 9000 });
-    await page.locator('.nav-list').getByRole('button', { name: 'الغرف', exact: true }).click();
+    await page.locator('.nav-list').getByRole('button', { name: 'الحصص المحجوزة', exact: true }).click();
     await page.locator('.nav-list').getByRole('button', { name: 'الرئيسية', exact: true }).click();
     await page.locator('.package-grid').waitFor();
     assert.equal(await page.locator('.home-intro').count(), 0, 'greeting does not replay during in-app navigation');

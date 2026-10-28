@@ -31,12 +31,12 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
     finally { setBusy(false); }
   }, [onLogin, portal]);
   if (register && portal !== 'admin' && !setupToken) return <main className={`auth-page redesigned-auth registration-page portal-${portal}`} dir={direction()}>
-    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>امتداد<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>امتداد العلم<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main registration-main"><RegistrationFlow portal={portal} onLogin={onLogin} onCancel={() => { setRegister(false); setError(''); }} /></div>
     <aside className="auth-visual" aria-label={t("مساحة تعلم")}><img src={`${base}images/learning-desk-v3.jpg`} alt={t("دفتر دراسة وقلم وسماعات على مكتب أصفر")} fetchPriority="high" /></aside>
   </main>;
   return <main className={`auth-page redesigned-auth portal-${portal}`} dir={direction()}>
-    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>امتداد<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}icon.svg`} width="41" height="41" alt="" /><strong>امتداد العلم<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main">
       <section className="auth-form">
         <div className="auth-portal-label">{t("منصّة تعليم خصوصي")}</div>
@@ -54,7 +54,7 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
         {portal !== 'admin' && !setupToken && !register && <div className="auth-google-option"><div className="registration-divider"><span>{t('أو')}</span></div><GoogleSignInButton onCredential={googleLogin} /></div>}
         {portal !== 'admin' && <div className="auth-register"><span>{register ? t("لديك حساب؟") : t("أول مرة في منصّة؟")}</span><button className="text-button" onClick={() => { setRegister(!register); setError(''); }}><UserPlus size={17} />{register ? t("لدي حساب بالفعل") : t("إنشاء حساب جديد")}</button></div>}
       </section>
-      <footer className="auth-footer"><ShieldCheck size={15} /><span>{t(portalNames[portal])}</span><span>امتداد © {new Date().getFullYear()}</span></footer>
+      <footer className="auth-footer"><ShieldCheck size={15} /><span>{t(portalNames[portal])}</span><span>امتداد العلم © {new Date().getFullYear()}</span></footer>
     </div>
     <aside className="auth-visual" aria-label={t("مساحة تعلم")}><img src={`${base}images/learning-desk-v3.jpg`} alt={t("دفتر دراسة وقلم وسماعات على مكتب أصفر")} fetchPriority="high" /></aside>
   </main>;

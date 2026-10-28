@@ -38,7 +38,7 @@ try {
   });
 
   await page.goto('http://127.0.0.1:8787/students');
-  const roomsNav = page.getByRole('button', { name: 'الغرف LIVE', exact: true });
+  const roomsNav = page.getByRole('button', { name: 'الحصص المحجوزة LIVE', exact: true });
   await roomsNav.waitFor();
   await page.getByText('LIVE', { exact: true }).waitFor();
   await roomsNav.click();

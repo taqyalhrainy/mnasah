@@ -4,7 +4,8 @@ import { request, type Portal, type User } from '../../services/platformApi';
 import type { ChatSettings, ChatThread } from './chatTypes';
 
 const defaults: ChatSettings = { readReceipts: true, showPresence: true, notifications: true, sounds: false };
-export function useDirectChat(portal: Portal, user: User | null, active: boolean, onOpen: () => void) {
+export type BookingCreatedNotice = { id: string; subject: string; start: number; minutes: number; teacher_name?: string; student_name?: string; audience: 'teacher' | 'student' };
+export function useDirectChat(portal: Portal, user: User | null, active: boolean, onOpen: () => void, onBookingCreated?: (notice: BookingCreatedNotice) => void) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [settings, setSettings] = useState<ChatSettings>(defaults);
   const [loading, setLoading] = useState(true);
@@ -15,8 +16,8 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
   const notified = useRef<Map<string, string> | null>(null);
   const savingSettings = useRef(false);
   const refreshVersion = useRef(0);
-  const current = useRef({ active, selected, onOpen, user });
-  current.current = { active, selected, onOpen, user };
+  const current = useRef({ active, selected, onOpen, onBookingCreated, user });
+  current.current = { active, selected, onOpen, onBookingCreated, user };
   const enabled = Boolean(user?.status === 'active' && portal !== 'admin' && user?.role === portal && !user?.mustChangePassword);
   const refresh = useCallback(async () => {
     if (!enabled) return;
@@ -80,6 +81,13 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
       socket.on('chat:changed', (data: { threadId?: string }) => {
         void refresh();
         if (!data?.threadId || data.threadId === current.current.selected) setRevision(value => value + 1);
+      });
+      socket.on('booking:created', (notice: BookingCreatedNotice) => {
+        current.current.onBookingCreated?.(notice);
+        if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+          const title = notice.audience === 'teacher' ? t('حجز جديد') : t('تم تأكيد حجزك');
+          new Notification(title, { body: notice.audience === 'teacher' ? t('حجز طالب حصة جديدة معك.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.'), tag: `booking-${notice.id}`, icon: `${import.meta.env.BASE_URL}icon.svg` });
+        }
       });
       socket.on('connect', () => { void refresh(); setRevision(value => value + 1); });
       socket.on('chat:typing', (data: { threadId: string; authorId: string; active: boolean }) => {

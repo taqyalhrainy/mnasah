@@ -88,6 +88,8 @@ async function connect() {
     db.collection('bookings').createIndex({ slot_id: 1 }),
     db.collection('bookings').createIndex({ student_id: 1 }),
     db.collection('bookings').createIndex({ student_id: 1, start: 1 }),
+    db.collection('ratings').createIndex({ booking_id: 1, student_id: 1 }, { unique: true }),
+    db.collection('ratings').createIndex({ teacher_id: 1, created: -1 }),
     db.collection('messages').createIndex({ booking_id: 1, created: 1 }),
     db.collection('conversations').createIndex({ id: 1 }, { unique: true }),
     db.collection('conversations').createIndex({ teacher_id: 1, student_id: 1 }, { unique: true }),
@@ -146,7 +148,7 @@ function lessonPackageInput(body) {
   if (!Number.isInteger(validityDays) || validityDays < 7 || validityDays > 365) fail(400, 'صلاحية الباقة يجب أن تكون بين 7 و365 يوماً.');
   return { name: field(body.name, 100), description: field(body.description || '', 500, 0), subjects, lesson_count: lessonCount, minutes, price, validity_days: validityDays };
 }
-const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
+const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), teacher_rating: row.teacher_rating ?? null, teacher_rating_count: Number(row.teacher_rating_count || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
 const publicPackagePurchase = row => ({ id: row.id, package_id: row.package_id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', package_name: row.package_name || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), remaining_lessons: Number(row.remaining_lessons), minutes: Number(row.minutes), price: Number(row.price), status: Number(row.expires_at) <= Date.now() ? 'expired' : Number(row.remaining_lessons) <= 0 ? 'exhausted' : row.status || 'active', expires_at: Number(row.expires_at), created: Number(row.created || 0) });
 async function restorePackageLesson(booking) {
   if (!booking?.package_purchase_id) return false;
@@ -183,6 +185,21 @@ function cookie(req, name) {
 }
 function publicUser(u) {
   return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
+}
+
+async function teacherRatingMap(teacherIds) {
+  const ids = [...new Set((teacherIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await db.collection('ratings').find({ teacher_id: { $in: ids } }, { projection: { _id: 0, teacher_id: 1, student_id: 1, rating: 1, created: 1 } }).sort({ created: 1 }).toArray();
+  const latestByStudent = new Map();
+  for (const row of rows) latestByStudent.set(`${row.teacher_id}:${row.student_id}`, row);
+  const grouped = new Map(ids.map(id => [id, []]));
+  for (const row of latestByStudent.values()) grouped.get(row.teacher_id)?.push(Number(row.rating));
+  return new Map(ids.map(id => {
+    const values = grouped.get(id) || [];
+    const count = values.length;
+    return [id, { teacher_rating_count: count, teacher_rating: count >= 5 ? Math.round(values.reduce((sum, value) => sum + value, 0) / count * 10) / 10 : null }];
+  }));
 }
 async function googleIdentity(credential) {
   if (!GOOGLE_CLIENT_ID) fail(503, 'تسجيل Google غير مفعّل على الخادم بعد.');
@@ -275,12 +292,14 @@ async function enrichBookings(bookings) {
   const userIds = [...new Set(slots.flatMap(s => [s.teacher_id]).concat(bookings.map(b => b.student_id)))];
   const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, phone: 1, bio: 1, subject: 1 } }).toArray();
   const userMap = new Map(users.map(u => [u.id, u]));
+  const ratings = await db.collection('ratings').find({ booking_id: { $in: bookings.map(row => row.id) } }, { projection: { _id: 0, booking_id: 1, rating: 1 } }).toArray();
+  const ratingMap = new Map(ratings.map(row => [row.booking_id, Number(row.rating)]));
   return bookings.map(b => {
     const s = slotMap.get(b.slot_id) || {};
     const teacher = userMap.get(s.teacher_id) || {};
     const student = userMap.get(b.student_id) || {};
     const { room: _room, ...safeBooking } = b;
-    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacher.phone || '', student_name: student.name || '', student_phone: student.phone || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '' };
+    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacher.phone || '', student_name: student.name || '', student_phone: student.phone || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '', student_rating: ratingMap.get(b.id) || 0 };
   });
 }
 async function walletBalance(userId) {
@@ -465,7 +484,13 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
     if (path === 'support' && ['students', 'teachers'].includes(user.role) && !write) {
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
-      return res.json({ whatsapp: settings.support_whatsapp || '' });
+      return res.json({ whatsapp: settings.support_whatsapp || '0795764229' });
+    }
+    if (path === 'availability-preferences' && user.role === 'teachers') {
+      if (!write) return res.json({ offerings: storedOfferings({ offerings: user.availability_offerings || [{ minutes: 60, price: 1000 }] }) });
+      const offerings = slotOfferings({ offerings: body.offerings });
+      await db.collection('users').updateOne({ id: user.id }, { $set: { availability_offerings: offerings, updated: Date.now() } });
+      return res.json({ offerings });
     }
     if (path === 'wallet-adjustments' && user.role === 'admin' && write) {
       const studentId = field(body.user_id, 100);
@@ -520,8 +545,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const teacherIds = [...new Set(packages.map(item => item.teacher_id))];
       const teachers = await db.collection('users').find({ id: { $in: teacherIds }, role: 'teachers', status: 'active' }, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
       const teacherMap = new Map(teachers.map(item => [item.id, item.name]));
+      const ratings = await teacherRatingMap(teacherIds);
       const purchases = await db.collection('package_purchases').find({ student_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(200).toArray();
-      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, teacher_name: teacherMap.get(item.teacher_id) })), purchases: purchases.map(publicPackagePurchase) });
+      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, teacher_name: teacherMap.get(item.teacher_id), ...ratings.get(item.teacher_id) })), purchases: purchases.map(publicPackagePurchase) });
     }
     if (path === 'lesson-packages' && write && user.role === 'teachers') {
       const values = lessonPackageInput(body), now = Date.now();
@@ -581,8 +607,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         const slots = await db.collection('slots').find({ status: 'open', available_until: { $gt: Date.now() } }, { projection: { _id: 0 } }).sort({ start: 1 }).limit(500).toArray();
         const teachers = await db.collection('users').find({ id: { $in: [...new Set(slots.map(s => s.teacher_id))] }, status: 'active' }, { projection: { _id: 0 } }).toArray();
         const teacherMap = new Map(teachers.map(t => [t.id, t]));
+        const ratings = await teacherRatingMap(slots.map(slot => slot.teacher_id));
         const occupied = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, status: 'confirmed' }, { projection: { _id: 0, slot_id: 1, start: 1, minutes: 1 } }).toArray();
-        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => ({ ...s, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '' }));
+        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => ({ ...s, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '', ...ratings.get(s.teacher_id) }));
         return res.json({ slots: available.filter(slotHasAvailability) });
       }
       if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
@@ -653,6 +680,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
       io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
+      const bookingNotice = { id: bookingId, subject: selectedSubject, start: selectedStart, minutes: selectedOffering.minutes, teacher_name: slot.teacher_name || '', student_name: user.name };
+      io.to(`chat:${slot.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
+      io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
       return res.json({ ok: true, id: bookingId });
     }
     const [category, id, action] = path.split('/');
@@ -743,6 +773,13 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       if (action === 'notes' && write && user.role === 'teachers') {
         await db.collection('bookings').updateOne({ id }, { $set: { notes: field(body.notes || '', 5000, 0), resource: field(body.resource || '', 1000, 0) } });
+        return res.json({ ok: true });
+      }
+      if (action === 'rating' && write && user.role === 'students') {
+        if (row.student_id !== user.id || row.status !== 'completed') fail(409, 'التقييم متاح بعد إكمال الحصة.');
+        const rating = Number(body.rating);
+        if (!Number.isInteger(rating) || rating < 1 || rating > 5) fail(400, 'اختر تقييماً بين 1 و5.');
+        await db.collection('ratings').updateOne({ booking_id: id, student_id: user.id }, { $set: { teacher_id: row.teacher_id, rating, review: field(body.review || '', 1000, 0), updated: Date.now() }, $setOnInsert: { id: crypto.randomUUID(), booking_id: id, student_id: user.id, created: Date.now() } }, { upsert: true });
         return res.json({ ok: true });
       }
       if (action === 'payment' && write && user.role === 'admin') {
