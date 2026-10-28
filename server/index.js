@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
-import { paymentRange, paymentSummary } from '../shared/payments.js';
+import { paymentDay, paymentMidnight, paymentRange, paymentSummary } from '../shared/payments.js';
 import { cancellationQuote } from '../shared/cancellation.js';
 import { serveChatAttachment } from './chat-attachments.js';
 import { serveVerificationFile, verificationBytes } from './verification-files.js';
@@ -139,6 +139,31 @@ function slotOfferings(body) {
 }
 const storedSubjects = slot => Array.isArray(slot.subjects) && slot.subjects.length ? slot.subjects : [slot.subject].filter(Boolean);
 const storedOfferings = slot => Array.isArray(slot.offerings) && slot.offerings.length ? slot.offerings : [{ minutes: slot.minutes, price: slot.price }];
+const clockPattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+function weeklySchedule(body, required = true) {
+  const rows = Array.isArray(body.weekly_schedule) ? body.weekly_schedule : [];
+  if ((required && !rows.length) || rows.length > 7) fail(400, 'اختر يوماً واحداً على الأقل وحدد الفترة المتاحة للباقة.');
+  const schedule = rows.map(row => ({ weekday: Number(row?.weekday), from: String(row?.from || ''), to: String(row?.to || '') }));
+  if (schedule.some(row => !Number.isInteger(row.weekday) || row.weekday < 0 || row.weekday > 6 || !clockPattern.test(row.from) || !clockPattern.test(row.to) || row.from === row.to) || new Set(schedule.map(row => row.weekday)).size !== schedule.length) fail(400, 'تحقق من أيام الباقة وفترات التوفر.');
+  return schedule.sort((left, right) => left.weekday - right.weekday);
+}
+const storedWeeklySchedule = row => weeklySchedule({ weekly_schedule: Array.isArray(row?.weekly_schedule) ? row.weekly_schedule : [] }, false);
+const minutesOfDay = value => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+const civilAdd = (day, amount) => { const value = new Date(`${day}T12:00:00Z`); value.setUTCDate(value.getUTCDate() + amount); return value.toISOString().slice(0, 10); };
+const civilWeekday = day => new Date(`${day}T12:00:00Z`).getUTCDay();
+function packageWindow(day, row) {
+  const start = paymentMidnight(day) + minutesOfDay(row.from) * 60000;
+  let end = paymentMidnight(day) + minutesOfDay(row.to) * 60000;
+  if (end <= start) end += 86400000;
+  return { start, end };
+}
+async function catalogSubjectSet() {
+  const rows = await categories();
+  return new Set(rows.flatMap(row => Array.isArray(row.subjects) ? row.subjects : []));
+}
+function assertCatalogSubjects(subjects, allowed) {
+  if (!subjects.length || subjects.some(subject => !allowed.has(subject))) fail(400, 'اختر المواد من القائمة التي أضافتها الإدارة فقط.');
+}
 function lessonPackageInput(body) {
   const lessonCount = Number(body.lesson_count), minutes = Number(body.minutes), price = Number(body.price), validityDays = Number(body.validity_days);
   const subjects = slotSubjects(body);
@@ -146,10 +171,10 @@ function lessonPackageInput(body) {
   if (!allowedDurations.includes(minutes)) fail(400, 'اختر مدة صحيحة للحصة.');
   if (!Number.isInteger(price) || price < 100 || price > 1000000) fail(400, 'تحقق من سعر الباقة.');
   if (!Number.isInteger(validityDays) || validityDays < 7 || validityDays > 365) fail(400, 'صلاحية الباقة يجب أن تكون بين 7 و365 يوماً.');
-  return { name: field(body.name, 100), description: field(body.description || '', 500, 0), subjects, lesson_count: lessonCount, minutes, price, validity_days: validityDays };
+  return { name: field(body.name, 100), description: field(body.description || '', 500, 0), subjects, lesson_count: lessonCount, minutes, price, validity_days: validityDays, weekly_schedule: weeklySchedule(body) };
 }
-const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), teacher_rating: row.teacher_rating ?? null, teacher_rating_count: Number(row.teacher_rating_count || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
-const publicPackagePurchase = row => ({ id: row.id, package_id: row.package_id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', package_name: row.package_name || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), remaining_lessons: Number(row.remaining_lessons), minutes: Number(row.minutes), price: Number(row.price), status: Number(row.expires_at) <= Date.now() ? 'expired' : Number(row.remaining_lessons) <= 0 ? 'exhausted' : row.status || 'active', expires_at: Number(row.expires_at), created: Number(row.created || 0) });
+const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), weekly_schedule: storedWeeklySchedule(row), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), teacher_rating: row.teacher_rating ?? null, teacher_rating_count: Number(row.teacher_rating_count || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
+const publicPackagePurchase = row => ({ id: row.id, package_id: row.package_id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', package_name: row.package_name || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), remaining_lessons: Number(row.remaining_lessons), minutes: Number(row.minutes), price: Number(row.price), weekly_schedule: storedWeeklySchedule(row), status: Number(row.expires_at) <= Date.now() ? 'expired' : Number(row.remaining_lessons) <= 0 ? 'exhausted' : row.status || 'active', expires_at: Number(row.expires_at), created: Number(row.created || 0) });
 async function restorePackageLesson(booking) {
   if (!booking?.package_purchase_id) return false;
   const purchase = await db.collection('package_purchases').findOne({ id: booking.package_purchase_id, student_id: booking.student_id });
@@ -170,6 +195,42 @@ const slotHasAvailability = slot => {
   }
   return end - cursor >= minimum;
 };
+async function occupiedPackageRanges(teacherId, studentId) {
+  const teacherSlots = await db.collection('slots').find({ teacher_id: teacherId }, { projection: { _id: 0, id: 1, start: 1, minutes: 1 } }).toArray();
+  const slotMap = new Map(teacherSlots.map(slot => [slot.id, slot]));
+  const teacherBookings = teacherSlots.length ? await db.collection('bookings').find({ slot_id: { $in: teacherSlots.map(slot => slot.id) }, status: 'confirmed' }, { projection: { _id: 0 } }).toArray() : [];
+  const studentBookings = await db.collection('bookings').find({ student_id: studentId, status: 'confirmed' }, { projection: { _id: 0 } }).toArray();
+  const toRange = booking => {
+    const slot = slotMap.get(booking.slot_id) || {};
+    const start = Number(booking.start || slot.start || 0);
+    const minutes = Number(booking.minutes || slot.minutes || 0);
+    return { id: booking.id, start, end: start + minutes * 60000 };
+  };
+  return [...new Map([...teacherBookings, ...studentBookings].map(booking => [booking.id, toRange(booking)])).values()];
+}
+async function packageAvailability(purchase, days = 35) {
+  const schedule = storedWeeklySchedule(purchase);
+  if (!schedule.length) return [];
+  const occupied = await occupiedPackageRanges(purchase.teacher_id, purchase.student_id);
+  const today = paymentDay();
+  const now = Date.now() + 60000;
+  const step = 15 * 60000;
+  const result = [];
+  for (let offset = 0; offset < days; offset++) {
+    const day = civilAdd(today, offset);
+    const row = schedule.find(item => item.weekday === civilWeekday(day));
+    if (!row) continue;
+    const window = packageWindow(day, row);
+    const starts = [];
+    const first = Math.max(window.start, Math.ceil(now / step) * step);
+    for (let start = first; start + purchase.minutes * 60000 <= window.end && start + purchase.minutes * 60000 <= purchase.expires_at; start += step) {
+      const end = start + purchase.minutes * 60000;
+      if (!occupied.some(range => start < range.end && end > range.start)) starts.push(start);
+    }
+    if (starts.length) result.push({ day, weekday: row.weekday, starts });
+  }
+  return result;
+}
 const random = () => crypto.randomBytes(32).toString('hex');
 const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 function passwordHash(value, salt = random()) {
@@ -535,10 +596,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ ok: true });
     }
     if (path === 'lesson-packages' && !write) {
+      const allowedSubjects = await catalogSubjectSet();
       if (user.role === 'teachers') {
         const packages = await db.collection('lesson_packages').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray();
         const purchases = await db.collection('package_purchases').find({ teacher_id: user.id }, { projection: { _id: 0, package_id: 1, student_id: 1, remaining_lessons: 1, expires_at: 1 } }).toArray();
-        return res.json({ packages: packages.map(item => publicLessonPackage({ ...item, sold_count: purchases.filter(row => row.package_id === item.id).length, active_students: new Set(purchases.filter(row => row.package_id === item.id && row.remaining_lessons > 0 && row.expires_at > Date.now()).map(row => row.student_id)).size })) });
+        return res.json({ packages: packages.map(item => publicLessonPackage({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)), sold_count: purchases.filter(row => row.package_id === item.id).length, active_students: new Set(purchases.filter(row => row.package_id === item.id && row.remaining_lessons > 0 && row.expires_at > Date.now()).map(row => row.student_id)).size })) });
       }
       if (user.role !== 'students') fail(403, 'الباقات متاحة للأساتذة والطلاب فقط.');
       const packages = await db.collection('lesson_packages').find({ status: 'active' }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(200).toArray();
@@ -547,10 +609,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const teacherMap = new Map(teachers.map(item => [item.id, item.name]));
       const ratings = await teacherRatingMap(teacherIds);
       const purchases = await db.collection('package_purchases').find({ student_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(200).toArray();
-      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, teacher_name: teacherMap.get(item.teacher_id), ...ratings.get(item.teacher_id) })), purchases: purchases.map(publicPackagePurchase) });
+      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)), teacher_name: teacherMap.get(item.teacher_id), ...ratings.get(item.teacher_id) })).filter(item => item.subjects.length), purchases: purchases.map(item => publicPackagePurchase({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)) })) });
     }
     if (path === 'lesson-packages' && write && user.role === 'teachers') {
       const values = lessonPackageInput(body), now = Date.now();
+      assertCatalogSubjects(values.subjects, await catalogSubjectSet());
       if (body.id) {
         const id = field(body.id, 80);
         const updated = await db.collection('lesson_packages').updateOne({ id, teacher_id: user.id }, { $set: { ...values, updated: now } });
@@ -571,17 +634,63 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       await audit(user.id, `package:${action}`, id);
       return res.json({ ok: true });
     }
+    if (/^package-purchases\/[^/]+\/availability$/.test(path) && !write && user.role === 'students') {
+      const purchaseId = path.split('/')[1];
+      const purchase = await db.collection('package_purchases').findOne({ id: purchaseId, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gt: Date.now() } }, { projection: { _id: 0 } });
+      if (!purchase) fail(404, 'الباقة غير موجودة أو لم يعد فيها حصص متاحة.');
+      return res.json({ purchase: publicPackagePurchase(purchase), days: await packageAvailability(purchase) });
+    }
+    if (/^package-purchases\/[^/]+\/book$/.test(path) && write && user.role === 'students') {
+      const purchaseId = path.split('/')[1];
+      const purchase = await db.collection('package_purchases').findOne({ id: purchaseId, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gt: Date.now() } }, { projection: { _id: 0 } });
+      if (!purchase) fail(409, 'الباقة غير موجودة أو لم يعد فيها حصص متاحة.');
+      const allowedSubjects = await catalogSubjectSet();
+      const requestedSubject = typeof body.subject === 'string' ? field(body.subject, 100) : '';
+      const subjects = (purchase.subjects || []).filter(subject => allowedSubjects.has(subject));
+      const subject = requestedSubject && subjects.includes(requestedSubject) ? requestedSubject : subjects.length === 1 ? subjects[0] : '';
+      if (!subject) fail(400, 'اختر المادة التي تريد حجزها من مواد الباقة.');
+      const start = Number(body.start);
+      const availableDays = await packageAvailability(purchase);
+      if (!Number.isSafeInteger(start) || !availableDays.some(day => day.starts.includes(start))) fail(409, 'هذا الوقت لم يعد متاحاً. اختر وقتاً آخر من جدول الباقة.');
+      const end = start + Number(purchase.minutes) * 60000;
+      const consumed = await db.collection('package_purchases').updateOne({ id: purchase.id, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: end } }, { $inc: { remaining_lessons: -1 }, $set: { updated: Date.now() } });
+      if (!consumed.modifiedCount) fail(409, 'تم استخدام آخر حصة من هذه الباقة للتو.');
+      const bookingId = crypto.randomUUID();
+      const slotId = `package:${bookingId}`;
+      const lessonPrice = Math.round(Number(purchase.price) / Number(purchase.lesson_count));
+      try {
+        await db.collection('slots').insertOne({ id: slotId, teacher_id: purchase.teacher_id, start, available_until: end, minutes: Number(purchase.minutes), price: lessonPrice, subject, subjects: [subject], offerings: [{ minutes: Number(purchase.minutes), price: lessonPrice }], status: 'booked', package_purchase_id: purchase.id, created: Date.now() });
+        await db.collection('bookings').insertOne({ id: bookingId, slot_id: slotId, student_id: user.id, start, minutes: Number(purchase.minutes), price: lessonPrice, subject, status: 'confirmed', room: random(), paid: 1, payment_ref: `package:${purchase.id}`, package_purchase_id: purchase.id, notes: '', resource: '', created: Date.now() });
+        const fresh = await db.collection('package_purchases').findOne({ id: purchase.id }, { projection: { _id: 0, remaining_lessons: 1 } });
+        if (Number(fresh?.remaining_lessons || 0) <= 0) await db.collection('package_purchases').updateOne({ id: purchase.id }, { $set: { status: 'exhausted', updated: Date.now() } });
+      } catch (error) {
+        await db.collection('package_purchases').updateOne({ id: purchase.id }, { $inc: { remaining_lessons: 1 }, $set: { status: 'active', updated: Date.now() } });
+        await db.collection('bookings').deleteOne({ id: bookingId });
+        await db.collection('slots').deleteOne({ id: slotId });
+        throw error;
+      }
+      await ensureChat(mongoChatStore(db), purchase.teacher_id, user.id);
+      io.to(`chat:${purchase.teacher_id}`).emit('chat:changed', {});
+      const bookingNotice = { id: bookingId, subject, start, minutes: Number(purchase.minutes), teacher_name: purchase.teacher_name || '', student_name: user.name };
+      io.to(`chat:${purchase.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
+      io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
+      await audit(user.id, 'package:book', bookingId);
+      return res.json({ ok: true, id: bookingId });
+    }
     if (/^lesson-packages\/[^/]+\/purchase$/.test(path) && write && user.role === 'students') {
       const packageId = path.split('/')[1];
       const offer = await db.collection('lesson_packages').findOne({ id: packageId, status: 'active' }, { projection: { _id: 0 } });
       if (!offer) fail(409, 'هذه الباقة لم تعد متاحة للشراء.');
+      const allowedSubjects = await catalogSubjectSet();
+      const offerSubjects = (offer.subjects || []).filter(subject => allowedSubjects.has(subject));
+      if (!offerSubjects.length) fail(409, 'مواد هذه الباقة لم تعد متاحة في قائمة الإدارة.');
       const teacher = await db.collection('users').findOne({ id: offer.teacher_id, role: 'teachers', status: 'active' }, { projection: { _id: 0, id: 1, name: 1 } });
       if (!teacher) fail(409, 'الأستاذ غير متاح حالياً.');
       await walletAccount(user.id);
       const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: offer.price } }, { $inc: { balance: -offer.price }, $set: { updated: Date.now() } });
       if (!debit.modifiedCount) fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال شراء الباقة.');
       const now = Date.now();
-      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: offer.subjects, lesson_count: offer.lesson_count, remaining_lessons: offer.lesson_count, minutes: offer.minutes, price: offer.price, status: 'active', expires_at: now + offer.validity_days * 86400000, created: now, updated: now };
+      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: offerSubjects, lesson_count: offer.lesson_count, remaining_lessons: offer.lesson_count, minutes: offer.minutes, price: offer.price, weekly_schedule: storedWeeklySchedule(offer), status: 'active', expires_at: now + offer.validity_days * 86400000, created: now, updated: now };
       try {
         await db.collection('package_purchases').insertOne(purchase);
         await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'package_purchase', amount: -offer.price, reference: `package-purchase:${purchase.id}`, created: now });
@@ -605,15 +714,17 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (!write) {
         if (user.role === 'teachers') return res.json({ slots: await db.collection('slots').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ start: -1 }).limit(500).toArray() });
         const slots = await db.collection('slots').find({ status: 'open', available_until: { $gt: Date.now() } }, { projection: { _id: 0 } }).sort({ start: 1 }).limit(500).toArray();
+        const allowedSubjects = await catalogSubjectSet();
         const teachers = await db.collection('users').find({ id: { $in: [...new Set(slots.map(s => s.teacher_id))] }, status: 'active' }, { projection: { _id: 0 } }).toArray();
         const teacherMap = new Map(teachers.map(t => [t.id, t]));
         const ratings = await teacherRatingMap(slots.map(slot => slot.teacher_id));
         const occupied = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, status: 'confirmed' }, { projection: { _id: 0, slot_id: 1, start: 1, minutes: 1 } }).toArray();
-        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => ({ ...s, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '', ...ratings.get(s.teacher_id) }));
+        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => { const subjects = storedSubjects(s).filter(subject => allowedSubjects.has(subject)); return ({ ...s, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '', ...ratings.get(s.teacher_id) }); }).filter(slot => slot.subjects.length);
         return res.json({ slots: available.filter(slotHasAvailability) });
       }
       if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
       const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
+      assertCatalogSubjects(subjects, await catalogSubjectSet());
       const defaultOffering = offerings[0], maxMinutes = Math.max(...offerings.map(item => item.minutes));
       const suppliedUntil = Number(body.available_until || body.availableUntil || 0);
       const hasAvailabilityWindow = Number.isSafeInteger(suppliedUntil) && suppliedUntil >= start + maxMinutes * 60000;
@@ -671,7 +782,10 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       try {
         await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: bookingPrice, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: packagePurchase ? `package:${packagePurchase.id}` : 'wallet', package_purchase_id: packagePurchase?.id || '', notes: '', resource: '', created: Date.now() });
         if (!packagePurchase) await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
-        else await db.collection('package_purchases').updateOne({ id: packagePurchase.id, remaining_lessons: 0 }, { $set: { status: 'exhausted', updated: Date.now() } });
+        else {
+          const fresh = await db.collection('package_purchases').findOne({ id: packagePurchase.id }, { projection: { _id: 0, remaining_lessons: 1 } });
+          if (Number(fresh?.remaining_lessons || 0) <= 0) await db.collection('package_purchases').updateOne({ id: packagePurchase.id }, { $set: { status: 'exhausted', updated: Date.now() } });
+        }
       } catch (error) {
         if (packagePurchase) await db.collection('package_purchases').updateOne({ id: packagePurchase.id }, { $inc: { remaining_lessons: 1 }, $set: { status: 'active', updated: Date.now() } });
         else await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } });

@@ -1,7 +1,7 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { BookOpen, CalendarPlus, Check, ChevronLeft, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
-import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase } from '../../services/platformApi';
+import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
+import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase, type PackageAvailabilityDay, type WeeklySchedule } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
@@ -26,6 +26,8 @@ type Room = { id: string; room: string; role: 'teacher' | 'student' };
 const actionNames: Record<string, string> = { 'user:password-reset': 'إصدار كلمة مرور مؤقتة', 'user:active': 'تفعيل حساب', 'user:suspended': 'إيقاف حساب', 'booking:cancel': 'إلغاء حصة', 'payment:received': 'تسجيل دفعة', 'payment:reversed': 'عكس دفعة' };
 const formData = (form: HTMLFormElement) => Object.fromEntries(new FormData(form));
 const timeOnly = (value: number) => new Date(value).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+const packageWeekDays = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const PackageSchedule = ({ rows }: { rows: WeeklySchedule[] }) => rows.length ? <div className="package-schedule-summary"><CalendarDays size={17} /><div>{rows.map(row => <span key={row.weekday}>{t(packageWeekDays[row.weekday])} <b dir="ltr">{row.from}–{row.to}</b></span>)}</div></div> : null;
 const normalizedSearch = (value: string) => value.normalize('NFKD').toLocaleLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ؤ/g, 'و').replace(/ئ|ى/g, 'ي').replace(/ة/g, 'ه').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const searchKeys = (value: string) => { const normalized = normalizedSearch(value).replaceAll(' ', ''); return [normalized, normalized.replace(/[اوي]/g, '')].filter(key => key.length > 1); };
 const fuzzyMatch = (left: string, right: string) => searchKeys(left).some(a => searchKeys(right).some(b => a.includes(b) || b.includes(a)));
@@ -116,6 +118,11 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [packagePurchases, setPackagePurchases] = useState<PackagePurchase[]>([]);
   const [bookingPackage, setBookingPackage] = useState<PackagePurchase | null>(null);
   const [selectedPackagePurchase, setSelectedPackagePurchase] = useState('');
+  const [packageAvailabilityDays, setPackageAvailabilityDays] = useState<PackageAvailabilityDay[]>([]);
+  const [packageAvailabilityLoading, setPackageAvailabilityLoading] = useState(false);
+  const [packageBookingDay, setPackageBookingDay] = useState('');
+  const [packageBookingStart, setPackageBookingStart] = useState(0);
+  const [packageBookingSubject, setPackageBookingSubject] = useState('');
   const [room, setRoom] = useState<Room | null>(null);
   const [callCompact, setCallCompact] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -197,6 +204,17 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     if (catalog.length) setTeachingChoices(parseTeachingChoices(user.subject, catalog));
   }, [catalog, user.subject]);
   useEffect(() => { setCustomPackages(user.custom_packages || []); }, [user.custom_packages]);
+  useEffect(() => {
+    const purchase = packagePurchases.find(item => item.id === selectedPackagePurchase);
+    setPackageAvailabilityDays([]); setPackageBookingDay(''); setPackageBookingStart(0); setPackageBookingSubject(purchase?.subjects.length === 1 ? purchase.subjects[0] : '');
+    if (!purchase?.weekly_schedule?.length) return;
+    let alive = true; setPackageAvailabilityLoading(true);
+    request<{ days: PackageAvailabilityDay[] }>(`students/package-purchases/${purchase.id}/availability`)
+      .then(result => { if (alive) setPackageAvailabilityDays(result.days || []); })
+      .catch(cause => { if (alive) setError((cause as Error).message); })
+      .finally(() => { if (alive) setPackageAvailabilityLoading(false); });
+    return () => { alive = false; };
+  }, [selectedPackagePurchase, packagePurchases]);
   useEffect(() => {
     if (!selected) return;
     let alive = true; setMessages([]);
@@ -378,6 +396,16 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       else setError((cause as Error).message);
     } finally { setBusy(false); }
   }
+  async function bookPackageTime(purchase: PackagePurchase) {
+    if (!packageBookingStart || !packageBookingSubject) { setError(t('اختر المادة واليوم والوقت المناسب.')); return; }
+    setBusy(true); setError(''); setSuccess('');
+    try {
+      await request(`students/package-purchases/${purchase.id}/book`, { start: packageBookingStart, subject: packageBookingSubject });
+      setSuccess(t('تم حجز حصتك من الباقة بنجاح، وستجدها في الحصص المحجوزة.'));
+      setSelectedPackagePurchase(''); refresh(); onView('rooms');
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
   const bookSlot = (slot: Slot, purchase: PackagePurchase | null = null) => {
     const availableSubjects = purchase ? slotSubjects(slot).filter(subject => purchase.subjects.includes(subject)) : slotSubjects(slot);
     const offerings = purchase ? slotOfferings(slot).filter(offering => offering.minutes === purchase.minutes) : slotOfferings(slot);
@@ -455,6 +483,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       <TutorRating rating={item.teacher_rating} count={item.teacher_rating_count} />
       {item.description && <p>{item.description}</p>}
       <div className="lesson-package-tags">{item.subjects.map(subject => <span key={subject}>{catalogText(subject)}</span>)}</div>
+      <PackageSchedule rows={item.weekly_schedule || []} />
       <dl><div><dt>{t('عدد الحصص')}</dt><dd>{item.lesson_count}</dd></div><div><dt>{t('مدة الحصة')}</dt><dd>{item.minutes} {t('دقيقة')}</dd></div><div><dt>{t('صلاحية')}</dt><dd>{item.validity_days} {t('يوماً')}</dd></div></dl>
       <footer><div><strong>{money(item.price)}</strong><small>{t('{v0} للحصة تقريباً', { v0: money(Math.round(item.price / item.lesson_count)) })}</small></div><button className="primary-button" disabled={busy} onClick={() => void purchaseLessonPackage(item)}><ShoppingBag size={17} />{t('شراء الباقة')}</button></footer>
     </article>)}</div>}
@@ -469,11 +498,12 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         <header><span className="package-symbol"><PackageCheck size={21} /></span><div><small>{item.teacher_name}</small><h3>{item.package_name}</h3></div><span className={`badge ${active ? 'active' : 'cancelled'}`}>{t(active ? 'فعّالة' : item.status === 'expired' ? 'منتهية' : 'مكتملة')}</span></header>
         <div className="package-credit"><div><span>{t('المتبقي')}</span><strong>{item.remaining_lessons}<small> / {item.lesson_count}</small></strong></div><div className="package-credit-track" aria-label={t('{v0} حصص متبقية', { v0: item.remaining_lessons })}><i style={{ width: `${remainingPercent}%` }} /></div></div>
         <div className="lesson-package-tags">{item.subjects.map(subject => <span key={subject}>{catalogText(subject)}</span>)}</div>
+        <PackageSchedule rows={item.weekly_schedule || []} />
         <dl><div><dt>{t('مدة الحصة')}</dt><dd>{item.minutes} {t('دقيقة')}</dd></div><div><dt>{t('صالحة حتى')}</dt><dd>{new Date(item.expires_at).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })}</dd></div></dl>
         <button className="primary-button" disabled={!active} onClick={() => setSelectedPackagePurchase(selectedPackagePurchase === item.id ? '' : item.id)}><CalendarPlus size={17} />{selectedPackagePurchase === item.id ? t('إخفاء المواعيد') : active ? t('احجز من الباقة') : t('لا توجد حصص متاحة')}</button>
       </article>;
     })}</div>}
-    {selectedPurchase && <section className="package-matching-slots"><div className="section-heading"><div><span className="section-kicker">{t('مطابقة تلقائية لشروط الباقة')}</span><h3>{t('مواعيد {v0} المناسبة', { v0: selectedPurchase.teacher_name })}</h3><p>{t('تظهر المواعيد التي تطابق مدة الحصة والمواد وتاريخ صلاحية الباقة فقط.')}</p></div></div><TutorList slots={slotsForPackage(selectedPurchase)} busy={busy} bookSlot={slot => bookSlot(slot, selectedPurchase)} /></section>}
+    {selectedPurchase && <section className="package-matching-slots"><div className="section-heading"><div><span className="section-kicker">{t('جدول الباقة')}</span><h3>{t('اختر موعدك مع {v0}', { v0: selectedPurchase.teacher_name })}</h3><p>{t('اختر المادة ثم اليوم والساعة من الفترات التي خصصها الأستاذ لهذه الباقة.')}</p></div></div>{selectedPurchase.weekly_schedule?.length ? <div className="package-direct-booking"><PackageSchedule rows={selectedPurchase.weekly_schedule} />{selectedPurchase.subjects.length > 1 && <fieldset className="package-booking-subjects"><legend>{t('المادة')}</legend>{selectedPurchase.subjects.map(subject => <button type="button" className={packageBookingSubject === subject ? 'selected' : ''} onClick={() => setPackageBookingSubject(subject)} key={subject}>{catalogText(subject)}</button>)}</fieldset>}{packageAvailabilityLoading ? <div className="package-availability-loading"><RefreshCw className="spin" size={22} />{t('جارٍ تجهيز المواعيد المتاحة…')}</div> : !packageAvailabilityDays.length ? <div className="empty-state compact-empty"><CalendarDays size={30} /><p>{t('لا توجد مواعيد متاحة ضمن جدول الباقة حالياً.')}</p></div> : <><div className="package-day-picker">{packageAvailabilityDays.map(day => <button type="button" className={packageBookingDay === day.day ? 'selected' : ''} onClick={() => { setPackageBookingDay(day.day); setPackageBookingStart(0); }} key={day.day}><small>{t(packageWeekDays[day.weekday])}</small><strong>{new Date(`${day.day}T12:00:00`).toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}</strong><span>{t('{v0} موعد', { v0: day.starts.length })}</span></button>)}</div>{packageBookingDay && <div className="package-time-picker">{packageAvailabilityDays.find(day => day.day === packageBookingDay)?.starts.map(start => <button type="button" className={packageBookingStart === start ? 'selected' : ''} onClick={() => setPackageBookingStart(start)} key={start}><Clock3 size={16} />{timeOnly(start)}</button>)}</div>}<footer className="package-booking-confirm"><div><small>{t('اختيارك')}</small><strong>{packageBookingStart ? `${catalogText(packageBookingSubject)} · ${date(packageBookingStart)}` : t('اختر الموعد المناسب')}</strong></div><button type="button" className="primary-button" disabled={busy || !packageBookingStart || !packageBookingSubject} onClick={() => void bookPackageTime(selectedPurchase)}><CalendarPlus size={18} />{t('تأكيد حجز الباقة')}</button></footer></>}</div> : <TutorList slots={slotsForPackage(selectedPurchase)} busy={busy} bookSlot={slot => bookSlot(slot, selectedPurchase)} />}</section>}
   </section>;
   const bookingDialog = bookingSlot && (() => {
     const availableSubjects = bookingPackage ? slotSubjects(bookingSlot).filter(subject => bookingPackage.subjects.includes(subject)) : slotSubjects(bookingSlot);

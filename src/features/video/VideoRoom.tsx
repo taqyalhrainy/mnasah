@@ -1,7 +1,7 @@
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { Camera, CameraOff, Download, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Bold, BringToFront, Camera, CameraOff, Copy, Download, Grid2X2, Hand, ImagePlus, Italic, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
@@ -15,8 +15,9 @@ type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: 'screen') =>
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }> };
 type WhiteboardPoint = { x: number; y: number };
 type WhiteboardStroke = { id: string; color: string; size: number; points: WhiteboardPoint[] };
-type WhiteboardTextItem = { id: string; type: 'text'; x: number; y: number; width: number; height: number; text: string; color: string; fontSize: number };
-type WhiteboardImageItem = { id: string; type: 'image'; x: number; y: number; width: number; height: number; src: string };
+type WhiteboardBaseItem = { id: string; x: number; y: number; width: number; height: number; opacity?: number };
+type WhiteboardTextItem = WhiteboardBaseItem & { type: 'text'; text: string; color: string; fontSize: number; fontFamily?: string; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textAlign?: 'start' | 'center' | 'end'; background?: string };
+type WhiteboardImageItem = WhiteboardBaseItem & { type: 'image'; src: string; fit?: 'contain' | 'cover'; borderRadius?: number };
 type WhiteboardItem = WhiteboardTextItem | WhiteboardImageItem;
 type WhiteboardMessage =
   | { kind: 'stroke-start'; stroke: WhiteboardStroke }
@@ -80,7 +81,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
   const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
   const [activeStroke, setActiveStroke] = useState<WhiteboardStroke | null>(null);
-  const [whiteboardColor, setWhiteboardColor] = useState('#d8f264');
+  const [whiteboardColor, setWhiteboardColor] = useState('#673c7b');
   const [whiteboardSize, setWhiteboardSize] = useState(4);
   const [whiteboardViewport, setWhiteboardViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [whiteboardAspect, setWhiteboardAspect] = useState(1.55);
@@ -597,8 +598,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       width: 300 / whiteboardViewport.zoom,
       height: 100 / whiteboardViewport.zoom,
       text: '',
-      color: whiteboardColor,
+      color: '#18171c',
       fontSize: 34 / whiteboardViewport.zoom,
+      fontFamily: 'Tajawal, sans-serif',
+      fontWeight: 700,
+      fontStyle: 'normal',
+      textAlign: 'start',
+      background: 'transparent',
+      opacity: 1,
     };
     upsertWhiteboardItem(item, true);
     setSelectedWhiteboardItem(item.id);
@@ -618,14 +625,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         element.onerror = () => reject(new Error(t('تعذر قراءة الصورة.')));
         element.src = objectUrl;
       });
-      const scale = Math.min(1, 1400 / Math.max(image.naturalWidth, image.naturalHeight));
+      const scale = Math.min(1, 2200 / Math.max(image.naturalWidth, image.naturalHeight));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
       const context = canvas.getContext('2d');
       if (!context) throw new Error(t('تعذر تجهيز الصورة للوح.'));
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const src = canvas.toDataURL('image/webp', 0.8);
+      const src = canvas.toDataURL('image/webp', 0.92);
       const maxWidth = 620 / whiteboardViewport.zoom;
       const maxHeight = 430 / whiteboardViewport.zoom;
       const displayScale = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
@@ -641,6 +648,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         width,
         height,
         src,
+        fit: 'contain',
+        borderRadius: 0,
+        opacity: 1,
       };
       upsertWhiteboardItem(item, true);
       setSelectedWhiteboardItem(item.id);
@@ -657,6 +667,56 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (!file) return;
     void loadWhiteboardImage(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر إضافة الصورة إلى اللوح.')));
   };
+
+  const selectedWhiteboardObject = whiteboardItems.find((item) => item.id === selectedWhiteboardItem) || null;
+
+  const updateSelectedWhiteboardItem = (changes: Partial<WhiteboardItem>) => {
+    if (!selectedWhiteboardObject) return;
+    upsertWhiteboardItem({ ...selectedWhiteboardObject, ...changes } as WhiteboardItem, true);
+  };
+
+  const duplicateWhiteboardItem = () => {
+    if (!selectedWhiteboardObject) return;
+    const item = { ...selectedWhiteboardObject, id: `${Date.now()}-copy-${Math.random().toString(36).slice(2)}`, x: selectedWhiteboardObject.x + 28 / whiteboardViewport.zoom, y: selectedWhiteboardObject.y + 28 / whiteboardViewport.zoom } as WhiteboardItem;
+    upsertWhiteboardItem(item, true);
+    setSelectedWhiteboardItem(item.id);
+  };
+
+  const moveWhiteboardLayer = (direction: 'front' | 'back') => {
+    if (!selectedWhiteboardItem) return;
+    const selected = whiteboardItemsRef.current.find(item => item.id === selectedWhiteboardItem);
+    if (!selected) return;
+    const rest = whiteboardItemsRef.current.filter(item => item.id !== selectedWhiteboardItem);
+    const next = direction === 'front' ? [...rest, selected] : [selected, ...rest];
+    setSyncedWhiteboardItems(next);
+    sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: next, mode: stageMode });
+  };
+
+  const downloadWhiteboard = () => {
+    const svg = whiteboardSvgRef.current;
+    if (!svg) return;
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', '1600');
+    clone.setAttribute('height', String(Math.round(1600 / whiteboardAspect)));
+    const source = new XMLSerializer().serializeToString(clone);
+    const url = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `emtidad-board-${new Date().toISOString().slice(0, 10)}.svg`; anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input,textarea,select,[contenteditable=true]')) return;
+      if (event.key === 'Escape') { setSelectedWhiteboardItem(null); setEditingWhiteboardText(null); }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedWhiteboardItem) { event.preventDefault(); deleteWhiteboardItem(selectedWhiteboardItem); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd' && selectedWhiteboardItem) { event.preventDefault(); duplicateWhiteboardItem(); }
+    };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [selectedWhiteboardItem, whiteboardItems]);
 
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
     if (whiteboardTool === 'text') {
@@ -860,7 +920,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     return (
       <g key={item.id} {...commonProps} onDoubleClick={() => item.type === 'text' && setEditingWhiteboardText(item.id)}>
         {item.type === 'image' ? (
-          <image href={item.src} x={item.x} y={item.y} width={item.width} height={item.height} preserveAspectRatio="xMidYMid meet" />
+          <foreignObject x={item.x} y={item.y} width={item.width} height={item.height} opacity={item.opacity ?? 1}>
+            <img className="whiteboard-board-image" draggable={false} src={item.src} alt="" style={{ objectFit: item.fit || 'contain', borderRadius: item.borderRadius || 0 }} />
+          </foreignObject>
         ) : (
           <foreignObject x={item.x} y={item.y} width={item.width} height={item.height}>
             {editingWhiteboardText === item.id ? <textarea
@@ -868,12 +930,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
               className="whiteboard-text-editor"
               dir="auto"
               value={item.text}
-              style={{ color: item.color, fontSize: item.fontSize }}
+              style={{ color: item.color, fontSize: item.fontSize, fontFamily: item.fontFamily, fontWeight: item.fontWeight, fontStyle: item.fontStyle, textAlign: item.textAlign, background: item.background, opacity: item.opacity ?? 1 }}
               placeholder={t('اكتب هنا')}
               onPointerDown={(event) => event.stopPropagation()}
               onChange={(event) => upsertWhiteboardItem({ ...item, text: event.target.value }, true)}
               onBlur={() => { if (!item.text.trim()) deleteWhiteboardItem(item.id); else setEditingWhiteboardText(null); }}
-            /> : <div className="whiteboard-text-content" dir="auto" style={{ color: item.color, fontSize: item.fontSize }}>{item.text || t('اكتب هنا')}</div>}
+            /> : <div className="whiteboard-text-content" dir="auto" style={{ color: item.color, fontSize: item.fontSize, fontFamily: item.fontFamily, fontWeight: item.fontWeight, fontStyle: item.fontStyle, textAlign: item.textAlign, background: item.background, opacity: item.opacity ?? 1 }}>{item.text || t('اكتب هنا')}</div>}
           </foreignObject>
         )}
         {selected && <>
@@ -887,6 +949,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const renderWhiteboard = () => (
     <div className="whiteboard-panel">
       <div className="whiteboard-tools">
+        <span className="whiteboard-tool-heading">{t('أدوات اللوح')}</span>
         <button data-whiteboard-tool="select" className={whiteboardTool === 'select' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('select')} aria-label={t('تحديد وتحريك العناصر')} title={t('تحديد وتحريك العناصر')}><MousePointer2 size={17} /></button>
         <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={t('الرسم بالقلم')}><Pencil size={17} /></button>
         <button data-whiteboard-tool="pan" className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('pan')} aria-label={t("تحريك اللوح")} title={t("تحريك اللوح")}><Hand size={17} /></button>
@@ -897,11 +960,30 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label={t("تصغير")}>-</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToContent(whiteboardStrokesRef.current, whiteboardItemsRef.current); }} aria-label={t("إظهار كامل الرسم")} title={t("إظهار كامل الرسم")}><Maximize2 size={17} /></button>
-        {['#d8f264', '#ffffff', '#5cc8ff', '#ffcf5a', '#ff6b7a'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label={t("لون القلم")} />)}
+        <span className="whiteboard-zoom-value">{Math.round(whiteboardViewport.zoom * 100)}%</span>
+        {['#18171c', '#673c7b', '#1677ff', '#f1b928', '#e4485c'].map((color) => <button key={color} className={whiteboardColor === color ? 'selected' : ''} style={{ background: color }} type="button" onClick={() => setWhiteboardColor(color)} aria-label={t("لون القلم")} />)}
         <input aria-label={t("حجم القلم")} min="2" max="12" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} />
         {selectedWhiteboardItem && <button className="whiteboard-delete-item" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardItem)} title={t('حذف العنصر')} aria-label={t('حذف العنصر')}><Trash2 size={17} /></button>}
+        <button className="tool-mode" type="button" onClick={downloadWhiteboard} title={t('تنزيل اللوح')} aria-label={t('تنزيل اللوح')}><Download size={17} /></button>
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
       </div>
+      {selectedWhiteboardObject && <div className="whiteboard-inspector" onPointerDown={event => event.stopPropagation()}>
+        <div className="whiteboard-inspector-title"><strong>{t(selectedWhiteboardObject.type === 'text' ? 'تنسيق النص' : 'تنسيق الصورة')}</strong><small>{t('التغييرات تظهر للطرفين مباشرة')}</small></div>
+        {selectedWhiteboardObject.type === 'text' ? <>
+          <select aria-label={t('نوع الخط')} value={selectedWhiteboardObject.fontFamily || 'Tajawal, sans-serif'} onChange={event => updateSelectedWhiteboardItem({ fontFamily: event.target.value })}><option value="Tajawal, sans-serif">Tajawal</option><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option><option value="monospace">Monospace</option></select>
+          <label className="whiteboard-number-field"><span>{t('الحجم')}</span><input type="number" min="12" max="180" value={Math.round(selectedWhiteboardObject.fontSize)} onChange={event => updateSelectedWhiteboardItem({ fontSize: Math.max(12, Number(event.target.value)) })} /></label>
+          <div className="whiteboard-inspector-buttons"><button type="button" className={(selectedWhiteboardObject.fontWeight || 700) >= 700 ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fontWeight: (selectedWhiteboardObject.fontWeight || 700) >= 700 ? 400 : 700 })} title={t('عريض')}><Bold size={17} /></button><button type="button" className={selectedWhiteboardObject.fontStyle === 'italic' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fontStyle: selectedWhiteboardObject.fontStyle === 'italic' ? 'normal' : 'italic' })} title={t('مائل')}><Italic size={17} /></button>{([['start', AlignRight], ['center', AlignCenter], ['end', AlignLeft]] as const).map(([align, Icon]) => <button type="button" className={(selectedWhiteboardObject.textAlign || 'start') === align ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ textAlign: align })} key={align}><Icon size={17} /></button>)}</div>
+          <label className="whiteboard-color-field"><span>{t('لون النص')}</span><input type="color" value={selectedWhiteboardObject.color} onChange={event => updateSelectedWhiteboardItem({ color: event.target.value })} /></label>
+          <label className="whiteboard-color-field"><span>{t('الخلفية')}</span><input type="color" value={selectedWhiteboardObject.background && selectedWhiteboardObject.background !== 'transparent' ? selectedWhiteboardObject.background : '#ffffff'} onChange={event => updateSelectedWhiteboardItem({ background: event.target.value })} /></label>
+          <button type="button" onClick={() => setEditingWhiteboardText(selectedWhiteboardObject.id)}><TypeIcon size={16} />{t('تحرير النص')}</button>
+        </> : <>
+          <div className="whiteboard-inspector-buttons"><button type="button" className={(selectedWhiteboardObject.fit || 'contain') === 'contain' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'contain' })}>{t('احتواء')}</button><button type="button" className={selectedWhiteboardObject.fit === 'cover' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'cover' })}>{t('ملء الإطار')}</button></div>
+          <label className="whiteboard-range-field"><span>{t('استدارة الحواف')}</span><input type="range" min="0" max="80" value={selectedWhiteboardObject.borderRadius || 0} onChange={event => updateSelectedWhiteboardItem({ borderRadius: Number(event.target.value) })} /></label>
+          <button type="button" onClick={() => whiteboardImageInputRef.current?.click()}><ImagePlus size={16} />{t('إضافة صورة أخرى')}</button>
+        </>}
+        <label className="whiteboard-range-field"><span>{t('الشفافية')}</span><input type="range" min="20" max="100" value={Math.round((selectedWhiteboardObject.opacity ?? 1) * 100)} onChange={event => updateSelectedWhiteboardItem({ opacity: Number(event.target.value) / 100 })} /></label>
+        <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem}><Copy size={16} />{t('نسخ')}</button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)}><Trash2 size={16} /></button></div>
+      </div>}
       <svg ref={whiteboardSvgRef} className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {whiteboardItems.map(renderWhiteboardItem)}
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}

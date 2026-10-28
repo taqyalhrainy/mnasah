@@ -195,7 +195,14 @@
 :root[data-theme=dark] .lesson-package-hero > strong,:root[data-theme=dark] .my-packages-hero > strong { color: #f0d98d; background: #142f3a99; }
 :root[data-theme=dark] .lesson-package-subjects { border-color: var(--line); }
 :root[data-theme=dark] .lesson-package-subjects label { color: var(--ink); background: #34273f; }
+:root[data-theme=dark] .package-schedule-builder { background: #241a2e; border-color: #594666; }
+:root[data-theme=dark] .package-week-row { background: #2d2238; border-color: #594666; }
+:root[data-theme=dark] .package-week-row.selected { border-color: #a88ac0; }
 :root[data-theme=dark] .teacher-package-card.archived,:root[data-theme=dark] .owned-package-card.expired,:root[data-theme=dark] .owned-package-card.exhausted { background: #251c2e; }
+:root[data-theme=dark] .package-direct-booking { background: #241a2e; border-color: #594666; }
+:root[data-theme=dark] .package-direct-booking > .package-schedule-summary,:root[data-theme=dark] .package-time-picker { background: #33243d; }
+:root[data-theme=dark] .package-day-picker button { color: var(--ink); background: #2d2238; border-color: #594666; }
+:root[data-theme=dark] .package-day-picker button.selected { background: #493259; border-color: #c19add; }
 :root[data-theme=dark] .package-credit strong { color: #d5b8f0; }
 :root[data-theme=dark] .package-credit-track { background: #463650; }
 :root[data-theme=dark] .booking-package-badge { color: #e6d2fa; background: #49335a; }

@@ -517,6 +517,22 @@ input[type=checkbox] { accent-color: var(--ink); }
 .lesson-package-subjects label { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 10px; border-radius: 6px; background: #f6f5f1; }
 .redesigned-shell .lesson-package-subjects input[type=checkbox] { flex: 0 0 auto; width: 18px; height: 18px; min-height: 0; padding: 0; }
 .lesson-package-numbers { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.package-schedule-builder { display: grid; gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb,var(--surface) 84%,var(--yellow) 16%); }
+.package-schedule-builder legend { display: inline-flex; align-items: center; gap: 7px; padding-inline: 8px; font-weight: 800; }
+.package-schedule-builder > p { margin: 0; color: var(--muted); font-size: 12px; }
+.package-week-grid { display: grid; gap: 8px; }
+.package-week-row { display: grid; grid-template-columns: 120px minmax(0,1fr); align-items: center; gap: 12px; min-height: 54px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); transition: .18s ease; }
+.package-week-row.selected { border-color: color-mix(in srgb,var(--purple) 65%,var(--line)); box-shadow: inset 4px 0 var(--yellow); }
+.package-day-toggle { display: flex!important; flex-direction: row!important; align-items: center; gap: 8px!important; font-weight: 800; }
+.redesigned-shell .package-day-toggle input { width: 18px; height: 18px; min-height: 0; }
+.package-day-hours { display: grid; grid-template-columns: minmax(105px,1fr) auto minmax(105px,1fr) auto; align-items: end; gap: 8px; }
+.package-day-hours label { gap: 3px!important; color: var(--muted); font-size: 10px; }
+.package-day-hours input { min-height: 38px!important; padding: 7px 9px!important; direction: ltr; }
+.package-day-hours small { display: flex; align-items: center; gap: 4px; align-self: center; color: var(--purple); font-weight: 700; }
+.package-schedule-summary { display: flex; align-items: flex-start; gap: 8px; padding: 11px; border-radius: 9px; background: color-mix(in srgb,var(--yellow) 14%,transparent); }
+.package-schedule-summary > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.package-schedule-summary span { padding: 5px 8px; border: 1px solid color-mix(in srgb,var(--yellow) 46%,var(--line)); border-radius: 999px; font-size: 11px; }
+.package-schedule-summary b { font-weight: 700; }
 .teacher-package-list { display: grid; gap: 14px; }
 .teacher-package-card.archived { opacity: .72; background: #f6f6f6; }
 .teacher-package-card dl { grid-template-columns: repeat(4,minmax(0,1fr)); }
@@ -536,6 +552,23 @@ input[type=checkbox] { accent-color: var(--ink); }
 .package-credit-track { height: 8px; overflow: hidden; border-radius: 99px; background: #e9e5df; }
 .package-credit-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#67487b,#d2ae45); }
 .package-matching-slots { margin-top: 4px; scroll-margin-top: 105px; }
+.package-direct-booking { display: grid; gap: 20px; padding: 22px; border: 1px solid #e0d7b9; border-radius: 18px; background: linear-gradient(160deg,#fffdf8,#fff9e5); box-shadow: 0 18px 50px #4d3d1712; }
+.package-direct-booking > .package-schedule-summary { background: #fff3bd; }
+.package-booking-subjects { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.package-booking-subjects legend { padding-inline: 7px; font-weight: 800; }
+.package-booking-subjects button,.package-time-picker button { min-height: 42px; padding: 9px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); font: inherit; cursor: pointer; }
+.package-booking-subjects button.selected,.package-time-picker button.selected { border-color: var(--purple); color: #fff; background: var(--purple); box-shadow: 0 8px 18px color-mix(in srgb,var(--purple) 24%,transparent); }
+.package-day-picker { display: grid; grid-template-columns: repeat(auto-fill,minmax(120px,1fr)); gap: 10px; }
+.package-day-picker button { display: grid; gap: 4px; min-height: 94px; padding: 13px; border: 1px solid #ded5b5; border-radius: 13px; color: var(--ink); background: #fffdf5; text-align: start; cursor: pointer; transition: transform .18s ease,border-color .18s ease,box-shadow .18s ease; }
+.package-day-picker button:hover { transform: translateY(-2px); }
+.package-day-picker button.selected { border-color: var(--purple); box-shadow: 0 0 0 3px color-mix(in srgb,var(--purple) 13%,transparent); background: #f5ebff; }
+.package-day-picker small,.package-day-picker span { color: var(--muted); }
+.package-time-picker { display: flex; flex-wrap: wrap; gap: 9px; padding: 16px; border-radius: 14px; background: color-mix(in srgb,var(--yellow) 11%,var(--surface)); }
+.package-time-picker button { display: inline-flex; align-items: center; gap: 7px; direction: ltr; }
+.package-booking-confirm { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 17px; border-top: 1px solid var(--line); }
+.package-booking-confirm > div { display: grid; gap: 3px; }
+.package-booking-confirm small { color: var(--muted); }
+.package-availability-loading { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 150px; color: var(--muted); }
 .booking-package-badge { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: 8px; padding: 5px 9px; border-radius: 999px; color: #543b65; background: #f2e7fb; }
 .booking-cancellation-policy.package-policy p { margin: 6px 0 0; }
 @keyframes home-scene-in { from { opacity: 0; transform: scale(.975); } to { opacity: 1; transform: scale(1); } }
@@ -802,9 +835,13 @@ input[type=checkbox] { accent-color: var(--ink); }
   .lesson-package-layout { grid-template-columns: 1fr; }
   .lesson-package-form { position: static; }
   .lesson-package-numbers { grid-template-columns: 1fr; }
+  .package-week-row { grid-template-columns: 1fr; }
+  .package-day-hours { grid-template-columns: 1fr auto 1fr; }
+  .package-day-hours small { grid-column: 1 / -1; }
   .teacher-package-card dl { grid-template-columns: repeat(2,minmax(0,1fr)); row-gap: 12px; }
   .teacher-package-card dl div:nth-child(2) { border-inline-end: 0; }
   .teacher-package-card > footer { align-items: flex-start; flex-direction: column; }
+  .package-booking-confirm { align-items: stretch; flex-direction: column; }
 }
 @media (max-width: 390px) {
   .package-grid { grid-template-columns: 1fr; }

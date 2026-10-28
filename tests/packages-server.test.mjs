@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
-test('lesson packages are purchased once, book matching slots, and restore credit on cancellation', async t => {
+test('lesson packages expose their own weekly schedule, book matching times, and restore credit on cancellation', async t => {
   const now = Date.now();
   const users = [
     { id: 'package-teacher', role: 'teachers', status: 'active', name: 'الأستاذة رنا', email: 'teacher@package.test', password: 'unused', subject: 'المناهج › رياضيات' },
@@ -13,7 +13,7 @@ test('lesson packages are purchased once, book matching slots, and restore credi
   const token = role => `${role}-package-token`;
   const sessions = users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(token(user.role)).digest('hex'), expires: now + 3600000 }));
   const slot = { id: 'package-slot', teacher_id: 'package-teacher', start: now + 3600000, available_until: now + 4 * 3600000, minutes: 60, price: 2000, subject: 'رياضيات', subjects: ['رياضيات'], offerings: [{ minutes: 60, price: 2000 }], status: 'open', created: now };
-  const db = memoryMongo({ users, sessions, slots: [slot], wallet_accounts: [{ user_id: 'package-student', balance: 10000, updated: now }] });
+  const db = memoryMongo({ users, sessions, slots: [slot], catalog: [{ id: 'math', kind: 'category', position: 0, name: 'المناهج', levels: [], subjects: ['رياضيات'] }], wallet_accounts: [{ user_id: 'package-student', balance: 10000, updated: now }] });
   const { httpServer, io } = await startPlatformServer({ database: db, port: 0 });
   t.after(() => new Promise(resolve => io.close(() => httpServer.close(resolve))));
   const base = `http://127.0.0.1:${httpServer.address().port}`;
@@ -23,7 +23,9 @@ test('lesson packages are purchased once, book matching slots, and restore credi
     const result = await response.json(); assert.equal(response.status, expected, `${path}: ${JSON.stringify(result)}`); return result;
   }
 
-  const created = await json('teachers', 'lesson-packages', { name: 'تأسيس الرياضيات', description: 'أربع حصص تأسيسية', subjects: ['رياضيات'], lesson_count: 4, minutes: 60, price: 6000, validity_days: 90 });
+  const weekly_schedule = Array.from({ length: 7 }, (_, weekday) => ({ weekday, from: '00:00', to: '23:59' }));
+  await json('teachers', 'lesson-packages', { name: 'مادة غير معتمدة', subjects: ['مادة خارج القائمة'], lesson_count: 4, minutes: 60, price: 6000, validity_days: 90, weekly_schedule }, 400);
+  const created = await json('teachers', 'lesson-packages', { name: 'تأسيس الرياضيات', description: 'أربع حصص تأسيسية', subjects: ['رياضيات'], lesson_count: 4, minutes: 60, price: 6000, validity_days: 90, weekly_schedule });
   assert.equal(created.package.lesson_count, 4);
   const market = await json('students', 'lesson-packages');
   assert.equal(market.offers.length, 1); assert.equal(market.offers[0].teacher_name, 'الأستاذة رنا');
@@ -34,7 +36,9 @@ test('lesson packages are purchased once, book matching slots, and restore credi
   const listed = await json('students', 'lesson-packages');
   assert.equal(listed.purchases[0].status, 'active');
 
-  const booking = await json('students', `slots/${slot.id}`, { subject: 'رياضيات', minutes: 60, start: slot.start, package_purchase_id: purchase.id, method: 'package' });
+  const availability = await json('students', `package-purchases/${purchase.id}/availability`);
+  assert.ok(availability.days.length > 0); assert.ok(availability.days[0].starts.length > 0);
+  const booking = await json('students', `package-purchases/${purchase.id}/book`, { subject: 'رياضيات', start: availability.days[0].starts[0] });
   assert.equal((await json('students', 'wallet')).balance, 4000, 'package booking must not debit the wallet again');
   assert.equal((await json('students', 'lesson-packages')).purchases[0].remaining_lessons, 3);
   const booked = (await json('students', 'overview')).bookings.find(item => item.id === booking.id);

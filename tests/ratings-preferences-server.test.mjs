@@ -14,7 +14,7 @@ test('teacher duration preferences persist and public ratings require five disti
   const slots = students.map((student, index) => ({ id: `rating-slot-${index + 1}`, teacher_id: teacher.id, start: now - (index + 1) * 86400000, available_until: now - (index + 1) * 86400000 + 3600000, minutes: 60, price: 1000, subject: 'رياضيات', subjects: ['رياضيات'], offerings: [{ minutes: 60, price: 1000 }], status: 'booked', created: now - 10 * 86400000 }));
   const bookings = students.map((student, index) => ({ id: `rating-booking-${index + 1}`, slot_id: slots[index].id, student_id: student.id, start: slots[index].start, minutes: 60, price: 1000, subject: 'رياضيات', status: 'completed', paid: 1, room: `room-${index + 1}`, created: slots[index].start }));
   const publicSlot = { id: 'public-rating-slot', teacher_id: teacher.id, start: now + 3600000, available_until: now + 7200000, minutes: 60, price: 1000, subject: 'رياضيات', subjects: ['رياضيات'], offerings: [{ minutes: 60, price: 1000 }], status: 'open', created: now };
-  const db = memoryMongo({ users, sessions, slots: [...slots, publicSlot], bookings, ratings: [] });
+  const db = memoryMongo({ users, sessions, slots: [...slots, publicSlot], bookings, ratings: [], catalog: [{ id: 'math', kind: 'category', position: 0, name: 'المناهج', levels: [], subjects: ['رياضيات'] }] });
   const { httpServer, io } = await startPlatformServer({ database: db, port: 0 });
   t.after(() => new Promise(resolve => io.close(() => httpServer.close(resolve))));
   const base = `http://127.0.0.1:${httpServer.address().port}`;

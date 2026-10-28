@@ -20,8 +20,8 @@ student.on('pageerror', error => errors.push(error.message));
 
 try {
   const room = `browser-check-${Date.now()}`;
-  await teacher.goto(`${baseUrl}/video-test?room=${room}&role=teacher`);
-  await student.goto(`${baseUrl}/video-test?room=${room}&role=student`);
+  await teacher.goto(`${baseUrl}/video-test?room=${room}&role=teacher`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await student.goto(`${baseUrl}/video-test?room=${room}&role=student`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await teacher.locator('.video-test-page').waitFor();
   await student.locator('.video-test-page').waitFor();
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
@@ -66,11 +66,11 @@ try {
   await student.mouse.up();
 
   for (const page of [teacher, student]) {
-    assert.equal(await page.evaluate(() => {
+    const streamState = await page.evaluate(() => {
       const videos = [...document.querySelectorAll('video')];
-      return videos.every((video, index) => video.srcObject === window.videoStreamsBeforeDrawing[index]
-        && [...video.srcObject.getTracks()].every(track => track.readyState === 'live'));
-    }), true, 'drawing must not detach or stop the camera and microphone streams');
+      return videos.map((video, index) => ({ same: video.srcObject === window.videoStreamsBeforeDrawing[index], hasStream: Boolean(video.srcObject), tracks: video.srcObject ? [...video.srcObject.getTracks()].map(track => `${track.kind}:${track.readyState}`) : [] }));
+    });
+    assert.equal(streamState.every(item => item.same && item.hasStream && item.tracks.every(track => track.endsWith(':live'))), true, `drawing must not detach or stop the camera and microphone streams: ${JSON.stringify(streamState)}`);
   }
 
   await teacher.locator('[data-whiteboard-tool="text"]').click();
@@ -85,8 +85,8 @@ try {
 
   const imageBuffer = await teacher.locator('.call-header').screenshot();
   await teacher.locator('.whiteboard-image-input').setInputFiles({ name: 'board-image.png', mimeType: 'image/png', buffer: imageBuffer });
-  await student.locator('.whiteboard-item image').waitFor({ timeout: 10000 });
-  assert.ok((await student.locator('.whiteboard-item image').getAttribute('href'))?.startsWith('data:image/webp'));
+  await student.locator('.whiteboard-board-image').waitFor({ timeout: 10000 });
+  assert.ok((await student.locator('.whiteboard-board-image').getAttribute('src'))?.startsWith('data:image/webp'));
   await teacher.screenshot({ path: '.private/whiteboard-text-image.png' });
 
   async function leaveAndReturn(leaver, waitingParticipant) {
