@@ -107,6 +107,9 @@ async function connect() {
     db.collection('wallet_transactions').createIndex({ reference: 1 }, { unique: true, sparse: true }),
     db.collection('wallet_topups').createIndex({ proof_hash: 1 }, { unique: true }),
     db.collection('wallet_topups').createIndex({ status: 1, created: -1 }),
+    db.collection('lesson_packages').createIndex({ teacher_id: 1, status: 1 }),
+    db.collection('package_purchases').createIndex({ student_id: 1, created: -1 }),
+    db.collection('package_purchases').createIndex({ teacher_id: 1, status: 1 }),
   ]);
   await seedCatalog();
   return db;
@@ -134,6 +137,26 @@ function slotOfferings(body) {
 }
 const storedSubjects = slot => Array.isArray(slot.subjects) && slot.subjects.length ? slot.subjects : [slot.subject].filter(Boolean);
 const storedOfferings = slot => Array.isArray(slot.offerings) && slot.offerings.length ? slot.offerings : [{ minutes: slot.minutes, price: slot.price }];
+function lessonPackageInput(body) {
+  const lessonCount = Number(body.lesson_count), minutes = Number(body.minutes), price = Number(body.price), validityDays = Number(body.validity_days);
+  const subjects = slotSubjects(body);
+  if (!Number.isInteger(lessonCount) || lessonCount < 2 || lessonCount > 60) fail(400, 'عدد حصص الباقة يجب أن يكون بين حصتين و60 حصة.');
+  if (!allowedDurations.includes(minutes)) fail(400, 'اختر مدة صحيحة للحصة.');
+  if (!Number.isInteger(price) || price < 100 || price > 1000000) fail(400, 'تحقق من سعر الباقة.');
+  if (!Number.isInteger(validityDays) || validityDays < 7 || validityDays > 365) fail(400, 'صلاحية الباقة يجب أن تكون بين 7 و365 يوماً.');
+  return { name: field(body.name, 100), description: field(body.description || '', 500, 0), subjects, lesson_count: lessonCount, minutes, price, validity_days: validityDays };
+}
+const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
+const publicPackagePurchase = row => ({ id: row.id, package_id: row.package_id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', package_name: row.package_name || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), remaining_lessons: Number(row.remaining_lessons), minutes: Number(row.minutes), price: Number(row.price), status: Number(row.expires_at) <= Date.now() ? 'expired' : Number(row.remaining_lessons) <= 0 ? 'exhausted' : row.status || 'active', expires_at: Number(row.expires_at), created: Number(row.created || 0) });
+async function restorePackageLesson(booking) {
+  if (!booking?.package_purchase_id) return false;
+  const purchase = await db.collection('package_purchases').findOne({ id: booking.package_purchase_id, student_id: booking.student_id });
+  if (!purchase || Number(purchase.remaining_lessons) >= Number(purchase.lesson_count)) return false;
+  const status = Number(purchase.expires_at) > Date.now() ? 'active' : 'expired';
+  await db.collection('package_purchases').updateOne({ id: purchase.id, remaining_lessons: purchase.remaining_lessons }, { $inc: { remaining_lessons: 1 }, $set: { status, updated: Date.now() } });
+  return true;
+}
+const packageCancellationQuote = () => ({ tier: 'package_credit', hoursBefore: 0, refund: 0, teacherCompensation: 0, platformFee: 0, refundPercent: 0, packageCredit: true });
 const slotHasAvailability = slot => {
   const minimum = Math.min(...storedOfferings(slot).map(item => Number(item.minutes))) * 60000;
   const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
@@ -486,6 +509,66 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       await audit(user.id, `wallet:topup-${action}`, id);
       return res.json({ ok: true });
     }
+    if (path === 'lesson-packages' && !write) {
+      if (user.role === 'teachers') {
+        const packages = await db.collection('lesson_packages').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray();
+        const purchases = await db.collection('package_purchases').find({ teacher_id: user.id }, { projection: { _id: 0, package_id: 1, student_id: 1, remaining_lessons: 1, expires_at: 1 } }).toArray();
+        return res.json({ packages: packages.map(item => publicLessonPackage({ ...item, sold_count: purchases.filter(row => row.package_id === item.id).length, active_students: new Set(purchases.filter(row => row.package_id === item.id && row.remaining_lessons > 0 && row.expires_at > Date.now()).map(row => row.student_id)).size })) });
+      }
+      if (user.role !== 'students') fail(403, 'الباقات متاحة للأساتذة والطلاب فقط.');
+      const packages = await db.collection('lesson_packages').find({ status: 'active' }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(200).toArray();
+      const teacherIds = [...new Set(packages.map(item => item.teacher_id))];
+      const teachers = await db.collection('users').find({ id: { $in: teacherIds }, role: 'teachers', status: 'active' }, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
+      const teacherMap = new Map(teachers.map(item => [item.id, item.name]));
+      const purchases = await db.collection('package_purchases').find({ student_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(200).toArray();
+      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, teacher_name: teacherMap.get(item.teacher_id) })), purchases: purchases.map(publicPackagePurchase) });
+    }
+    if (path === 'lesson-packages' && write && user.role === 'teachers') {
+      const values = lessonPackageInput(body), now = Date.now();
+      if (body.id) {
+        const id = field(body.id, 80);
+        const updated = await db.collection('lesson_packages').updateOne({ id, teacher_id: user.id }, { $set: { ...values, updated: now } });
+        if (!updated.modifiedCount) fail(404, 'الباقة غير موجودة.');
+        await audit(user.id, 'package:update', id);
+        return res.json({ package: publicLessonPackage(await db.collection('lesson_packages').findOne({ id }, { projection: { _id: 0 } })) });
+      }
+      const item = { id: crypto.randomUUID(), teacher_id: user.id, ...values, status: 'active', created: now, updated: now };
+      await db.collection('lesson_packages').insertOne(item);
+      await audit(user.id, 'package:create', item.id);
+      return res.json({ package: publicLessonPackage(item) });
+    }
+    if (/^lesson-packages\/[^/]+\/(archive|activate)$/.test(path) && write && user.role === 'teachers') {
+      const [, id, action] = path.split('/');
+      const status = action === 'activate' ? 'active' : 'archived';
+      const updated = await db.collection('lesson_packages').updateOne({ id, teacher_id: user.id }, { $set: { status, updated: Date.now() } });
+      if (!updated.modifiedCount) fail(404, 'الباقة غير موجودة.');
+      await audit(user.id, `package:${action}`, id);
+      return res.json({ ok: true });
+    }
+    if (/^lesson-packages\/[^/]+\/purchase$/.test(path) && write && user.role === 'students') {
+      const packageId = path.split('/')[1];
+      const offer = await db.collection('lesson_packages').findOne({ id: packageId, status: 'active' }, { projection: { _id: 0 } });
+      if (!offer) fail(409, 'هذه الباقة لم تعد متاحة للشراء.');
+      const teacher = await db.collection('users').findOne({ id: offer.teacher_id, role: 'teachers', status: 'active' }, { projection: { _id: 0, id: 1, name: 1 } });
+      if (!teacher) fail(409, 'الأستاذ غير متاح حالياً.');
+      await walletAccount(user.id);
+      const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: offer.price } }, { $inc: { balance: -offer.price }, $set: { updated: Date.now() } });
+      if (!debit.modifiedCount) fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال شراء الباقة.');
+      const now = Date.now();
+      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: offer.subjects, lesson_count: offer.lesson_count, remaining_lessons: offer.lesson_count, minutes: offer.minutes, price: offer.price, status: 'active', expires_at: now + offer.validity_days * 86400000, created: now, updated: now };
+      try {
+        await db.collection('package_purchases').insertOne(purchase);
+        await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'package_purchase', amount: -offer.price, reference: `package-purchase:${purchase.id}`, created: now });
+      } catch (error) {
+        await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: offer.price }, $set: { updated: Date.now() } });
+        await db.collection('package_purchases').deleteOne({ id: purchase.id });
+        throw error;
+      }
+      await ensureChat(mongoChatStore(db), offer.teacher_id, user.id);
+      io.to(`chat:${offer.teacher_id}`).emit('chat:changed', {});
+      await audit(user.id, 'package:purchase', purchase.id);
+      return res.json({ purchase: publicPackagePurchase(purchase) });
+    }
     if (['overview', 'home', 'booked', 'available', 'history', 'reminders', 'rooms'].includes(path) && !write) {
       const bookings = await bookingRows(user.role === 'admin' ? {} : user.role === 'teachers' ? {} : { student_id: user.id });
       const owned = user.role === 'teachers' ? bookings.filter(b => b.teacher_id === user.id) : bookings;
@@ -539,17 +622,32 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (!Number.isSafeInteger(selectedStart) || (hasSelectedStart && (selectedStart < Number(slot.start) || selectedEnd > Number(slot.available_until) || selectedStart <= Date.now()))) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي حددها الأستاذ.');
       const studentBookings = await enrichBookings(await db.collection('bookings').find({ student_id: user.id, status: 'confirmed' }, { projection: { _id: 0 } }).toArray());
       if (studentBookings.some(row => selectedStart < row.start + row.minutes * 60000 && selectedEnd > row.start)) fail(409, 'لديك حصة أخرى تتعارض مع هذا الوقت.');
+      const packagePurchaseId = typeof body.package_purchase_id === 'string' ? field(body.package_purchase_id, 80) : '';
+      let packagePurchase = null;
+      if (packagePurchaseId) {
+        packagePurchase = await db.collection('package_purchases').findOne({ id: packagePurchaseId, student_id: user.id, teacher_id: slot.teacher_id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: selectedEnd } }, { projection: { _id: 0 } });
+        if (!packagePurchase) fail(409, 'هذه الباقة لا تغطي هذا الموعد أو لم يعد فيها حصص متاحة.');
+        if (Number(packagePurchase.minutes) !== selectedOffering.minutes || !packagePurchase.subjects.includes(selectedSubject)) fail(400, 'اختر موعداً مطابقاً لمادة الباقة ومدتها.');
+      }
       const bookingId = crypto.randomUUID();
       const reserved = await db.collection('slots').updateOne({ id, status: 'open', start: { $lte: selectedStart }, available_until: { $gte: selectedEnd }, $nor: [{ reservations: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }] }, { $push: { reservations: { booking_id: bookingId, start: selectedStart, end: selectedEnd } } });
       if (!reserved.modifiedCount) fail(409, 'هذا الوقت حُجز للتو. اختر وقتاً آخر من الفترة المتاحة.');
-      await walletAccount(user.id);
-      const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
-      if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال عملية الشراء.'); }
+      if (packagePurchase) {
+        const consumed = await db.collection('package_purchases').updateOne({ id: packagePurchase.id, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: selectedEnd } }, { $inc: { remaining_lessons: -1 }, $set: { updated: Date.now() } });
+        if (!consumed.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(409, 'تم استخدام آخر حصة من هذه الباقة للتو.'); }
+      } else {
+        await walletAccount(user.id);
+        const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
+        if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال عملية الشراء.'); }
+      }
+      const bookingPrice = packagePurchase ? Math.round(Number(packagePurchase.price) / Number(packagePurchase.lesson_count)) : selectedOffering.price;
       try {
-        await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: selectedOffering.price, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: 'wallet', notes: '', resource: '', created: Date.now() });
-        await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
+        await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: bookingPrice, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: packagePurchase ? `package:${packagePurchase.id}` : 'wallet', package_purchase_id: packagePurchase?.id || '', notes: '', resource: '', created: Date.now() });
+        if (!packagePurchase) await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
+        else await db.collection('package_purchases').updateOne({ id: packagePurchase.id, remaining_lessons: 0 }, { $set: { status: 'exhausted', updated: Date.now() } });
       } catch (error) {
-        await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } });
+        if (packagePurchase) await db.collection('package_purchases').updateOne({ id: packagePurchase.id }, { $inc: { remaining_lessons: 1 }, $set: { status: 'active', updated: Date.now() } });
+        else await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } });
         await db.collection('bookings').deleteOne({ id: bookingId });
         await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); throw error;
       }
@@ -603,12 +701,12 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       if (action === 'cancellation' && !write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        return res.json({ quote: cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 }) });
+        return res.json({ quote: row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 }) });
       }
       if (action === 'cancel' && write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
         if (user.role === 'students' && Number(row.start) <= Date.now()) fail(409, 'بعد بدء الحصة استخدم بلاغ عدم حضور الأستاذ إن لم يدخل خلال 10 دقائق.');
-        const quote = cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 });
+        const quote = row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 });
         const cancellation = { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: user.role, cancellation_reason: field(body.reason || '', 300, 0), refund_amount: quote.refund, teacher_compensation: quote.teacherCompensation, platform_fee: quote.platformFee };
         const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: cancellation });
         if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
@@ -618,6 +716,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: quote.refund }, $set: { updated: Date.now() } });
           await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: quote.refund, reference: `lesson-refund:${id}`, created: Date.now() });
         }
+        if (row.package_purchase_id) await restorePackageLesson(row);
         await audit(user.id, 'booking:cancel', id);
         return res.json({ ok: true, quote });
       }
@@ -625,7 +724,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (row.status !== 'confirmed') fail(409, 'هذه الحصة لم تعد قابلة لبلاغ عدم الحضور.');
         if (Date.now() < Number(row.start) + 10 * 60000) fail(409, 'يمكن تقديم البلاغ بعد مرور 10 دقائق من موعد الحصة.');
         if (Number(row.teacher_joined_at || 0) > 0) fail(409, 'سجل الحضور يبين أن الأستاذ دخل الغرفة. تواصل مع الدعم لمراجعة الحالة.');
-        const quote = cancellationQuote({ start: row.start, price: row.price, actorRole: 'teachers' });
+        const quote = row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: 'teachers' });
         const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed', $or: [{ teacher_joined_at: 0 }, { teacher_joined_at: { $exists: false } }] }, { $set: { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: 'teacher_no_show', cancellation_reason: field(body.reason || 'عدم حضور الأستاذ', 300, 0), refund_amount: quote.refund, teacher_compensation: 0, platform_fee: 0 } });
         if (!cancelled.modifiedCount) fail(409, 'تعذر قبول البلاغ لأن حالة الحضور تغيّرت.');
         await db.collection('slots').updateOne({ id: row.slot_id }, { $pull: { reservations: { booking_id: id } } });
@@ -634,6 +733,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: row.price }, $set: { updated: Date.now() } });
           await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: row.price, reference: `lesson-no-show-refund:${id}`, created: Date.now() });
         }
+        if (row.package_purchase_id) await restorePackageLesson(row);
         await audit(user.id, 'booking:teacher-no-show', id);
         return res.json({ ok: true, quote });
       }
@@ -646,7 +746,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         return res.json({ ok: true });
       }
       if (action === 'payment' && write && user.role === 'admin') {
-        if (row.payment_ref === 'wallet') fail(409, 'دفعات المحفظة تُسجّل تلقائياً ولا يمكن تعديلها يدوياً.');
+        if (row.payment_ref === 'wallet' || row.package_purchase_id) fail(409, 'الدفعات الإلكترونية تُسجّل تلقائياً ولا يمكن تعديلها يدوياً.');
         await db.collection('bookings').updateOne({ id }, { $set: { paid: body.paid ? 1 : 0, payment_ref: field(body.reference || '', 200, body.paid ? 1 : 0) } });
         await audit(user.id, body.paid ? 'payment:received' : 'payment:reversed', id);
         return res.json({ ok: true });

@@ -24,6 +24,8 @@ const bookings = [
   { ...slots[0], id: 'booking-ui', slot_id: slots[0].id, student_id: student.id, student_name: student.name, notes: 'مراجعة المعادلات', resource: '', status: 'confirmed', paid: 1, payment_ref: 'test', teacher_present_until: now + 60000, student_present_until: 0 },
   { ...slots[1], id: 'booking-completed', slot_id: slots[1].id, student_id: student.id, student_name: student.name, notes: '', resource: '', start: now - 86400000, status: 'completed', paid: 1, payment_ref: 'test' },
 ];
+const lessonPackage = { id: 'package-ui', teacher_id: teacher.id, teacher_name: teacher.name, name: 'باقة إتقان الرياضيات', description: 'أربع حصص مركزة مع متابعة', subjects: ['رياضيات'], lesson_count: 4, minutes: 90, price: 6000, validity_days: 90, status: 'active', sold_count: 2, active_students: 1, created: now, updated: now };
+const packagePurchase = { id: 'purchase-ui', package_id: lessonPackage.id, teacher_id: teacher.id, teacher_name: teacher.name, package_name: lessonPackage.name, subjects: ['رياضيات'], lesson_count: 4, remaining_lessons: 3, minutes: 90, price: 6000, status: 'active', expires_at: now + 90 * 86400000, created: now };
 const walletTopup = { id: 'receipt-ui', user_id: student.id, user_name: student.name, user_email: student.email, amount: 2500, status: 'pending', transfer_reference: 'CLIQ-2026-1001', proof_name: 'receipt.png', proof_type: 'image/png', created: now, reviewed_at: 0, rejection_reason: '' };
 const errors = [];
 const mutations = [];
@@ -42,6 +44,8 @@ async function makePage(role, loggedIn = true) {
     if (/\/auth\/(login|register|google)$/.test(path)) return route.fulfill({ json: { user } });
     if (path.endsWith('/reminders')) return route.fulfill({ json: { bookings: [] } });
     if (path.endsWith('/catalog')) return route.fulfill({ json: { categories } });
+    if (path.endsWith('/students/lesson-packages')) return route.fulfill({ json: { offers: [lessonPackage], purchases: [packagePurchase] } });
+    if (path.endsWith('/teachers/lesson-packages')) return route.fulfill({ json: { packages: [lessonPackage] } });
     if (path.endsWith('/students/wallet')) return route.fulfill({ json: { balance: 5000, payment: { cliq_name: 'Mansah', cliq_alias: 'Mansah.CliQ', ready: true }, topups: [], transactions: [] } });
     if (path.endsWith('/admin/wallet/topups/receipt-ui/proof')) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') });
     if (path.endsWith('/admin/wallet-topups')) return route.fulfill({ json: { settings: { cliq_name: 'Mansah', cliq_alias: 'Mansah.CliQ' }, topups: [walletTopup] } });
@@ -164,8 +168,38 @@ try {
       await page.getByRole('dialog').waitFor();
       await checkLayout(page, 'student lesson dialog mobile');
       await page.getByTitle('إغلاق التفاصيل').click();
+      await page.locator('.nav-list').getByRole('button', { name: 'باقاتي', exact: true }).click();
+      await page.locator('.my-packages-page').waitFor();
+      assert.equal(await page.locator('.owned-package-card').count(), 1);
+      await page.screenshot({ path: '.private/student-my-packages-mobile-page.png', fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await checkLayout(page, 'student my packages desktop');
+      await page.screenshot({ path: '.private/student-my-packages-desktop.png', fullPage: true });
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+      await checkLayout(page, 'student my packages dark desktop');
+      await page.screenshot({ path: '.private/student-my-packages-dark-desktop.png', fullPage: true });
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole('button', { name: 'احجز من الباقة', exact: true }).click();
+      assert.equal(await page.locator('.package-matching-slots .tutor-card').count(), 1);
+      await page.locator('.package-matching-slots').getByRole('button', { name: 'احجز الآن', exact: true }).click();
+      await page.getByRole('dialog').getByText('مشمولة في الباقة', { exact: true }).waitFor();
+      await page.screenshot({ path: '.private/student-my-packages-mobile.png', fullPage: true });
+      await page.getByRole('dialog').getByRole('button', { name: 'إغلاق', exact: true }).click();
     }
     if (role === 'teachers') {
+      await page.locator('.nav-list').getByRole('button', { name: 'الباقات', exact: true }).click();
+      await page.locator('.lesson-package-manager').waitFor();
+      assert.equal(await page.locator('.teacher-package-card').count(), 1);
+      await page.screenshot({ path: '.private/teacher-packages-mobile.png', fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await checkLayout(page, 'teacher packages desktop');
+      await page.screenshot({ path: '.private/teacher-packages-desktop.png', fullPage: true });
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+      await checkLayout(page, 'teacher packages dark desktop');
+      await page.screenshot({ path: '.private/teacher-packages-dark-desktop.png', fullPage: true });
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+      await page.setViewportSize({ width: 390, height: 844 });
       assert.equal(await page.locator('.nav-list').getByRole('button', { name: 'المحجوزة', exact: true }).count(), 0, 'booked must be merged into availability');
       await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
       await page.locator('.availability-hub').waitFor();

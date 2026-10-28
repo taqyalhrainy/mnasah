@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck } from 'lucide-react';
+import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, PackageCheck } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { RegistrationFlow } from '../features/auth/RegistrationFlow';
@@ -122,9 +122,9 @@ function PortalApp() {
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir={direction()}><h1>{t("هذا القسم غير متاح لحسابك")}</h1><a className="primary-button" href={appUrl(user.role)}>{t("العودة إلى قسمك")}</a><button className="text-button" onClick={logout}>{t("تسجيل الخروج")}</button></main>;
   const nav = portal === 'students'
-    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }, { id: 'history', label: t("السجل"), icon: History }]
+    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'packages', label: t("باقاتي"), icon: PackageCheck }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }, { id: 'history', label: t("السجل"), icon: History }]
     : portal === 'teachers'
-    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
+    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الغرف"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'packages', label: t("الباقات"), icon: PackageCheck }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
     : [{ id: 'bookings', label: t("الحصص والحجوزات"), icon: CalendarDays },
       ...(portal === 'admin' ? [{ id: 'users', label: t("الحسابات"), icon: Users }, { id: 'topups', label: t("شحن المحافظ"), icon: WalletCards }, { id: 'audit', label: t("سجل العمليات"), icon: ClipboardList }] : [{ id: 'slots', label: t("مواعيدي المتاحة"), icon: Search }]),
       { id: 'payments', label: t("المستحقات"), icon: Wallet },

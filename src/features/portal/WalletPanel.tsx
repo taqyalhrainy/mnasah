@@ -4,7 +4,7 @@ import { date, money, request, requestFile, type WalletData } from '../../servic
 import { t, usePreferences } from '../../i18n/preferences';
 import './wallet.css';
 
-const transactionLabel: Record<string, string> = { cliq_topup: 'شحن عبر كليك', lesson_payment: 'دفع حصة', lesson_refund: 'استرجاع حصة', admin_adjustment: 'تعديل الرصيد من الإدارة' };
+const transactionLabel: Record<string, string> = { cliq_topup: 'شحن عبر كليك', lesson_payment: 'دفع حصة', lesson_refund: 'استرجاع حصة', package_purchase: 'شراء باقة', admin_adjustment: 'تعديل الرصيد من الإدارة' };
 const statusLabel: Record<string, string> = { pending: 'قيد المراجعة', approved: 'تمت الإضافة', rejected: 'مرفوض' };
 
 export function WalletPanel({ requiredAmount = 0 }: { requiredAmount?: number }) {

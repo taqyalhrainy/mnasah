@@ -185,3 +185,17 @@
 :root[data-theme=dark] .auth-footer { color: #bda7ce; border-color: #574263; }
 :root[data-theme=dark] .wake-page { background: #25172f; }:root[data-theme=dark] .wake-card { background: #302039; border-color: #574263; color: var(--muted); }:root[data-theme=dark] .wake-card h1 { color: var(--ink); }
 @media(max-width:768px) { :root[data-theme=dark] .redesigned-auth { background: #25172f; }:root[data-theme=dark] .auth-visual { display: block; background: #25172f; }:root[data-theme=dark] .auth-visual > img { opacity: 1; filter: none; }:root[data-theme=dark] .auth-visual::after { display: none; } }
+:root[data-theme=dark] .lesson-package-offer,:root[data-theme=dark] .owned-package-card,:root[data-theme=dark] .teacher-package-card { color: var(--ink); background: #2a1f35; border-color: #594666; box-shadow: 0 12px 34px #1009184d; }
+:root[data-theme=dark] .lesson-package-offer > p,:root[data-theme=dark] .teacher-package-card > p { color: var(--muted); }
+:root[data-theme=dark] .lesson-package-tags span { color: #ead6fb; background: #49335a; }
+:root[data-theme=dark] .lesson-package-offer dl,:root[data-theme=dark] .owned-package-card dl,:root[data-theme=dark] .teacher-package-card dl { border-color: #50405d; }
+:root[data-theme=dark] .lesson-package-offer dl div,:root[data-theme=dark] .owned-package-card dl div,:root[data-theme=dark] .teacher-package-card dl div { border-color: #50405d; }
+:root[data-theme=dark] .lesson-package-hero,:root[data-theme=dark] .my-packages-hero { color: #f4f8f9; background: linear-gradient(135deg,#214853,#2b3e55); }
+:root[data-theme=dark] .lesson-package-hero p,:root[data-theme=dark] .my-packages-hero p { color: #bfd0d5; }
+:root[data-theme=dark] .lesson-package-hero > strong,:root[data-theme=dark] .my-packages-hero > strong { color: #f0d98d; background: #142f3a99; }
+:root[data-theme=dark] .lesson-package-subjects { border-color: var(--line); }
+:root[data-theme=dark] .lesson-package-subjects label { color: var(--ink); background: #34273f; }
+:root[data-theme=dark] .teacher-package-card.archived,:root[data-theme=dark] .owned-package-card.expired,:root[data-theme=dark] .owned-package-card.exhausted { background: #251c2e; }
+:root[data-theme=dark] .package-credit strong { color: #d5b8f0; }
+:root[data-theme=dark] .package-credit-track { background: #463650; }
+:root[data-theme=dark] .booking-package-badge { color: #e6d2fa; background: #49335a; }
