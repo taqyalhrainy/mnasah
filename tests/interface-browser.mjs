@@ -24,8 +24,9 @@ const bookings = [
   { ...slots[0], id: 'booking-ui', slot_id: slots[0].id, student_id: student.id, student_name: student.name, notes: 'مراجعة المعادلات', resource: '', status: 'confirmed', paid: 1, payment_ref: 'test', teacher_present_until: now + 60000, student_present_until: 0 },
   { ...slots[1], id: 'booking-completed', slot_id: slots[1].id, student_id: student.id, student_name: student.name, notes: '', resource: '', start: now - 86400000, status: 'completed', paid: 1, payment_ref: 'test' },
 ];
-const lessonPackage = { id: 'package-ui', teacher_id: teacher.id, teacher_name: teacher.name, name: 'باقة إتقان الرياضيات', description: 'أربع حصص مركزة مع متابعة', subjects: ['رياضيات'], lesson_count: 4, minutes: 90, price: 6000, validity_days: 90, status: 'active', sold_count: 2, active_students: 1, created: now, updated: now };
-const packagePurchase = { id: 'purchase-ui', package_id: lessonPackage.id, teacher_id: teacher.id, teacher_name: teacher.name, package_name: lessonPackage.name, subjects: ['رياضيات'], lesson_count: 4, remaining_lessons: 3, minutes: 90, price: 6000, status: 'active', expires_at: now + 90 * 86400000, created: now };
+const weeklySchedule = [{ weekday: 0, from: '18:00', to: '21:00' }, { weekday: 2, from: '23:00', to: '02:00' }];
+const lessonPackage = { id: 'package-ui', teacher_id: teacher.id, teacher_name: teacher.name, name: 'باقة إتقان الرياضيات', description: 'أربع حصص مركزة مع متابعة', subjects: ['رياضيات'], lesson_count: 4, minutes: 90, price: 6000, validity_days: 90, weekly_schedule: weeklySchedule, status: 'active', sold_count: 2, active_students: 1, created: now, updated: now };
+const packagePurchase = { id: 'purchase-ui', package_id: lessonPackage.id, teacher_id: teacher.id, teacher_name: teacher.name, package_name: lessonPackage.name, subjects: ['رياضيات'], lesson_count: 4, remaining_lessons: 3, minutes: 90, price: 6000, weekly_schedule: [], status: 'active', expires_at: now + 90 * 86400000, created: now };
 const walletTopup = { id: 'receipt-ui', user_id: student.id, user_name: student.name, user_email: student.email, amount: 2500, status: 'pending', transfer_reference: 'CLIQ-2026-1001', proof_name: 'receipt.png', proof_type: 'image/png', created: now, reviewed_at: 0, rejection_reason: '' };
 const errors = [];
 const mutations = [];
@@ -140,6 +141,12 @@ try {
       assert.equal(await page.locator('.tutor-card').first().getByText('السعر حسب طول الحصة', { exact: true }).count(), 1);
       assert.equal(await page.getByText('ابتداءً من', { exact: true }).count(), 0);
       assert.equal(await page.locator('.tutor-card').nth(1).getByText('سعر الحصة', { exact: true }).count(), 1);
+      await page.getByRole('button', { name: 'تفاصيل الباقة', exact: true }).click();
+      const packageDialog = page.getByRole('dialog', { name: 'باقة إتقان الرياضيات' });
+      await packageDialog.waitFor();
+      assert.match(await packageDialog.innerText(), /أيام وساعات الباقة/);
+      assert.match(await packageDialog.innerText(), /23:00–02:00/);
+      await packageDialog.getByTitle('إغلاق التفاصيل').click();
       await page.locator('.student-search input').focus();
       await page.waitForFunction(() => document.activeElement?.matches('.student-search input'));
       await page.getByTitle('عرض ملخّص الأسبوع').click();
@@ -233,6 +240,7 @@ try {
       await setWheel(fromTime, '23:00');
       assert.equal(await toTime.getAttribute('data-value'), '02:00', 'an end time after midnight must remain selected');
       assert.equal(await page.locator('.next-day-note').innerText(), 'اليوم التالي');
+      assert.match(await page.locator('.availability-range-preview').innerText(), /الموعد ممتد لليوم التالي/);
       await setWheel(fromTime, '19:00');
       await setWheel(toTime, '21:00');
       await checkLayout(page, 'teacher availability settings mobile');

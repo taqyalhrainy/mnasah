@@ -633,13 +633,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       if (!context) throw new Error(t('تعذر تجهيز الصورة للوح.'));
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       const src = canvas.toDataURL('image/webp', 0.92);
-      const maxWidth = 620 / whiteboardViewport.zoom;
-      const maxHeight = 430 / whiteboardViewport.zoom;
-      const displayScale = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
-      const width = canvas.width * displayScale;
-      const height = width * (canvas.height / canvas.width);
       const currentViewWidth = 1000 / whiteboardViewport.zoom;
       const currentViewHeight = currentViewWidth / getLiveWhiteboardAspect();
+      const maxWidth = Math.min(460 / whiteboardViewport.zoom, currentViewWidth * 0.42);
+      const maxHeight = Math.min(320 / whiteboardViewport.zoom, currentViewHeight * 0.46);
+      const displayScale = Math.min(1, maxWidth / canvas.width, maxHeight / canvas.height);
+      const width = canvas.width * displayScale;
+      const height = width * (canvas.height / canvas.width);
       const item: WhiteboardImageItem = {
         id: `${Date.now()}-image-${Math.random().toString(36).slice(2)}`,
         type: 'image',
@@ -667,6 +667,23 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (!file) return;
     void loadWhiteboardImage(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر إضافة الصورة إلى اللوح.')));
   };
+
+  useEffect(() => {
+    if (stageMode !== 'whiteboard') return;
+    const handlePaste = (event: globalThis.ClipboardEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const imageItem = Array.from(event.clipboardData?.items || []).find(item => item.kind === 'file' && item.type.startsWith('image/'));
+      const image = imageItem?.getAsFile();
+      if (!image) return;
+      event.preventDefault();
+      void loadWhiteboardImage(image)
+        .then(() => setStatus(t('تم لصق الصورة على اللوح.')))
+        .catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر لصق الصورة على اللوح.')));
+    };
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [stageMode, whiteboardViewport.x, whiteboardViewport.y, whiteboardViewport.zoom, whiteboardAspect]);
 
   const selectedWhiteboardObject = whiteboardItems.find((item) => item.id === selectedWhiteboardItem) || null;
 
@@ -947,7 +964,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const renderWhiteboard = () => (
-    <div className="whiteboard-panel">
+    <div className="whiteboard-panel" aria-label={t('اللوح المشترك. يمكنك لصق صورة مباشرة باستخدام Ctrl+V')}>
       <div className="whiteboard-tools">
         <span className="whiteboard-tool-heading">{t('أدوات اللوح')}</span>
         <button data-whiteboard-tool="select" className={whiteboardTool === 'select' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('select')} aria-label={t('تحديد وتحريك العناصر')} title={t('تحديد وتحريك العناصر')}><MousePointer2 size={17} /></button>

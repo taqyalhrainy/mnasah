@@ -321,6 +321,12 @@ input[type=checkbox] { accent-color: var(--ink); }
 .room-filters button.active { color: var(--ink); background: none; border-color: var(--brand); box-shadow: none; font-weight: 600; }
 .room-card { grid-template-columns: 88px minmax(0, 1fr) auto; padding: 24px; border: 1px solid var(--line); border-radius: 5px; background: #fff; box-shadow: none; }
 .room-card.is-live { border-color: #dda398; box-shadow: inset 4px 0 var(--brand); }
+.room-card.is-past { border-color: #d6d9df; color: #727782; background: #eceef1; box-shadow: none; filter: saturate(.35); }
+.room-card.is-past .room-card-date, .room-card.is-past .room-countdown, .room-card.is-past .room-closed { color: #6f747d; background: #dfe2e6; }
+.room-card.is-past .room-card-title h3, .room-card.is-past .room-card-main > p { color: #747982; }
+.room-card-secondary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.room-card-secondary-actions .secondary-button { min-height: 34px; padding: 6px 9px; font-size: 11px; }
+.room-card-secondary-actions .danger-action { color: #a9323b; border-color: #dca7ab; }
 .room-card-date { padding: 16px 10px; border-radius: 4px; background: #f2f3f6; color: var(--ink); }
 .room-card-date strong { font-size: 15px; font-weight: 600; }
 .room-card-title { flex-wrap: wrap; gap: 8px; }
@@ -503,6 +509,32 @@ input[type=checkbox] { accent-color: var(--ink); }
 .lesson-package-offer > footer > div { display: grid; }
 .lesson-package-offer > footer strong { font-size: 22px; }
 .lesson-package-offer > footer small { color: var(--muted); font-size: 10px; }
+.package-offer-actions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.package-offer-actions button { min-height: 39px; }
+.package-details-dialog { width: min(94vw, 720px); max-height: min(90vh, 820px); padding: 0; overflow: auto; }
+.package-details-dialog::backdrop { background: #111827a6; backdrop-filter: blur(4px); }
+.package-details-dialog > header, .package-details-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px; }
+.package-details-dialog > header { border-bottom: 1px solid var(--line); }
+.package-details-dialog > header h2, .package-details-dialog > header p { margin: 3px 0 0; }
+.package-details-dialog > header p, .package-details-dialog > footer small { color: var(--muted); }
+.package-details-dialog > .lesson-package-tags, .package-details-description, .package-details-schedule, .package-details-dialog > .booking-cancellation-policy { margin-inline: 22px; }
+.package-details-description { margin-block: 18px 10px; color: var(--muted); line-height: 1.8; }
+.package-details-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 18px 22px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--line); }
+.package-details-facts > div { display: grid; gap: 5px; padding: 15px 12px; background: var(--surface); }
+.package-details-facts small { color: var(--muted); }
+.package-details-schedule { display: grid; gap: 10px; margin-block: 18px; }
+.package-details-schedule h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
+.package-details-dialog > footer { margin-top: 20px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+.package-details-dialog > footer > div { display: grid; gap: 3px; }
+.package-details-dialog > footer strong { font-size: 22px; }
+.availability-range-preview { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #a98aff55; border-radius: 12px; color: #eee9ff; background: #251b4f; }
+.availability-range-preview > span { display: grid; gap: 2px; min-width: 0; }
+.availability-range-preview small { color: #bdb2df; font-size: 10px; }
+.availability-range-preview strong { font-size: 12px; line-height: 1.6; }
+.availability-range-preview.overnight { border-color: #d3b34a88; background: #3b301f; }
+:root[data-theme=light] .availability-range-preview { color: #2d2513; border-color: #80652038; background: #fff7d8; }
+:root[data-theme=light] .availability-range-preview small { color: #75623a; }
+:root[data-theme=light] .availability-range-preview.overnight { border-color: #8c681f66; background: #fff0b6; }
 .compact-empty { min-height: 120px; }
 .lesson-package-hero, .my-packages-hero { display: flex; align-items: center; justify-content: space-between; gap: 25px; padding: clamp(24px,4vw,42px); border-radius: 18px; color: #211d17; background: linear-gradient(130deg,#ffe57e,#ffd34d); overflow: hidden; }
 .lesson-package-hero > div > span, .my-packages-hero > div > span { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; }
@@ -850,6 +882,8 @@ input[type=checkbox] { accent-color: var(--ink); }
   .lesson-package-hero > strong, .my-packages-hero > strong { width: fit-content; }
   .lesson-package-offer > footer { align-items: stretch; flex-direction: column; }
   .lesson-package-offer > footer .primary-button { width: 100%; }
+  .package-offer-actions { display: grid !important; grid-template-columns: 1fr 1fr; }
+  .package-details-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Registration and teacher verification */
@@ -966,4 +1000,10 @@ input[type=checkbox] { accent-color: var(--ink); }
   .registration-stage { padding: 16px; border-radius: 18px; }
   .registration-actions { position: sticky; bottom: 8px; z-index: 5; padding: 8px; border: 1px solid var(--line); border-radius: 15px; background: var(--panel); }
   .registration-actions .primary-button { min-width: 0; }
+}
+
+@media (min-width: 901px) and (max-height: 900px) {
+  .availability-range-preview { grid-column: 2; min-width: 0; padding: 6px 8px; }
+  .availability-range-preview strong { font-size: 10px; }
+  .availability-range-preview small { font-size: 9px; }
 }

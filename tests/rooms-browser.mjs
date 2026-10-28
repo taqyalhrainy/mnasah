@@ -7,6 +7,7 @@ const page = await context.newPage();
 const now = Date.now();
 const user = { id: 'student-room-test', name: 'طالب الاختبار', role: 'students', status: 'active', email: 'student@example.com', subject: '', bio: '' };
 const booking = { id: 'room-booking', slot_id: 'slot-1', student_id: user.id, teacher_id: 'teacher-1', subject: 'الرياضيات', start: now + 5 * 60000, minutes: 60, status: 'confirmed', teacher_name: 'الأستاذ أحمد', student_name: user.name, price: 1500, paid: 1, payment_ref: 'test', notes: '', resource: '', teacher_present_until: now + 60000, student_present_until: 0 };
+const pastBooking = { ...booking, id: 'past-room-booking', slot_id: 'slot-past', start: now - 2 * 3600000, minutes: 60, status: 'completed', teacher_present_until: 0 };
 const messages = [];
 const presenceWrites = [];
 const pageErrors = [];
@@ -21,7 +22,7 @@ try {
     if (path === 'students/chat/threads') return route.fulfill({ json: { threads: [], settings: { readReceipts: true, showPresence: true, notifications: true, sounds: false } } });
     if (path === 'students/chat/presence') return route.fulfill({ json: { ok: true } });
     if (path === 'students/slots') return route.fulfill({ json: { slots: [] } });
-    if (path === 'students/rooms' || path === 'students/reminders' || path === 'students/overview') return route.fulfill({ json: { bookings: [booking] } });
+    if (path === 'students/rooms' || path === 'students/reminders' || path === 'students/overview') return route.fulfill({ json: { bookings: [booking, pastBooking] } });
     if (path === `students/bookings/${booking.id}/room`) return route.fulfill({ json: { room: 'browser-room-test', role: 'student' } });
     if (path === `students/bookings/${booking.id}/presence`) {
       if (route.request().method() === 'POST') presenceWrites.push(route.request().postDataJSON());
@@ -42,10 +43,14 @@ try {
   await roomsNav.waitFor();
   await page.getByText('LIVE', { exact: true }).waitFor();
   await roomsNav.click();
-  await page.getByRole('heading', { name: 'غرف الحصص' }).waitFor();
+  await page.getByRole('heading', { name: 'الحصص المحجوزة' }).waitFor();
+  await page.getByRole('tab', { name: 'السابقة', exact: true }).click();
+  await page.locator('.room-card.is-past').waitFor();
+  assert.equal(await page.locator('.room-card.is-past').count(), 1, 'finished lessons should use the muted past card');
   await page.getByRole('tab', { name: 'القادمة', exact: true }).click();
   await page.locator('.room-card.is-live').waitFor();
   assert.equal(await page.locator('.room-card.is-live').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'إلغاء الحصة', exact: true }).count(), 1, 'students should be able to cancel an upcoming lesson directly from its room card');
   assert.match(await page.locator('.room-countdown strong').innerText(), /^\d{2}:\d{2}$/);
   await page.screenshot({ path: '.private/rooms-hub.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });

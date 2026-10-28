@@ -87,6 +87,19 @@ try {
   await teacher.locator('.whiteboard-image-input').setInputFiles({ name: 'board-image.png', mimeType: 'image/png', buffer: imageBuffer });
   await student.locator('.whiteboard-board-image').waitFor({ timeout: 10000 });
   assert.ok((await student.locator('.whiteboard-board-image').getAttribute('src'))?.startsWith('data:image/webp'));
+  await teacher.evaluate(async () => {
+    const existing = document.querySelector('.whiteboard-board-image');
+    const blob = await (await fetch(existing.src)).blob();
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blob], 'pasted-screenshot.webp', { type: blob.type || 'image/webp' }));
+    document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+  });
+  await student.waitForFunction(() => document.querySelectorAll('.whiteboard-board-image').length === 2, undefined, { timeout: 10000 });
+  const pastedSize = await teacher.locator('.whiteboard-canvas foreignObject').last().evaluate(element => {
+    const svg = element.closest('svg');
+    return { width: Number(element.getAttribute('width')), height: Number(element.getAttribute('height')), viewWidth: svg.viewBox.baseVal.width, viewHeight: svg.viewBox.baseVal.height };
+  });
+  assert.equal(pastedSize.width / pastedSize.viewWidth <= 0.43 && pastedSize.height / pastedSize.viewHeight <= 0.47, true, `pasted image should start at a balanced board size: ${JSON.stringify(pastedSize)}`);
   await teacher.screenshot({ path: '.private/whiteboard-text-image.png' });
 
   async function leaveAndReturn(leaver, waitingParticipant) {
