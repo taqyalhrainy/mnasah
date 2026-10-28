@@ -28,8 +28,7 @@ const availabilityRangeLabel = (start: number, end: number) => sameDay(start, en
   ? `${new Date(start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })} – ${new Date(end).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`
   : `${new Date(start).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })} → ${new Date(end).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(end).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`;
 const durationOptions = [30, 45, 60, 90, 120] as const;
-const timeOptions = Array.from({ length: 24 * 12 }, (_, index) => {
-  const minutes = index * 5;
+const timeOptions = Array.from({ length: 24 * 60 }, (_, minutes) => {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 });
 const timeLabel = (value: string) => {

@@ -690,6 +690,14 @@ button.day-event { font: inherit; }
 .day-event > div { display: grid; gap: 2px; }
 .day-event small { color: #b8d9e2; }
 .day-event > button { display: grid; place-items: center; width: 31px; height: 31px; border: 0; border-radius: 9px; color: #ffd3d3; background: #7a263b7a; }
+:root[data-theme="light"] .day-event,
+:root[data-theme="light"] .day-event > span,
+:root[data-theme="light"] .day-event strong { color: #111827 !important; }
+:root[data-theme="light"] .day-event small { color: #374151 !important; }
+:root[data-theme="light"] .day-event.past,
+:root[data-theme="light"] .day-event.past > span,
+:root[data-theme="light"] .day-event.past strong,
+:root[data-theme="light"] .day-event.past small { color: #4b5563 !important; }
 .availability-quick-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--line); }
 .availability-quick-stats > div { display: grid; gap: 5px; padding: 17px 20px; background: var(--surface); }
 .availability-quick-stats span { color: var(--muted); font-size: 12px; }

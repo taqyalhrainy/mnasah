@@ -224,13 +224,13 @@ try {
       const setWheel = async (wheel, target) => {
         const minutes = value => value.split(':').map(Number).reduce((hours, part, index) => index ? hours + part : part * 60, 0);
         await wheel.focus();
-        for (let index = 0; index < 288; index++) {
+        for (let index = 0; index < 1440; index++) {
           const current = await wheel.getAttribute('data-value');
           if (current === target) return;
-          const currentIndex = minutes(current) / 5;
-          const targetIndex = minutes(target) / 5;
-          const forward = (targetIndex - currentIndex + 288) % 288;
-          const backward = (currentIndex - targetIndex + 288) % 288;
+          const currentIndex = minutes(current);
+          const targetIndex = minutes(target);
+          const forward = (targetIndex - currentIndex + 1440) % 1440;
+          const backward = (currentIndex - targetIndex + 1440) % 1440;
           await wheel.press(forward <= backward ? 'ArrowDown' : 'ArrowUp');
           await page.waitForTimeout(2);
         }

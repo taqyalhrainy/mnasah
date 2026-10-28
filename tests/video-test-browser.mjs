@@ -81,6 +81,7 @@ try {
   const textEditor = teacher.locator('.whiteboard-text-editor');
   await textEditor.fill('Shared board text');
   await teacher.locator('[data-whiteboard-tool="select"]').click();
+  assert.equal(await teacher.locator('.whiteboard-inspector').count(), 0, 'text selection must not open a formatting bar');
   await student.waitForFunction(() => [...document.querySelectorAll('.whiteboard-text-content')].some(element => element.textContent === 'Shared board text'), undefined, { timeout: 10000 });
 
   const imageBuffer = await teacher.locator('.call-header').screenshot();

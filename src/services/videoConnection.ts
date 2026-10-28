@@ -66,20 +66,42 @@ export class VideoConnection {
       throw new Error(t("اكتب رقم غرفة صحيح"));
     }
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(t('الكاميرا والمايك يحتاجان متصفحاً حديثاً واتصال HTTPS.'));
+    }
+
     this.callbacks.onStatus(t("جاري تشغيل الكاميرا والمايك"));
-    this.localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30, max: 30 },
-        facingMode: 'user',
-      },
-    });
+    const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio,
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 360, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
+          facingMode: { ideal: 'user' },
+        },
+      });
+    } catch (cause) {
+      const error = cause as DOMException;
+      if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') {
+        throw new Error(t('اسمح للمتصفح باستخدام الكاميرا والمايك ثم حاول مجدداً.'));
+      }
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video: true });
+      } catch (fallbackCause) {
+        const fallbackError = fallbackCause as DOMException;
+        if (fallbackError?.name === 'NotAllowedError' || fallbackError?.name === 'SecurityError') {
+          throw new Error(t('اسمح للمتصفح باستخدام الكاميرا والمايك ثم حاول مجدداً.'));
+        }
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+          this.callbacks.onStatus(t('تم الدخول بالصوت فقط؛ الكاميرا غير متاحة على هذا الجهاز حالياً.'));
+        } catch {
+          throw new Error(t('تعذر تشغيل الكاميرا والمايك على هذا الجهاز. أغلق أي تطبيق يستخدمهما ثم حاول مجدداً.'));
+        }
+      }
+    }
     this.cameraTrack = this.localStream.getVideoTracks()[0];
 
     this.createPeer();
@@ -103,14 +125,8 @@ export class VideoConnection {
       throw new Error(t("ابدأ الجلسة قبل مشاركة الشاشة"));
     }
 
-    const navigatorWithPlatform = navigator as Navigator & { userAgentData?: { platform?: string } };
-    const platform = navigatorWithPlatform.userAgentData?.platform || navigator.platform || navigator.userAgent;
-    if (!/windows|win32|win64/i.test(platform)) {
-      throw new Error(t("هذا الخيار متاح للويندوز فقط حالياً"));
-    }
-
-    if (!navigator.mediaDevices.getDisplayMedia) {
-      throw new Error(t("مشاركة الشاشة غير مدعومة على هذا المتصفح"));
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      throw new Error(t("مشاركة الشاشة غير مدعومة على هذا المتصفح أو نظام الهاتف"));
     }
 
     const screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -281,6 +297,7 @@ export class VideoConnection {
 
   resumeAfterBackground() {
     this.reconnectSignaling();
+    try { this.activeCall?.peerConnection.restartIce?.(); } catch { /* Some mobile WebViews do not expose restartIce. */ }
 
     if (!this.hasRemoteStream) {
       this.startPeerSearch();
@@ -440,7 +457,7 @@ export class VideoConnection {
       if (connection.connectionState === 'disconnected') {
         this.callbacks.onStatus(t('انقطع مسار الصوت والفيديو مؤقتاً، جاري إعادة الاتصال…'));
         if (disconnectedTimer) window.clearTimeout(disconnectedTimer);
-        disconnectedTimer = window.setTimeout(recover, 7000);
+        disconnectedTimer = window.setTimeout(recover, document.visibilityState === 'hidden' ? 30000 : 12000);
       }
       if (connection.connectionState === 'failed') {
         if (disconnectedTimer) window.clearTimeout(disconnectedTimer);

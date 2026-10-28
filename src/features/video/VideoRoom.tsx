@@ -1,7 +1,7 @@
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Bold, BringToFront, Camera, CameraOff, Copy, Download, Grid2X2, Hand, ImagePlus, Italic, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
+import { BringToFront, Camera, CameraOff, Copy, Download, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
@@ -31,7 +31,7 @@ type WhiteboardMessage =
   | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode };
 type StageMode = 'video' | 'whiteboard';
 type WhiteboardTool = 'select' | 'draw' | 'pan' | 'text';
-type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem };
+type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem; moved: boolean };
 type CallMessage = { id: string; body: string; created: number; name: string };
 type VideoRoomProps = {
   assignedRole: VideoRole;
@@ -65,7 +65,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showWindowsShareNotice, setShowWindowsShareNotice] = useState(false);
+  const [showScreenShareNotice, setShowScreenShareNotice] = useState(false);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
@@ -151,7 +151,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (!isConnected || !presenceRef.current) return;
     void presenceRef.current(true, localPeerIdRef.current).catch(() => undefined);
     const timer = window.setInterval(() => { const update = presenceRef.current?.(true, localPeerIdRef.current); if (update) void update.catch(() => undefined); }, 15000);
-    return () => { window.clearInterval(timer); const update = presenceRef.current?.(false); if (update) void update.catch(() => undefined); };
+    const refreshPresence = () => { if (document.visibilityState === 'visible') { const update = presenceRef.current?.(true, localPeerIdRef.current); if (update) void update.catch(() => undefined); } };
+    document.addEventListener('visibilitychange', refreshPresence);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refreshPresence); const update = presenceRef.current?.(false); if (update) void update.catch(() => undefined); };
   }, [isConnected]);
 
   useEffect(() => {
@@ -217,7 +219,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       remoteStreamRef.current = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setIsScreenSharing(false);
-      setShowWindowsShareNotice(false);
+      setShowScreenShareNotice(false);
       setRemoteVideoSource('camera');
       setHasRemoteStream(false);
       setFocusedParticipant(null);
@@ -225,7 +227,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       const connection = new VideoConnection(roomId.trim(), role, {
         onRemoteStream: (stream) => {
           remoteStreamRef.current = stream;
-          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+            void remoteVideoRef.current.play().catch(() => undefined);
+          }
           setHasRemoteStream(true);
           setStatus(t("متصل"));
         },
@@ -270,7 +275,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       connectionRef.current = connection;
       const localStream = await connection.start();
       localStreamRef.current = localStream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
+      setVideoEnabled(localStream.getVideoTracks().length > 0);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStream;
+        void localVideoRef.current.play().catch(() => undefined);
+      }
       setIsConnected(true);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t("تعذر بدء المكالمة"));
@@ -293,7 +302,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setIsJoining(false);
     setIsScreenSharing(false);
     setIsPictureInPicture(false);
-    setShowWindowsShareNotice(false);
+    setShowScreenShareNotice(false);
     setRemoteVideoSource('camera');
     setHasRemoteStream(false);
     setFocusedParticipant(null);
@@ -343,10 +352,22 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     connectionRef.current?.toggleVideo(nextValue);
   };
 
-  const isWindowsDevice = () => {
-    const navigatorWithPlatform = navigator as Navigator & { userAgentData?: { platform?: string } };
-    const platform = navigatorWithPlatform.userAgentData?.platform || navigator.platform || navigator.userAgent;
-    return /windows|win32|win64/i.test(platform);
+  const enterPictureInPicture = async (reportError = true) => {
+    try {
+      const targetVideo = remoteVideoRef.current?.srcObject ? remoteVideoRef.current : localVideoRef.current;
+      if (!targetVideo?.srcObject || !document.pictureInPictureEnabled || !targetVideo.requestPictureInPicture) {
+        if (reportError) setStatus(t('النافذة العائمة غير مدعومة على هذا المتصفح.'));
+        return false;
+      }
+      await targetVideo.play();
+      await targetVideo.requestPictureInPicture();
+      setIsPictureInPicture(true);
+      return true;
+    } catch (error) {
+      if (reportError) setStatus(error instanceof Error ? error.message : t("تعذر فتح النافذة العائمة"));
+      setIsPictureInPicture(false);
+      return false;
+    }
   };
 
   const handleScreenShareToggle = async () => {
@@ -359,21 +380,24 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         setIsScreenSharing(false);
         return;
       }
-      if (!isWindowsDevice()) {
-        setShowWindowsShareNotice(true);
-        setStatus(t("هذا الخيار متاح للويندوز فقط حالياً"));
-        return;
-      }
       const screenStream = await connectionRef.current.startScreenShare();
       localStreamRef.current = screenStream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = screenStream;
+        void localVideoRef.current.play().catch(() => undefined);
+      }
       setIsScreenSharing(true);
-      setShowWindowsShareNotice(false);
+      setShowScreenShareNotice(false);
       setStageMode('video');
       setFocusedParticipant('local');
+      if (window.matchMedia('(max-width: 900px)').matches) {
+        const opened = await enterPictureInPicture(false);
+        if (!opened) setShowScreenShareNotice(true);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : t("تعذر مشاركة الشاشة");
       setStatus(message);
+      if (/غير مدعومة|not supported/i.test(message)) setShowScreenShareNotice(true);
       setIsScreenSharing(false);
     }
   };
@@ -389,6 +413,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     localVideoRef.current = element;
     if (element && localStreamRef.current) {
       if (element.srcObject !== localStreamRef.current) element.srcObject = localStreamRef.current;
+      void element.play().catch(() => undefined);
       updateVideoRatio('local', element);
     }
   }, [updateVideoRatio]);
@@ -397,6 +422,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     remoteVideoRef.current = element;
     if (element && remoteStreamRef.current) {
       if (element.srcObject !== remoteStreamRef.current) element.srcObject = remoteStreamRef.current;
+      void element.play().catch(() => undefined);
       updateVideoRatio('remote', element);
     }
   }, [updateVideoRatio]);
@@ -408,16 +434,24 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         setIsPictureInPicture(false);
         return;
       }
-      const targetVideo = remoteVideoRef.current?.srcObject ? remoteVideoRef.current : localVideoRef.current;
-      if (!targetVideo?.srcObject || !document.pictureInPictureEnabled || !targetVideo.requestPictureInPicture) return;
-      await targetVideo.play();
-      await targetVideo.requestPictureInPicture();
-      setIsPictureInPicture(true);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : t("تعذر فتح النافذة العائمة"));
-      setIsPictureInPicture(false);
-    }
+      await enterPictureInPicture();
+    } catch { setIsPictureInPicture(false); }
   };
+
+  useEffect(() => {
+    const handleLeavePictureInPicture = () => setIsPictureInPicture(false);
+    const handleVisibilityForFloatingCall = () => {
+      if (document.visibilityState === 'hidden' && isConnected && isScreenSharing && !document.pictureInPictureElement) {
+        void enterPictureInPicture(false);
+      }
+    };
+    document.addEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+    document.addEventListener('visibilitychange', handleVisibilityForFloatingCall);
+    return () => {
+      document.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+      document.removeEventListener('visibilitychange', handleVisibilityForFloatingCall);
+    };
+  }, [isConnected, isScreenSharing]);
 
   const handleInstallApp = async () => {
     if (!installPrompt) return;
@@ -583,7 +617,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const svg = whiteboardSvgRef.current;
     if (!svg) return;
     const syntheticEvent = { currentTarget: svg, clientX: event.clientX, clientY: event.clientY } as PointerEvent<SVGSVGElement>;
-    whiteboardItemInteractionRef.current = { id: item.id, mode, start: whiteboardPoint(syntheticEvent), item: { ...item } };
+    whiteboardItemInteractionRef.current = { id: item.id, mode, start: whiteboardPoint(syntheticEvent), item: { ...item }, moved: false };
     setSelectedWhiteboardItem(item.id);
     if (mode === 'move') setEditingWhiteboardText(null);
     setWhiteboardTool('select');
@@ -763,6 +797,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       const point = whiteboardPoint(event);
       const deltaX = point.x - itemInteraction.start.x;
       const deltaY = point.y - itemInteraction.start.y;
+      if (Math.hypot(deltaX, deltaY) > 4 / whiteboardViewport.zoom) itemInteraction.moved = true;
       const original = itemInteraction.item;
       let next: WhiteboardItem;
       if (itemInteraction.mode === 'move') {
@@ -804,7 +839,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (itemInteraction) {
       whiteboardItemInteractionRef.current = null;
       const item = whiteboardItemsRef.current.find((candidate) => candidate.id === itemInteraction.id);
-      if (item) sendWhiteboard({ kind: 'item-upsert', item });
+      if (item) {
+        sendWhiteboard({ kind: 'item-upsert', item });
+        if (item.type === 'text' && itemInteraction.mode === 'move' && !itemInteraction.moved) setEditingWhiteboardText(item.id);
+      }
       return;
     }
     panStartRef.current = null;
@@ -984,20 +1022,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button className="tool-mode" type="button" onClick={downloadWhiteboard} title={t('تنزيل اللوح')} aria-label={t('تنزيل اللوح')}><Download size={17} /></button>
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
       </div>
-      {selectedWhiteboardObject && <div className="whiteboard-inspector" onPointerDown={event => event.stopPropagation()}>
-        <div className="whiteboard-inspector-title"><strong>{t(selectedWhiteboardObject.type === 'text' ? 'تنسيق النص' : 'تنسيق الصورة')}</strong><small>{t('التغييرات تظهر للطرفين مباشرة')}</small></div>
-        {selectedWhiteboardObject.type === 'text' ? <>
-          <select aria-label={t('نوع الخط')} value={selectedWhiteboardObject.fontFamily || 'Tajawal, sans-serif'} onChange={event => updateSelectedWhiteboardItem({ fontFamily: event.target.value })}><option value="Tajawal, sans-serif">Tajawal</option><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option><option value="monospace">Monospace</option></select>
-          <label className="whiteboard-number-field"><span>{t('الحجم')}</span><input type="number" min="12" max="180" value={Math.round(selectedWhiteboardObject.fontSize)} onChange={event => updateSelectedWhiteboardItem({ fontSize: Math.max(12, Number(event.target.value)) })} /></label>
-          <div className="whiteboard-inspector-buttons"><button type="button" className={(selectedWhiteboardObject.fontWeight || 700) >= 700 ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fontWeight: (selectedWhiteboardObject.fontWeight || 700) >= 700 ? 400 : 700 })} title={t('عريض')}><Bold size={17} /></button><button type="button" className={selectedWhiteboardObject.fontStyle === 'italic' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fontStyle: selectedWhiteboardObject.fontStyle === 'italic' ? 'normal' : 'italic' })} title={t('مائل')}><Italic size={17} /></button>{([['start', AlignRight], ['center', AlignCenter], ['end', AlignLeft]] as const).map(([align, Icon]) => <button type="button" className={(selectedWhiteboardObject.textAlign || 'start') === align ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ textAlign: align })} key={align}><Icon size={17} /></button>)}</div>
-          <label className="whiteboard-color-field"><span>{t('لون النص')}</span><input type="color" value={selectedWhiteboardObject.color} onChange={event => updateSelectedWhiteboardItem({ color: event.target.value })} /></label>
-          <label className="whiteboard-color-field"><span>{t('الخلفية')}</span><input type="color" value={selectedWhiteboardObject.background && selectedWhiteboardObject.background !== 'transparent' ? selectedWhiteboardObject.background : '#ffffff'} onChange={event => updateSelectedWhiteboardItem({ background: event.target.value })} /></label>
-          <button type="button" onClick={() => setEditingWhiteboardText(selectedWhiteboardObject.id)}><TypeIcon size={16} />{t('تحرير النص')}</button>
-        </> : <>
+      {selectedWhiteboardObject?.type === 'image' && <div className="whiteboard-inspector" onPointerDown={event => event.stopPropagation()}>
+        <div className="whiteboard-inspector-title"><strong>{t('تنسيق الصورة')}</strong><small>{t('التغييرات تظهر للطرفين مباشرة')}</small></div>
           <div className="whiteboard-inspector-buttons"><button type="button" className={(selectedWhiteboardObject.fit || 'contain') === 'contain' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'contain' })}>{t('احتواء')}</button><button type="button" className={selectedWhiteboardObject.fit === 'cover' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'cover' })}>{t('ملء الإطار')}</button></div>
           <label className="whiteboard-range-field"><span>{t('استدارة الحواف')}</span><input type="range" min="0" max="80" value={selectedWhiteboardObject.borderRadius || 0} onChange={event => updateSelectedWhiteboardItem({ borderRadius: Number(event.target.value) })} /></label>
           <button type="button" onClick={() => whiteboardImageInputRef.current?.click()}><ImagePlus size={16} />{t('إضافة صورة أخرى')}</button>
-        </>}
         <label className="whiteboard-range-field"><span>{t('الشفافية')}</span><input type="range" min="20" max="100" value={Math.round((selectedWhiteboardObject.opacity ?? 1) * 100)} onChange={event => updateSelectedWhiteboardItem({ opacity: Number(event.target.value) / 100 })} /></label>
         <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem}><Copy size={16} />{t('نسخ')}</button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)}><Trash2 size={16} /></button></div>
       </div>}
@@ -1055,7 +1084,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       </div>
       {mediaIssue && <div className="call-diagnostic" role="alert"><div><strong>{t('تعذر ربط الصوت والفيديو')}</strong><p>{t(status)}</p><small>{t('وجود الطرف الآخر في الغرفة لا يعني أن مسار الوسائط اكتمل. افحص الإنترنت والكاميرا، ثم أعد المحاولة. إذا تكرر الخطأ فسيظهر السبب التقني أعلاه للدعم.')}</small></div><button type="button" className="secondary-button" onClick={startCall}><RefreshCw size={17} />{t('إعادة فحص الاتصال')}</button></div>}
 
-      {showWindowsShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('هذا الخيار متاح للويندوز فقط حالياً')}</strong><p>{t('يمكنك متابعة الحصة من هذا الجهاز، لكن بدء مشاركة الشاشة متاح من جهاز ويندوز فقط حالياً.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowWindowsShareNotice(false)}>{t('حسناً')}</button></div>}
+      {showScreenShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('المشاركة أو النافذة العائمة غير متاحة على هذا المتصفح')}</strong><p>{t('حدّث المتصفح أو جرّب Chrome. إذا كان هاتفك يدعم المشاركة والنافذة العائمة ستبقى الحصة ظاهرة أثناء انتقالك بين التطبيقات.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowScreenShareNotice(false)}>{t('حسناً')}</button></div>}
 
       <div className="call-stage">
         {stageMode === 'whiteboard' ? (
