@@ -191,15 +191,16 @@ async function restorePackageLesson(booking) {
 }
 const packageCancellationQuote = () => ({ tier: 'package_credit', hoursBefore: 0, refund: 0, teacherCompensation: 0, platformFee: 0, refundPercent: 0, packageCredit: true });
 const slotHasAvailability = slot => {
+  const clockTolerance = 1000;
   const minimum = Math.min(...storedOfferings(slot).map(item => Number(item.minutes))) * 60000;
   const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
-  let cursor = Math.max(Number(slot.start), Math.floor(Date.now() / 60000) * 60000);
+  let cursor = Math.max(Number(slot.start), Date.now());
   for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
     if (range.end <= cursor) continue;
-    if (range.start - cursor >= minimum) return true;
+    if (range.start - cursor + clockTolerance >= minimum) return true;
     cursor = Math.max(cursor, range.end);
   }
-  return end - cursor >= minimum;
+  return end - cursor + clockTolerance >= minimum;
 };
 async function occupiedPackageRanges(teacherId, studentId) {
   const teacherSlots = await db.collection('slots').find({ teacher_id: teacherId }, { projection: { _id: 0, id: 1, start: 1, minutes: 1 } }).toArray();
@@ -652,9 +653,47 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
     if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
       const id = path.split('/')[1];
-      if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
       const target = await db.collection('users').findOne({ id, role: { $ne: 'admin' } });
       if (!target) fail(404, 'الحساب غير موجود.');
+      if (body.action === 'delete') {
+        const slots = await db.collection('slots').find({ teacher_id: id }, { projection: { id: 1 } }).toArray();
+        const slotIds = slots.map(row => row.id);
+        const bookings = await db.collection('bookings').find({ $or: [{ student_id: id }, { slot_id: { $in: slotIds } }] }, { projection: { id: 1 } }).toArray();
+        const bookingIds = bookings.map(row => row.id);
+        const conversations = await db.collection('conversations').find({ $or: [{ teacher_id: id }, { student_id: id }] }, { projection: { id: 1 } }).toArray();
+        const threadIds = conversations.map(row => row.id);
+        const directMessages = await db.collection('direct_messages').find({ $or: [{ thread_id: { $in: threadIds } }, { author_id: id }] }, { projection: { id: 1 } }).toArray();
+        const messageIds = directMessages.map(row => row.id);
+        const attachments = await db.collection('chat_attachments').find({ $or: [{ thread_id: { $in: threadIds } }, { author_id: id }] }, { projection: { id: 1 } }).toArray();
+        const verificationFiles = await db.collection('verification_files').find({ user_id: id }, { projection: { id: 1 } }).toArray();
+        const topups = await db.collection('wallet_topups').find({ user_id: id }, { projection: { id: 1 } }).toArray();
+        await Promise.all(verificationFiles.map(file => verificationBytes(db).remove(file.id)));
+        if (attachmentBytes) await Promise.all(attachments.map(file => attachmentBytes.remove(file.id)));
+        if (topupProofBytes) await Promise.all(topups.map(file => topupProofBytes.remove(file.id)));
+        await db.collection('chat_reactions').deleteMany({ $or: [{ user_id: id }, { message_id: { $in: messageIds } }] });
+        await db.collection('chat_attachments').deleteMany({ $or: [{ thread_id: { $in: threadIds } }, { author_id: id }] });
+        await db.collection('direct_messages').deleteMany({ $or: [{ thread_id: { $in: threadIds } }, { author_id: id }] });
+        await db.collection('chat_members').deleteMany({ $or: [{ thread_id: { $in: threadIds } }, { user_id: id }] });
+        await db.collection('conversations').deleteMany({ id: { $in: threadIds } });
+        await db.collection('chat_settings').deleteMany({ user_id: id });
+        await db.collection('messages').deleteMany({ $or: [{ booking_id: { $in: bookingIds } }, { author_id: id }] });
+        await db.collection('ratings').deleteMany({ $or: [{ booking_id: { $in: bookingIds } }, { student_id: id }, { teacher_id: id }] });
+        await db.collection('lesson_reports').deleteMany({ $or: [{ booking_id: { $in: bookingIds } }, { reporter_id: id }] });
+        await db.collection('bookings').deleteMany({ id: { $in: bookingIds } });
+        await db.collection('slots').deleteMany({ teacher_id: id });
+        await db.collection('lesson_packages').deleteMany({ teacher_id: id });
+        await db.collection('package_purchases').deleteMany({ $or: [{ student_id: id }, { teacher_id: id }] });
+        await db.collection('wallet_transactions').deleteMany({ user_id: id });
+        await db.collection('wallet_accounts').deleteMany({ user_id: id });
+        await db.collection('wallet_topups').deleteMany({ user_id: id });
+        await db.collection('verification_files').deleteMany({ user_id: id });
+        await db.collection('password_resets').deleteMany({ user_id: id });
+        await db.collection('sessions').deleteMany({ user_id: id });
+        await db.collection('users').deleteOne({ id });
+        await audit(user.id, 'user:deleted', id);
+        return res.json({ ok: true });
+      }
+      if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
       const verification = parseVerification(target.verification);
       if (body.status === 'active' && target.role === 'teachers' && verification.verification_status !== 'submitted') fail(409, 'طلب الأستاذ غير مكتمل أو لم يُرسل للمراجعة بعد.');
       const update = { status: body.status };

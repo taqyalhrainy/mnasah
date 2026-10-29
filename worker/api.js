@@ -21,15 +21,16 @@ const allowedDurations = [30, 45, 60, 90, 120];
 const parseList = (value, fallback) => { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) && parsed.length ? parsed : fallback; } catch { return fallback; } };
 const normalizeSlot = slot => slot ? ({ ...slot, legacy_all_subjects: (!slot.subjects || slot.subjects === '[]') && slot.subject === 'كل المواد المختارة', subjects: parseList(slot.subjects, [slot.subject].filter(Boolean)), offerings: parseList(slot.offerings, [{ minutes: slot.minutes, price: slot.price }]) }) : slot;
 const slotHasAvailability = slot => {
+  const clockTolerance = 1000;
   const minimum = Math.min(...slot.offerings.map(item => Number(item.minutes))) * 60000;
   const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
-  let cursor = Math.max(Number(slot.start), Math.floor(Date.now() / 60000) * 60000);
+  let cursor = Math.max(Number(slot.start), Date.now());
   for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
     if (range.end <= cursor) continue;
-    if (range.start - cursor >= minimum) return true;
+    if (range.start - cursor + clockTolerance >= minimum) return true;
     cursor = Math.max(cursor, range.end);
   }
-  return end - cursor >= minimum;
+  return end - cursor + clockTolerance >= minimum;
 };
 function slotSubjects(body) {
   const values = Array.isArray(body.subjects) ? body.subjects : [body.subject];
@@ -137,9 +138,35 @@ export async function api(request, env, portal, path, body) {
   }
   if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
     const id = path.split('/')[1];
-    if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
     const target = await one(env, "SELECT * FROM users WHERE id=? AND role!='admin'", id);
     if (!target) fail(404, 'الحساب غير موجود.');
+    if (body.action === 'delete') {
+      await env.DB.batch([
+        statement(env, 'DELETE FROM chat_reactions WHERE user_id=? OR message_id IN (SELECT id FROM direct_messages WHERE author_id=? OR thread_id IN (SELECT id FROM conversations WHERE teacher_id=? OR student_id=?))', id, id, id, id),
+        statement(env, 'DELETE FROM chat_file_chunks WHERE attachment_id IN (SELECT id FROM chat_attachments WHERE author_id=? OR thread_id IN (SELECT id FROM conversations WHERE teacher_id=? OR student_id=?))', id, id, id),
+        statement(env, 'DELETE FROM chat_attachments WHERE author_id=? OR thread_id IN (SELECT id FROM conversations WHERE teacher_id=? OR student_id=?)', id, id, id),
+        statement(env, 'DELETE FROM direct_messages WHERE author_id=? OR thread_id IN (SELECT id FROM conversations WHERE teacher_id=? OR student_id=?)', id, id, id),
+        statement(env, 'DELETE FROM chat_members WHERE user_id=? OR thread_id IN (SELECT id FROM conversations WHERE teacher_id=? OR student_id=?)', id, id, id),
+        statement(env, 'DELETE FROM chat_settings WHERE user_id=?', id),
+        statement(env, 'DELETE FROM conversations WHERE teacher_id=? OR student_id=?', id, id),
+        statement(env, 'DELETE FROM messages WHERE author_id=? OR booking_id IN (SELECT b.id FROM bookings b LEFT JOIN slots s ON s.id=b.slot_id WHERE b.student_id=? OR s.teacher_id=?)', id, id, id),
+        statement(env, 'DELETE FROM ratings WHERE student_id=? OR teacher_id=? OR booking_id IN (SELECT b.id FROM bookings b LEFT JOIN slots s ON s.id=b.slot_id WHERE b.student_id=? OR s.teacher_id=?)', id, id, id, id),
+        statement(env, 'DELETE FROM wallet_topup_chunks WHERE topup_id IN (SELECT id FROM wallet_topups WHERE user_id=?)', id),
+        statement(env, 'DELETE FROM wallet_topups WHERE user_id=?', id),
+        statement(env, 'DELETE FROM wallet_transactions WHERE user_id=?', id),
+        statement(env, 'DELETE FROM wallet_accounts WHERE user_id=?', id),
+        statement(env, 'DELETE FROM verification_file_chunks WHERE file_id IN (SELECT id FROM verification_files WHERE user_id=?)', id),
+        statement(env, 'DELETE FROM verification_files WHERE user_id=?', id),
+        statement(env, 'DELETE FROM payouts WHERE teacher_id=?', id),
+        statement(env, 'DELETE FROM sessions WHERE user_id=?', id),
+        statement(env, 'DELETE FROM bookings WHERE student_id=? OR slot_id IN (SELECT id FROM slots WHERE teacher_id=?)', id, id),
+        statement(env, 'DELETE FROM slots WHERE teacher_id=?', id),
+        statement(env, 'DELETE FROM users WHERE id=?', id),
+        auditEntry(env, user.id, 'user:deleted', id),
+      ]);
+      return { ok: true };
+    }
+    if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
     const verification = parseVerification(target.verification);
     if (body.status === 'active' && target.role === 'teachers' && verification.verification_status !== 'submitted') fail(409, 'طلب الأستاذ غير مكتمل أو لم يُرسل للمراجعة بعد.');
     const nextVerification = body.status === 'active' && target.role === 'teachers' ? JSON.stringify({ ...verification, verification_status: 'approved', reviewed_at: Date.now(), reviewed_by: user.id }) : target.verification;

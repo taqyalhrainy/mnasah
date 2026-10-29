@@ -478,6 +478,8 @@ input[type=checkbox] { accent-color: var(--ink); }
 .custom-level-picker { margin: 0; }
 .custom-level-picker legend { padding-inline: 7px; }
 .danger-action { color: #8d2f2f; border-color: #ad5858; background: #fff0e6a8; }
+.danger-button { color: #a42d38; border-color: #d7a0a5; background: #fff7f7; }
+.danger-button:hover { color: #fff; border-color: #b93843; background: #b93843; }
 .showcase-flow { display: grid; gap: 20px; }
 .home-showcase .choice-grid button { border-color: #8b743b4a; color: #211d17; background: #fff9dbbd; }
 .home-showcase .choice-grid button:hover { border-color: #594366; background: #fffdf1; }

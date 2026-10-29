@@ -13,6 +13,7 @@ import {
   Video,
   Image as ImageIcon,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 import {
   apiUrl,
@@ -89,6 +90,19 @@ export function AccountsPanel({
     setError("");
     try {
       await request(`admin/users/${user.id}`, { status });
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function deleteAccount(user: User) {
+    if (!window.confirm(t("حذف حساب {v0} نهائياً؟ سيتم حذف الحساب وبياناته المرتبطة، ولا يمكن التراجع عن ذلك.", { v0: user.name }))) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(`admin/users/${user.id}`, { action: "delete" });
       onChanged();
     } catch (e) {
       setError((e as Error).message);
@@ -209,6 +223,14 @@ export function AccountsPanel({
               >
                 <KeyRound size={17} />
                 {t("كلمة مرور مؤقتة")}
+              </button>
+              <button
+                className="secondary-button danger-button"
+                disabled={busy}
+                onClick={() => deleteAccount(user)}
+              >
+                <Trash2 size={17} />
+                {t("حذف الحساب")}
               </button>
             </div>
           </article>

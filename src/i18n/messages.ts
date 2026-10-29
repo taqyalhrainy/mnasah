@@ -1,5 +1,8 @@
 // Arabic is the source language. Keys describe UI copy, never stored user data.
 export const messages: Record<string, string> = {
+  'حذف الحساب': 'Delete account', 'حذف حساب': 'Delete account', 'حذف حساب {v0} نهائياً؟ سيتم حذف الحساب وبياناته المرتبطة، ولا يمكن التراجع عن ذلك.': 'Permanently delete {v0}? The account and its related data will be deleted and this cannot be undone.',
+  'مواعيد الأستاذ': 'Teacher appointments', 'العودة إلى أساتذتي': 'Back to my teachers', 'الأستاذ مش ناشر مواعيد جديدة': 'The teacher has not published new appointments.',
+  'صفحات الملف': 'Document pages', 'عارض الملف': 'Document viewer', 'إغلاق الملف': 'Close document', 'عرض ملف كشرائح': 'Present a file as slides', 'تعذر فتح الملف.': 'Could not open the file.', 'الملف أكبر من 50 ميغابايت.': 'The file is larger than 50 MB.', 'الصيغ المدعومة للعرض: PDF وPowerPoint والصور والملفات النصية.': 'Supported presentation formats: PDF, PowerPoint, images, and text files.', 'الملف لا يحتوي على صفحات قابلة للعرض.': 'The file has no pages that can be displayed.',
   'امتداد العلم | منصة تعليم خصوصي': 'Imtidad Al-Ilm | Private tutoring',
   'مرحباً، أحتاج مساعدة في منصة امتداد العلم': 'Hello, I need help with Imtidad Al-Ilm',
   'الحصص المحجوزة': 'Booked lessons',

@@ -82,7 +82,7 @@ try {
   await teacher.waitForFunction(() => document.querySelectorAll('.whiteboard-canvas path').length === 1, undefined, { timeout: 10000 });
 
   const imageBuffer = await teacher.locator('.call-stage').screenshot();
-  await teacher.locator('.whiteboard-image-input').first().setInputFiles({ name: 'lesson.png', mimeType: 'image/png', buffer: imageBuffer });
+  await teacher.locator('.whiteboard-tools .whiteboard-image-input').setInputFiles({ name: 'lesson.png', mimeType: 'image/png', buffer: imageBuffer });
   const image = teacher.locator('.whiteboard-board-image').last();
   await image.waitFor();
   const imageObject = image.locator('xpath=..');
@@ -109,11 +109,13 @@ try {
   assert.equal(await teacher.evaluate(() => window.visualViewport?.scale || 1), pageScaleBefore, 'board zoom must not zoom the website');
 
   await teacher.locator('[data-whiteboard-file-input]').setInputFiles({ name: 'lesson.pdf', mimeType: 'application/pdf', buffer: createPdfBuffer() });
-  await teacher.locator('.whiteboard-document-pages').waitFor({ timeout: 45000 });
-  assert.match(await teacher.locator('.whiteboard-document-pages').innerText(), /lesson\.pdf/);
+  await teacher.locator('.document-viewer').waitFor({ timeout: 45000 });
+  assert.match(await teacher.locator('.document-viewer').innerText(), /lesson\.pdf/);
+  await student.locator('.document-viewer').waitFor({ timeout: 10000 });
+  assert.equal(await teacher.locator('.whiteboard-board-image').count(), 0, 'a document must open in the slide viewer, not be inserted into the board');
   assert.equal(await teacher.locator('.call-diagnostic').count(), 0, 'technical connection diagnostics must not be shown to users');
   await teacher.screenshot({ path: '.private/video-room-behavior.png' });
-  console.log('Camera opt-in, private undo, image annotation, board-only zoom and PDF board upload passed.');
+  console.log('Camera opt-in, private undo, image annotation, board-only zoom and shared PDF slide viewer passed.');
 } finally {
   await browser.close();
 }

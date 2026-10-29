@@ -130,7 +130,7 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('teacher', 'teachers/slots', { start, minutes: 60, price: 1500, subject: 'Math' });
   await call('teacher', 'teachers/slots', { start: start + 60000, minutes: 60, price: 1500, subject: 'Math' }, 409);
   const slot = (await call('student', 'students/slots')).slots[0];
-  DB.db.prepare('UPDATE slots SET start=?,available_until=? WHERE id=?').run(Date.now() - 300000, Date.now() + 3600000, slot.id);
+  DB.db.prepare('UPDATE slots SET start=?,available_until=? WHERE id=?').run(Date.now() - 300000, Date.now() + 3601000, slot.id);
   assert.ok((await call('student', 'students/slots')).slots.some(row => row.id === slot.id), 'an active availability range must remain visible to students');
   const reservation = await call('student', `students/slots/${slot.id}`, {});
   DB.db.prepare('UPDATE slots SET start=?,available_until=? WHERE id=?').run(start, start + 3600000, slot.id);
@@ -336,6 +336,12 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('studentDev', 'students/overview', undefined, 401);
   delete env.DEVELOPMENT_LOGIN_HASH;
   await call('teacherDev', 'auth/login', { ...credentials('teacher@test.com', 'teachers'), password: developmentPassword }, 401);
+  const disposable = (await call('disposable', 'auth/register', credentials('delete-me@test.com', 'students'))).user;
+  await call('disposable', 'students/profile', { name: 'Disposable account', subject: '', bio: '' });
+  await call('owner', `admin/users/${disposable.id}`, { action: 'delete' });
+  assert.equal((await call('owner', 'admin/users')).users.some(row => row.id === disposable.id), false, 'admin deletion must remove the account');
+  await call('disposable', 'students/overview', undefined, 401);
+  await call('owner', 'admin/users/platform-owner', { action: 'delete' }, 404);
   const jordanCatalog = await call('owner', 'admin/catalog', { action: 'install-jordan-curriculum' });
   assert.deepEqual(jordanCatalog.categories.map(row => row.name), ['المنهاج الأردني الأساسي', 'المنهاج الأردني الإعدادي', 'منهاج التوجيهي الجديد']);
   assert.ok(jordanCatalog.categories.find(row => row.id === 'jordan-tawjihi').levels.some(level => level.includes('الحادي عشر')));

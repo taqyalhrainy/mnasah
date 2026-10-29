@@ -25,6 +25,7 @@ function CategoryIcon({ value }: { value: string }) {
 type EventRow = { id: string; name: string; action: string; target: string; created: number };
 type Room = { id: string; room: string; role: 'teacher' | 'student' };
 const actionNames: Record<string, string> = { 'user:password-reset': 'إصدار كلمة مرور مؤقتة', 'user:active': 'تفعيل حساب', 'user:suspended': 'إيقاف حساب', 'booking:cancel': 'إلغاء حصة', 'payment:received': 'تسجيل دفعة', 'payment:reversed': 'عكس دفعة' };
+actionNames['user:deleted'] = 'حذف حساب';
 const formData = (form: HTMLFormElement) => Object.fromEntries(new FormData(form));
 const timeOnly = (value: number) => new Date(value).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 const packageWeekDays = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -102,6 +103,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [categoryId, setCategoryId] = useState('');
   const [studentLevel, setStudentLevel] = useState('');
   const [studentSubject, setStudentSubject] = useState('');
+  const [selectedTutorId, setSelectedTutorId] = useState('');
   const [teachingChoices, setTeachingChoices] = useState<TeachingChoice[]>([]);
   const [customPackages, setCustomPackages] = useState<CustomPackage[]>(() => user.custom_packages || []);
   const [teacherCategoryId, setTeacherCategoryId] = useState('');
@@ -150,7 +152,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return () => cancelAnimationFrame(frame);
   }, [portal, view, loadedView, loading, searchFocusKey]);
   const refresh = () => setRevision(v => v + 1);
-  useEffect(() => { setQuery(''); setFilter('all'); setSelected(null); setSuccess(''); }, [view]);
+  useEffect(() => { setQuery(''); setFilter('all'); setSelected(null); setSuccess(''); if (view !== 'tutors') setSelectedTutorId(''); }, [view]);
   useEffect(() => {
     const id = new URLSearchParams(location.search).get('lesson');
     if (view === 'bookings' && id && bookings.some(b => b.id === id)) {
@@ -175,10 +177,12 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       request<{ bookings?: Booking[]; slots?: Slot[]; users?: User[]; events?: EventRow[] }>(`${portal}/${path}`),
       request<{ categories: Category[] }>(`${portal}/catalog`),
       portal === 'students' && (view === 'home' || view === 'packages') ? request<{ offers: LessonPackage[]; purchases: PackagePurchase[] }>('students/lesson-packages') : Promise.resolve(null),
-    ]).then(([dataResult, catalogResult, packagesResult]) => {
+      portal === 'students' && view === 'tutors' ? request<{ slots: Slot[] }>('students/slots') : Promise.resolve(null),
+    ]).then(([dataResult, catalogResult, packagesResult, tutorSlotsResult]) => {
       if (!alive) return;
       if (catalogResult.status === 'fulfilled') setCatalog(catalogResult.value.categories);
       if (packagesResult.status === 'fulfilled' && packagesResult.value) { setLessonPackages(Array.isArray(packagesResult.value.offers) ? packagesResult.value.offers : []); setPackagePurchases(Array.isArray(packagesResult.value.purchases) ? packagesResult.value.purchases : []); }
+      if (tutorSlotsResult.status === 'fulfilled' && tutorSlotsResult.value) setSlots(Array.isArray(tutorSlotsResult.value.slots) ? tutorSlotsResult.value.slots : []);
       if (dataResult.status === 'fulfilled') {
         const data = dataResult.value;
         if (data.bookings) setBookings(data.bookings);
@@ -186,7 +190,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         if (data.users) setUsers(data.users);
         if (data.events) setEvents(data.events);
       }
-      const failure = dataResult.status === 'rejected' ? dataResult.reason : catalogResult.status === 'rejected' ? catalogResult.reason : packagesResult.status === 'rejected' ? packagesResult.reason : null;
+      const failure = dataResult.status === 'rejected' ? dataResult.reason : catalogResult.status === 'rejected' ? catalogResult.reason : packagesResult.status === 'rejected' ? packagesResult.reason : tutorSlotsResult.status === 'rejected' ? tutorSlotsResult.reason : null;
       if (failure) setError(failure instanceof Error ? failure.message : t("تعذر تحميل بعض البيانات. حاول مجدداً."));
     }).finally(() => { if (alive) { setLoadedView(view); setLoading(false); } });
     return () => { alive = false; };
@@ -580,7 +584,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} onDetails={booking => setSelected(booking.id)} onCancel={cancel} />}
       {view === 'packages' && myPackagesView}
-      {view === 'tutors' && <section className="student-page"><h2>{t("أساتذتي")}</h2>{!myTutors.length && <Empty text="لم تحجز مع أي أستاذ بعد." />}<div className="student-list">{myTutors.map(b => <article className="saved-tutor" key={b.teacher_id}><div className="avatar"><UserRound size={24} /></div><div><strong>{b.teacher_name}</strong><p>{catalogText(b.subject)}{t(" · آخر حصة ")}{date(b.start)}</p></div><button className="primary-button" onClick={() => onView('home')}>{t("احجز مجدداً")}</button></article>)}</div></section>}
+      {view === 'tutors' && <section className="student-page"><div className="section-heading"><h2>{selectedTutorId ? t('مواعيد الأستاذ') : t("أساتذتي")}</h2>{selectedTutorId && <button className="secondary-button" onClick={() => setSelectedTutorId('')}><ArrowRight size={17} />{t('العودة إلى أساتذتي')}</button>}</div>{selectedTutorId ? (openSlots.some(slot => slot.teacher_id === selectedTutorId) ? <TutorList slots={openSlots.filter(slot => slot.teacher_id === selectedTutorId)} busy={busy} bookSlot={bookSlot} /> : <Empty text="الأستاذ مش ناشر مواعيد جديدة" />) : <>{!myTutors.length && <Empty text="لم تحجز مع أي أستاذ بعد." />}<div className="student-list">{myTutors.map(b => <article className="saved-tutor" key={b.teacher_id}><div className="avatar"><UserRound size={24} /></div><div><strong>{b.teacher_name}</strong><p>{catalogText(b.subject)}{t(" · آخر حصة ")}{date(b.start)}</p></div><button className="primary-button" onClick={() => setSelectedTutorId(b.teacher_id)}>{t("احجز مجدداً")}</button></article>)}</div></>}</section>}
       {view === 'history' && <section className="student-page"><h2>{t("السجل")}</h2><div className="history-tabs">{[['all', t("الكل")], ['confirmed', t("القادمة")], ['completed', t("المكتملة")], ['cancelled', t("الملغاة")]].map(([id, label]) => <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{t(label)}</button>)}</div>{!shownBookings.length && <Empty text="لا توجد حصص في هذا القسم." />}<div className="history-list">{shownBookings.map(b => <article key={b.id}><BookOpen size={20} /><div><strong>{catalogText(b.subject)}</strong><p>{b.teacher_name} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b><button className="secondary-button" onClick={() => setSelected(b.id)}>{t("التفاصيل")}</button></article>)}</div></section>}
       {view === 'profile' && <section className="student-page account-page"><h2>{t("حسابي")}</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>{t("المعلومات الشخصية")}</h3><label>{t("الاسم الكامل")}<input name="name" defaultValue={user.name} required /></label><label>{t("البريد الإلكتروني")}<input value={user.email} readOnly dir="ltr" /></label><input type="hidden" name="subject" value="" /><input type="hidden" name="bio" value="" /><button className="primary-button" disabled={busy}><Save size={17} />{t("حفظ")}</button></form><aside className="account-facts"><h3>{t("تفاصيل الحساب")}</h3><dl><div><dt>{t("نوع الحساب")}</dt><dd>{t("طالب")}</dd></div><div><dt>{t("حالة الحساب")}</dt><dd><span className={`badge ${user.status}`}>{t(statusNames[user.status])}</span></dd></div><div><dt>{t("تنبيهات الحصص")}</dt><dd><label className="preference-toggle"><input type="checkbox" aria-label={t("تنبيهات الحصص")} checked={reminders.enabled} onChange={reminders.toggle} />{reminders.enabled ? t("مفعّلة") : t("غير مفعّلة")}</label></dd></div></dl></aside></div></section>}
     </>}
