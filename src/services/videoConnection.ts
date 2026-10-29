@@ -4,6 +4,7 @@ import Peer, { DataConnection, MediaConnection } from 'peerjs';
 type PeerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
   onRemoteVideoSource: (source: VideoSource) => void;
+  onRemoteVideoEnabled?: (enabled: boolean) => void;
   onWhiteboardMessage?: (message: unknown) => void;
   onRemoteTyping?: (typing: boolean) => void;
   onDataOpen?: () => void;
@@ -43,8 +44,10 @@ export class VideoConnection {
   private pendingDataConnections = new Set<DataConnection>();
   private localStream?: MediaStream;
   private cameraTrack?: MediaStreamTrack;
+  private placeholderVideoTrack?: MediaStreamTrack;
   private screenTrack?: MediaStreamTrack;
   private videoSource: VideoSource = 'camera';
+  private videoEnabled = false;
   private retryTimer?: number;
   private hasRemoteStream = false;
   private closed = false;
@@ -70,39 +73,19 @@ export class VideoConnection {
       throw new Error(t('الكاميرا والمايك يحتاجان متصفحاً حديثاً واتصال HTTPS.'));
     }
 
-    this.callbacks.onStatus(t("جاري تشغيل الكاميرا والمايك"));
+    this.callbacks.onStatus(t("جاري تشغيل المايك"));
     const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio,
-        video: {
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 360, max: 720 },
-          frameRate: { ideal: 24, max: 30 },
-          facingMode: { ideal: 'user' },
-        },
-      });
+      this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
     } catch (cause) {
       const error = cause as DOMException;
       if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') {
-        throw new Error(t('اسمح للمتصفح باستخدام الكاميرا والمايك ثم حاول مجدداً.'));
+        throw new Error(t('اسمح للمتصفح باستخدام المايك ثم حاول مجدداً.'));
       }
-      try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video: true });
-      } catch (fallbackCause) {
-        const fallbackError = fallbackCause as DOMException;
-        if (fallbackError?.name === 'NotAllowedError' || fallbackError?.name === 'SecurityError') {
-          throw new Error(t('اسمح للمتصفح باستخدام الكاميرا والمايك ثم حاول مجدداً.'));
-        }
-        try {
-          this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
-          this.callbacks.onStatus(t('تم الدخول بالصوت فقط؛ الكاميرا غير متاحة على هذا الجهاز حالياً.'));
-        } catch {
-          throw new Error(t('تعذر تشغيل الكاميرا والمايك على هذا الجهاز. أغلق أي تطبيق يستخدمهما ثم حاول مجدداً.'));
-        }
-      }
+      throw new Error(t('تعذر تشغيل المايك على هذا الجهاز. أغلق أي تطبيق يستخدمه ثم حاول مجدداً.'));
     }
-    this.cameraTrack = this.localStream.getVideoTracks()[0];
+    this.placeholderVideoTrack = this.createPlaceholderVideoTrack();
+    if (this.placeholderVideoTrack) this.localStream.addTrack(this.placeholderVideoTrack);
 
     this.createPeer();
     return this.localStream;
@@ -114,10 +97,35 @@ export class VideoConnection {
     });
   }
 
-  toggleVideo(enabled: boolean) {
-    this.localStream?.getVideoTracks().forEach((track) => {
-      track.enabled = enabled;
-    });
+  async toggleVideo(enabled: boolean) {
+    if (!this.localStream) return this.localStream;
+    this.videoEnabled = enabled;
+    if (!enabled) {
+      if (this.cameraTrack) this.cameraTrack.enabled = false;
+      this.sendVideoState();
+      return this.localStream;
+    }
+
+    if (!this.cameraTrack || this.cameraTrack.readyState === 'ended') {
+      const cameraStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 360, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
+          facingMode: { ideal: 'user' },
+        },
+      });
+      this.cameraTrack = cameraStream.getVideoTracks()[0];
+    }
+    if (!this.cameraTrack) throw new Error(t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
+    this.cameraTrack.enabled = true;
+    if (this.videoSource === 'camera') {
+      await this.replaceOutgoingVideoTrack(this.cameraTrack);
+      this.replaceLocalPreviewTrack(this.cameraTrack);
+    }
+    this.sendVideoState();
+    return this.localStream;
   }
 
   async startScreenShare() {
@@ -154,13 +162,14 @@ export class VideoConnection {
   }
 
   async stopScreenShare() {
-    if (!this.localStream || !this.cameraTrack) return this.localStream;
+    if (!this.localStream) return this.localStream;
 
     const screenTrack = this.screenTrack;
     this.screenTrack = undefined;
     this.videoSource = 'camera';
-    await this.replaceOutgoingVideoTrack(this.cameraTrack);
-    this.replaceLocalPreviewTrack(this.cameraTrack);
+    const restoredTrack = this.videoEnabled ? this.cameraTrack : this.placeholderVideoTrack;
+    await this.replaceOutgoingVideoTrack(restoredTrack);
+    this.replaceLocalPreviewTrack(restoredTrack);
     this.callbacks.onLocalVideoSource('camera');
     this.sendVideoSource();
     this.callbacks.onStatus(this.hasRemoteStream ? t("الاتصال مباشر") : t("بانتظار دخول الطرف الثاني بنفس كود الغرفة"));
@@ -184,24 +193,38 @@ export class VideoConnection {
     this.pendingDataConnections.clear();
     this.peer?.destroy();
     this.screenTrack?.stop();
+    this.cameraTrack?.stop();
+    this.placeholderVideoTrack?.stop();
     this.localStream?.getTracks().forEach((track) => track.stop());
   }
 
-  private async replaceOutgoingVideoTrack(track: MediaStreamTrack) {
+  private async replaceOutgoingVideoTrack(track?: MediaStreamTrack) {
     const sender = this.activeCall?.peerConnection
       .getSenders()
       .find((candidate) => candidate.track?.kind === 'video');
 
-    await sender?.replaceTrack(track);
+    await sender?.replaceTrack(track ?? null);
   }
 
-  private replaceLocalPreviewTrack(track: MediaStreamTrack) {
+  private replaceLocalPreviewTrack(track?: MediaStreamTrack) {
     if (!this.localStream) return;
 
     this.localStream.getVideoTracks().forEach((oldTrack) => {
       this.localStream?.removeTrack(oldTrack);
     });
-    this.localStream.addTrack(track);
+    if (track) this.localStream.addTrack(track);
+  }
+
+  private createPlaceholderVideoTrack() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 9;
+    const context = canvas.getContext('2d');
+    context?.clearRect(0, 0, canvas.width, canvas.height);
+    const stream = typeof canvas.captureStream === 'function' ? canvas.captureStream(1) : undefined;
+    const track = stream?.getVideoTracks()[0];
+    if (track) track.enabled = false;
+    return track;
   }
 
   private bindPeerEvents(peer: Peer) {
@@ -499,6 +522,7 @@ export class VideoConnection {
       this.pendingDataConnections.forEach(candidate => candidate.close());
       this.pendingDataConnections.clear();
       this.sendVideoSource();
+      this.sendVideoState();
       this.callbacks.onDataOpen?.();
       // A fresh student data channel is an explicit presence handshake and
       // replaces any media connection that belongs to the previous session.
@@ -515,6 +539,10 @@ export class VideoConnection {
       }
       if (isVideoSourceMessage(message)) {
         this.callbacks.onRemoteVideoSource(message.source);
+        return;
+      }
+      if (isVideoStateMessage(message)) {
+        this.callbacks.onRemoteVideoEnabled?.(message.enabled);
         return;
       }
       if (isWhiteboardMessage(message)) this.callbacks.onWhiteboardMessage?.(message.message);
@@ -539,6 +567,11 @@ export class VideoConnection {
     if (!this.activeDataConnection?.open) return;
     this.activeDataConnection.send({ type: 'video-source', source: this.videoSource });
   }
+
+  private sendVideoState() {
+    if (!this.activeDataConnection?.open) return;
+    this.activeDataConnection.send({ type: 'video-state', enabled: this.videoEnabled });
+  }
 }
 
 function isTypingMessage(message: unknown): message is { type: 'typing'; typing: boolean } {
@@ -557,4 +590,10 @@ function isVideoSourceMessage(message: unknown): message is { type: 'video-sourc
   const candidate = message as { type?: unknown; source?: unknown };
 
   return candidate.type === 'video-source' && (candidate.source === 'camera' || candidate.source === 'screen');
+}
+
+function isVideoStateMessage(message: unknown): message is { type: 'video-state'; enabled: boolean } {
+  if (!message || typeof message !== 'object') return false;
+  const candidate = message as { type?: unknown; enabled?: unknown };
+  return candidate.type === 'video-state' && typeof candidate.enabled === 'boolean';
 }

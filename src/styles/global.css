@@ -413,7 +413,6 @@ h1 {
   color: #6b5b35;
   line-height: 1.7;
 }
-.call-diagnostic{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:0 16px 12px;padding:13px 15px;border:1px solid #f0a34a66;border-radius:14px;background:#3a2516;color:#fff}.call-diagnostic>div{display:grid;gap:3px}.call-diagnostic p,.call-diagnostic small{margin:0}.call-diagnostic p{color:#ffd9a7}.call-diagnostic small{color:#d6c2aa}.call-diagnostic button{flex:0 0 auto}@media(max-width:680px){.call-diagnostic{align-items:stretch;flex-direction:column}}
 
 .download-app-button {
   display: inline-flex;

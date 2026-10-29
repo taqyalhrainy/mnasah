@@ -1,7 +1,9 @@
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { BringToFront, Camera, CameraOff, Copy, Download, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { BringToFront, Camera, CameraOff, ChevronLeft, ChevronRight, Copy, Download, FileUp, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
@@ -17,7 +19,7 @@ type WhiteboardPoint = { x: number; y: number };
 type WhiteboardStroke = { id: string; color: string; size: number; points: WhiteboardPoint[] };
 type WhiteboardBaseItem = { id: string; x: number; y: number; width: number; height: number; opacity?: number };
 type WhiteboardTextItem = WhiteboardBaseItem & { type: 'text'; text: string; color: string; fontSize: number; fontFamily?: string; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textAlign?: 'start' | 'center' | 'end'; background?: string };
-type WhiteboardImageItem = WhiteboardBaseItem & { type: 'image'; src: string; fit?: 'contain' | 'cover'; borderRadius?: number };
+type WhiteboardImageItem = WhiteboardBaseItem & { type: 'image'; src: string; fit?: 'contain' | 'cover'; borderRadius?: number; documentName?: string; documentPage?: number; documentPages?: number };
 type WhiteboardItem = WhiteboardTextItem | WhiteboardImageItem;
 type WhiteboardMessage =
   | { kind: 'stroke-start'; stroke: WhiteboardStroke }
@@ -32,6 +34,8 @@ type WhiteboardMessage =
 type StageMode = 'video' | 'whiteboard';
 type WhiteboardTool = 'select' | 'draw' | 'pan' | 'text';
 type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem; moved: boolean };
+type WhiteboardDocument = { name: string; page: number; pages: number; itemId: string; pdf: PDFDocumentProxy };
+type WhiteboardPinch = { distance: number; center: WhiteboardPoint };
 type CallMessage = { id: string; body: string; created: number; name: string };
 type VideoRoomProps = {
   assignedRole: VideoRole;
@@ -61,12 +65,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
+  const [videoEnabled, setVideoEnabled] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showScreenShareNotice, setShowScreenShareNotice] = useState(false);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
+  const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(false);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
   const [stageMode, setStageMode] = useState<StageMode>('video');
@@ -88,10 +93,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardTool, setWhiteboardTool] = useState<WhiteboardTool>('draw');
   const [selectedWhiteboardItem, setSelectedWhiteboardItem] = useState<string | null>(null);
   const [editingWhiteboardText, setEditingWhiteboardText] = useState<string | null>(null);
+  const [whiteboardDocument, setWhiteboardDocument] = useState<WhiteboardDocument | null>(null);
+  const [whiteboardDocumentBusy, setWhiteboardDocumentBusy] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const whiteboardSvgRef = useRef<SVGSVGElement>(null);
   const whiteboardImageInputRef = useRef<HTMLInputElement>(null);
+  const whiteboardFileInputRef = useRef<HTMLInputElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
@@ -106,6 +114,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const lastLiveStrokeBroadcastRef = useRef(0);
   const panStartRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const whiteboardItemInteractionRef = useRef<WhiteboardItemInteraction | null>(null);
+  const whiteboardPointersRef = useRef(new Map<number, { clientX: number; clientY: number }>());
+  const whiteboardPinchRef = useRef<WhiteboardPinch | null>(null);
+  const whiteboardDocumentRef = useRef<WhiteboardDocument | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const presenceRef = useRef(onPresenceChange);
   const localPeerIdRef = useRef<string | null>(null);
@@ -124,6 +135,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (remoteTypingTimerRef.current !== null) window.clearTimeout(remoteTypingTimerRef.current);
     connectionRef.current?.sendTyping(false);
     void wakeLockRef.current?.release();
+    void whiteboardDocumentRef.current?.pdf.destroy();
     connectionRef.current?.close();
   }, []);
 
@@ -204,6 +216,23 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   }, []);
 
   useEffect(() => {
+    const blockBrowserZoom = (event: globalThis.WheelEvent) => {
+      const target = event.target as Element | null;
+      if (stageMode === 'whiteboard' && target?.closest('.whiteboard-panel') && (event.ctrlKey || event.metaKey)) event.preventDefault();
+    };
+    const blockBrowserZoomKeys = (event: KeyboardEvent) => {
+      if (stageMode !== 'whiteboard' || (!event.ctrlKey && !event.metaKey)) return;
+      if (['+', '-', '=', '0'].includes(event.key)) event.preventDefault();
+    };
+    document.addEventListener('wheel', blockBrowserZoom, { passive: false, capture: true });
+    document.addEventListener('keydown', blockBrowserZoomKeys, { capture: true });
+    return () => {
+      document.removeEventListener('wheel', blockBrowserZoom, { capture: true });
+      document.removeEventListener('keydown', blockBrowserZoomKeys, { capture: true });
+    };
+  }, [stageMode]);
+
+  useEffect(() => {
     if (autoJoinStartedRef.current) return;
     autoJoinStartedRef.current = true;
     void startCall();
@@ -221,6 +250,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setIsScreenSharing(false);
       setShowScreenShareNotice(false);
       setRemoteVideoSource('camera');
+      setRemoteVideoEnabled(false);
       setHasRemoteStream(false);
       setFocusedParticipant(null);
       localPeerIdRef.current = null;
@@ -241,6 +271,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
             setFocusedParticipant('remote');
           }
         },
+        onRemoteVideoEnabled: setRemoteVideoEnabled,
         onWhiteboardMessage: handleWhiteboardMessage,
         onRemoteTyping: (typing) => {
           if (remoteTypingTimerRef.current !== null) window.clearTimeout(remoteTypingTimerRef.current);
@@ -267,6 +298,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           remoteStreamRef.current = null;
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
           setRemoteVideoSource('camera');
+          setRemoteVideoEnabled(false);
           setHasRemoteStream(false);
           setFocusedParticipant(null);
         },
@@ -275,7 +307,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       connectionRef.current = connection;
       const localStream = await connection.start();
       localStreamRef.current = localStream;
-      setVideoEnabled(localStream.getVideoTracks().length > 0);
+      setVideoEnabled(false);
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = localStream;
         void localVideoRef.current.play().catch(() => undefined);
@@ -304,6 +336,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setIsPictureInPicture(false);
     setShowScreenShareNotice(false);
     setRemoteVideoSource('camera');
+    setRemoteVideoEnabled(false);
     setHasRemoteStream(false);
     setFocusedParticipant(null);
     setStageMode('video');
@@ -346,10 +379,22 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     connectionRef.current?.toggleAudio(nextValue);
   };
 
-  const handleVideoToggle = () => {
+  const handleVideoToggle = async () => {
+    const connection = connectionRef.current;
+    if (!connection) return;
     const nextValue = !videoEnabled;
-    setVideoEnabled(nextValue);
-    connectionRef.current?.toggleVideo(nextValue);
+    try {
+      const stream = await connection.toggleVideo(nextValue);
+      localStreamRef.current = stream ?? localStreamRef.current;
+      if (localVideoRef.current && stream) {
+        localVideoRef.current.srcObject = stream;
+        void localVideoRef.current.play().catch(() => undefined);
+      }
+      setVideoEnabled(nextValue);
+    } catch (error) {
+      setVideoEnabled(false);
+      setStatus(error instanceof Error ? error.message : t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
+    }
   };
 
   const enterPictureInPicture = async (reportError = true) => {
@@ -555,12 +600,19 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     connectionRef.current?.sendWhiteboard(message);
   };
 
+  const createWhiteboardId = (kind: string) => `${Date.now()}-${role}-${kind}-${Math.random().toString(36).slice(2)}`;
+  const isOwnedWhiteboardId = (id: string) => role === 'teacher' || id.includes(`-${role}-`);
+
   const whiteboardPoint = (event: PointerEvent<SVGSVGElement> | WheelEvent<SVGSVGElement>) => {
     const svg = event.currentTarget;
     updateWhiteboardAspect(svg);
+    return whiteboardPointFromClient(svg, event.clientX, event.clientY);
+  };
+
+  const whiteboardPointFromClient = (svg: SVGSVGElement, clientX: number, clientY: number) => {
     const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
+    point.x = clientX;
+    point.y = clientY;
     const transformed = point.matrixTransform(svg.getScreenCTM()?.inverse());
     return { x: transformed.x, y: transformed.y };
   };
@@ -611,6 +663,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const startWhiteboardItemInteraction = (event: PointerEvent<SVGGElement | SVGCircleElement>, item: WhiteboardItem, mode: 'move' | 'resize') => {
+    if (whiteboardTool !== 'select') return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -625,7 +678,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const addWhiteboardText = (point: WhiteboardPoint) => {
     const item: WhiteboardTextItem = {
-      id: `${Date.now()}-text-${Math.random().toString(36).slice(2)}`,
+      id: createWhiteboardId('text'),
       type: 'text',
       x: point.x,
       y: point.y,
@@ -648,6 +701,34 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     window.setTimeout(() => setEditingWhiteboardText(item.id), 0);
   };
 
+  const addRasterToWhiteboard = (src: string, pixelWidth: number, pixelHeight: number, documentMeta?: { name: string; page: number; pages: number }) => {
+      const currentViewWidth = 1000 / whiteboardViewport.zoom;
+      const currentViewHeight = currentViewWidth / getLiveWhiteboardAspect();
+      const maxWidth = Math.min(460 / whiteboardViewport.zoom, currentViewWidth * 0.42);
+      const maxHeight = Math.min(320 / whiteboardViewport.zoom, currentViewHeight * 0.46);
+      const displayScale = Math.min(1, maxWidth / pixelWidth, maxHeight / pixelHeight);
+      const width = pixelWidth * displayScale;
+      const height = width * (pixelHeight / pixelWidth);
+      const item: WhiteboardImageItem = {
+        id: createWhiteboardId('image'),
+        type: 'image',
+        x: whiteboardViewport.x + (currentViewWidth - width) / 2,
+        y: whiteboardViewport.y + (currentViewHeight - height) / 2,
+        width,
+        height,
+        src,
+        fit: 'contain',
+        borderRadius: 0,
+        opacity: 1,
+        ...(documentMeta ? { documentName: documentMeta.name, documentPage: documentMeta.page, documentPages: documentMeta.pages } : {}),
+      };
+      upsertWhiteboardItem(item, true);
+      setSelectedWhiteboardItem(item.id);
+      setEditingWhiteboardText(null);
+      setWhiteboardTool('select');
+      return item;
+  };
+
   const loadWhiteboardImage = async (file: File) => {
     if (!file.type.startsWith('image/')) throw new Error(t('اختر ملف صورة صالحاً.'));
     if (file.size > 12 * 1024 * 1024) throw new Error(t('الصورة أكبر من 12 ميغابايت.'));
@@ -666,32 +747,69 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       const context = canvas.getContext('2d');
       if (!context) throw new Error(t('تعذر تجهيز الصورة للوح.'));
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const src = canvas.toDataURL('image/webp', 0.92);
-      const currentViewWidth = 1000 / whiteboardViewport.zoom;
-      const currentViewHeight = currentViewWidth / getLiveWhiteboardAspect();
-      const maxWidth = Math.min(460 / whiteboardViewport.zoom, currentViewWidth * 0.42);
-      const maxHeight = Math.min(320 / whiteboardViewport.zoom, currentViewHeight * 0.46);
-      const displayScale = Math.min(1, maxWidth / canvas.width, maxHeight / canvas.height);
-      const width = canvas.width * displayScale;
-      const height = width * (canvas.height / canvas.width);
-      const item: WhiteboardImageItem = {
-        id: `${Date.now()}-image-${Math.random().toString(36).slice(2)}`,
-        type: 'image',
-        x: whiteboardViewport.x + (currentViewWidth - width) / 2,
-        y: whiteboardViewport.y + (currentViewHeight - height) / 2,
-        width,
-        height,
-        src,
-        fit: 'contain',
-        borderRadius: 0,
-        opacity: 1,
-      };
-      upsertWhiteboardItem(item, true);
-      setSelectedWhiteboardItem(item.id);
-      setEditingWhiteboardText(null);
-      setWhiteboardTool('select');
+      addRasterToWhiteboard(canvas.toDataURL('image/webp', 0.92), canvas.width, canvas.height);
     } finally {
       URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  const renderWhiteboardPdfPage = async (pdf: PDFDocumentProxy, pageNumber: number, name: string, itemId?: string) => {
+    const page = await pdf.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = Math.min(2, 1600 / baseViewport.width, 1200 / baseViewport.height);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error(t('تعذر تجهيز صفحة الملف للوح.'));
+    await page.render({ canvasContext: context, viewport }).promise;
+    const src = canvas.toDataURL('image/webp', 0.9);
+    const existing = itemId ? whiteboardItemsRef.current.find((item): item is WhiteboardImageItem => item.id === itemId && item.type === 'image') : undefined;
+    if (existing) {
+      const item = { ...existing, src, documentName: name, documentPage: pageNumber, documentPages: pdf.numPages };
+      upsertWhiteboardItem(item, true);
+      setSelectedWhiteboardItem(item.id);
+      return item;
+    }
+    return addRasterToWhiteboard(src, canvas.width, canvas.height, { name, page: pageNumber, pages: pdf.numPages });
+  };
+
+  const loadWhiteboardFile = async (file: File) => {
+    if (file.type.startsWith('image/')) return loadWhiteboardImage(file);
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error(t('حالياً يمكن فتح ملفات PDF والصور على اللوح.'));
+    if (file.size > 20 * 1024 * 1024) throw new Error(t('الملف أكبر من 20 ميغابايت.'));
+    setWhiteboardDocumentBusy(true);
+    try {
+      const pdfjs = await import('pdfjs-dist');
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+      const previous = whiteboardDocumentRef.current;
+      const item = await renderWhiteboardPdfPage(pdf, 1, file.name);
+      if (previous) void previous.pdf.destroy();
+      const next = { name: file.name, page: 1, pages: pdf.numPages, itemId: item.id, pdf };
+      whiteboardDocumentRef.current = next;
+      setWhiteboardDocument(next);
+    } finally {
+      setWhiteboardDocumentBusy(false);
+    }
+  };
+
+  const changeWhiteboardDocumentPage = async (direction: -1 | 1) => {
+    const current = whiteboardDocumentRef.current;
+    if (!current || whiteboardDocumentBusy) return;
+    const page = Math.min(current.pages, Math.max(1, current.page + direction));
+    if (page === current.page) return;
+    setWhiteboardDocumentBusy(true);
+    try {
+      await renderWhiteboardPdfPage(current.pdf, page, current.name, current.itemId);
+      const next = { ...current, page };
+      whiteboardDocumentRef.current = next;
+      setWhiteboardDocument(next);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t('تعذر فتح صفحة الملف.'));
+    } finally {
+      setWhiteboardDocumentBusy(false);
     }
   };
 
@@ -700,6 +818,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     event.target.value = '';
     if (!file) return;
     void loadWhiteboardImage(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر إضافة الصورة إلى اللوح.')));
+  };
+
+  const handleWhiteboardFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    void loadWhiteboardFile(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر فتح الملف على اللوح.')));
   };
 
   useEffect(() => {
@@ -728,7 +853,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const duplicateWhiteboardItem = () => {
     if (!selectedWhiteboardObject) return;
-    const item = { ...selectedWhiteboardObject, id: `${Date.now()}-copy-${Math.random().toString(36).slice(2)}`, x: selectedWhiteboardObject.x + 28 / whiteboardViewport.zoom, y: selectedWhiteboardObject.y + 28 / whiteboardViewport.zoom } as WhiteboardItem;
+    const item = { ...selectedWhiteboardObject, id: createWhiteboardId('copy'), x: selectedWhiteboardObject.x + 28 / whiteboardViewport.zoom, y: selectedWhiteboardObject.y + 28 / whiteboardViewport.zoom } as WhiteboardItem;
     upsertWhiteboardItem(item, true);
     setSelectedWhiteboardItem(item.id);
   };
@@ -770,6 +895,22 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   }, [selectedWhiteboardItem, whiteboardItems]);
 
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (whiteboardPointersRef.current.size >= 2) {
+      event.preventDefault();
+      const points = [...whiteboardPointersRef.current.values()];
+      const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+      const center = whiteboardPointFromClient(event.currentTarget, (points[0].clientX + points[1].clientX) / 2, (points[0].clientY + points[1].clientY) / 2);
+      whiteboardPinchRef.current = { distance, center };
+      whiteboardItemInteractionRef.current = null;
+      panStartRef.current = null;
+      const cancelledStroke = activeStrokeRef.current;
+      if (cancelledStroke) sendWhiteboard({ kind: 'erase', ids: [cancelledStroke.id] });
+      activeStrokeRef.current = null;
+      setActiveStroke(null);
+      return;
+    }
     if (whiteboardTool === 'text') {
       addWhiteboardText(whiteboardPoint(event));
       return;
@@ -779,12 +920,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setEditingWhiteboardText(null);
       return;
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
     if (whiteboardTool === 'pan') {
       panStartRef.current = { clientX: event.clientX, clientY: event.clientY, x: whiteboardViewport.x, y: whiteboardViewport.y };
       return;
     }
-    const next = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] };
+    const next = { id: createWhiteboardId('stroke'), color: whiteboardColor, size: whiteboardSize, points: [whiteboardPoint(event)] };
     activeStrokeRef.current = next;
     liveStrokePointsRef.current = [];
     setActiveStroke(next);
@@ -792,6 +932,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    if (whiteboardPointersRef.current.has(event.pointerId)) whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    if (whiteboardPointersRef.current.size >= 2) {
+      event.preventDefault();
+      const points = [...whiteboardPointersRef.current.values()];
+      const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+      const previous = whiteboardPinchRef.current;
+      if (previous?.distance && distance) zoomWhiteboard(distance / previous.distance, previous.center);
+      const center = whiteboardPointFromClient(event.currentTarget, (points[0].clientX + points[1].clientX) / 2, (points[0].clientY + points[1].clientY) / 2);
+      whiteboardPinchRef.current = { distance, center };
+      return;
+    }
     const itemInteraction = whiteboardItemInteractionRef.current;
     if (itemInteraction) {
       const point = whiteboardPoint(event);
@@ -837,7 +988,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     scheduleLiveStrokeBroadcast();
   };
 
-  const finishWhiteboardStroke = () => {
+  const finishWhiteboardStroke = (event?: PointerEvent<SVGSVGElement>) => {
+    const wasPinching = whiteboardPinchRef.current !== null;
+    if (event) whiteboardPointersRef.current.delete(event.pointerId);
+    if (whiteboardPointersRef.current.size < 2) whiteboardPinchRef.current = null;
+    if (wasPinching) return;
     const itemInteraction = whiteboardItemInteractionRef.current;
     if (itemInteraction) {
       whiteboardItemInteractionRef.current = null;
@@ -874,10 +1029,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const undoWhiteboardAction = () => {
-    if (role !== 'teacher') return;
     const created = (id = '') => Number(id.split('-')[0]) || 0;
-    const lastStroke = [...whiteboardStrokesRef.current].sort((left, right) => created(right.id) - created(left.id))[0];
-    const lastItem = [...whiteboardItemsRef.current].sort((left, right) => created(right.id) - created(left.id))[0];
+    const lastStroke = [...whiteboardStrokesRef.current].filter((stroke) => isOwnedWhiteboardId(stroke.id)).sort((left, right) => created(right.id) - created(left.id))[0];
+    const lastItem = [...whiteboardItemsRef.current].filter((item) => isOwnedWhiteboardId(item.id)).sort((left, right) => created(right.id) - created(left.id))[0];
     if (!lastStroke && !lastItem) return;
     if (lastItem && (!lastStroke || created(lastItem.id) >= created(lastStroke.id))) {
       deleteWhiteboardItem(lastItem.id);
@@ -1020,7 +1174,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
         <button data-whiteboard-tool="image" className="tool-mode" type="button" onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}><ImagePlus size={17} /></button>
         <input ref={whiteboardImageInputRef} className="whiteboard-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardImageChange} />
-        {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardAction} aria-label={t("تراجع خطوة")} title={t("تراجع خطوة")}><Undo2 size={17} /></button>}
+        {role === 'teacher' && <><button data-whiteboard-tool="file" className="tool-mode" type="button" disabled={whiteboardDocumentBusy} onClick={() => whiteboardFileInputRef.current?.click()} aria-label={t('رفع ملف أو PDF')} title={t('رفع ملف أو PDF')}><FileUp size={17} /></button><input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input" type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardFileChange} /></>}
+        <button className="tool-mode" type="button" onClick={undoWhiteboardAction} aria-label={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")} title={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")}><Undo2 size={17} /></button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label={t("تصغير")}>-</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToContent(whiteboardStrokesRef.current, whiteboardItemsRef.current); }} aria-label={t("إظهار كامل الرسم")} title={t("إظهار كامل الرسم")}><Maximize2 size={17} /></button>
@@ -1037,13 +1192,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     <div className="whiteboard-panel" aria-label={t('اللوح المشترك. يمكنك لصق صورة مباشرة باستخدام Ctrl+V')}>
       {selectedWhiteboardObject?.type === 'image' && <div className="whiteboard-inspector" onPointerDown={event => event.stopPropagation()}>
         <div className="whiteboard-inspector-title"><strong>{t('تنسيق الصورة')}</strong><small>{t('التغييرات تظهر للطرفين مباشرة')}</small></div>
+          {selectedWhiteboardObject.documentPages && <div className="whiteboard-document-pages"><strong>{selectedWhiteboardObject.documentName}</strong><span>{t('صفحة {v0} من {v1}', { v0: selectedWhiteboardObject.documentPage || 1, v1: selectedWhiteboardObject.documentPages })}</span>{whiteboardDocument?.itemId === selectedWhiteboardObject.id && <div><button type="button" disabled={whiteboardDocumentBusy || whiteboardDocument.page <= 1} onClick={() => void changeWhiteboardDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={16} /></button><button type="button" disabled={whiteboardDocumentBusy || whiteboardDocument.page >= whiteboardDocument.pages} onClick={() => void changeWhiteboardDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={16} /></button></div>}</div>}
           <div className="whiteboard-inspector-buttons"><button type="button" className={(selectedWhiteboardObject.fit || 'contain') === 'contain' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'contain' })}>{t('احتواء')}</button><button type="button" className={selectedWhiteboardObject.fit === 'cover' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'cover' })}>{t('ملء الإطار')}</button></div>
           <label className="whiteboard-range-field"><span>{t('استدارة الحواف')}</span><input type="range" min="0" max="80" value={selectedWhiteboardObject.borderRadius || 0} onChange={event => updateSelectedWhiteboardItem({ borderRadius: Number(event.target.value) })} /></label>
           <button type="button" onClick={() => whiteboardImageInputRef.current?.click()}><ImagePlus size={16} />{t('إضافة صورة أخرى')}</button>
         <label className="whiteboard-range-field"><span>{t('الشفافية')}</span><input type="range" min="20" max="100" value={Math.round((selectedWhiteboardObject.opacity ?? 1) * 100)} onChange={event => updateSelectedWhiteboardItem({ opacity: Number(event.target.value) / 100 })} /></label>
         <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem}><Copy size={16} />{t('نسخ')}</button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)}><Trash2 size={16} /></button></div>
       </div>}
-      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas tool-${whiteboardTool} ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {whiteboardItems.map(renderWhiteboardItem)}
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}
       </svg>
@@ -1055,7 +1211,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const name = isLocal ? localName : remoteName;
     const source: VideoSource = isLocal ? (isScreenSharing ? 'screen' : 'camera') : remoteVideoSource;
     const hasStream = isLocal ? isConnected : hasRemoteStream;
-    const showVideo = hasStream && (isLocal ? videoEnabled || isScreenSharing : true);
+    const showVideo = hasStream && (isLocal ? videoEnabled || isScreenSharing : remoteVideoSource === 'screen' || remoteVideoEnabled);
     const ratio = videoRatios[id];
     return (
       <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(id); }} aria-label={t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
@@ -1081,8 +1237,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setSidePanel(null);
     setShowMore(false);
   };
-  const mediaIssue = !hasRemoteStream && /(?:فشل|تعذر|TURN|الجدار الناري|الشبكتين)/i.test(status);
-
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
@@ -1092,8 +1246,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
       </div>
-      {mediaIssue && <div className="call-diagnostic" role="alert"><div><strong>{t('تعذر ربط الصوت والفيديو')}</strong><p>{t(status)}</p><small>{t('وجود الطرف الآخر في الغرفة لا يعني أن مسار الوسائط اكتمل. افحص الإنترنت والكاميرا، ثم أعد المحاولة. إذا تكرر الخطأ فسيظهر السبب التقني أعلاه للدعم.')}</small></div><button type="button" className="secondary-button" onClick={startCall}><RefreshCw size={17} />{t('إعادة فحص الاتصال')}</button></div>}
-
       {showScreenShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('المشاركة أو النافذة العائمة غير متاحة على هذا المتصفح')}</strong><p>{t('حدّث المتصفح أو جرّب Chrome. إذا كان هاتفك يدعم المشاركة والنافذة العائمة ستبقى الحصة ظاهرة أثناء انتقالك بين التطبيقات.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowScreenShareNotice(false)}>{t('حسناً')}</button></div>}
 
       <div className="call-stage">
