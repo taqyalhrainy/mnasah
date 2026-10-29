@@ -42,5 +42,5 @@ export function verifiedTopupImage(prefix, declaredType) {
 export function paymentSettings(value) {
   let parsed = value;
   if (typeof value === 'string') { try { parsed = JSON.parse(value); } catch { parsed = {}; } }
-  return { cliq_alias: String(parsed?.cliq_alias || ''), cliq_name: String(parsed?.cliq_name || ''), support_whatsapp: String(parsed?.support_whatsapp || '') };
+  return { cliq_alias: String(parsed?.cliq_alias || ''), cliq_name: String(parsed?.cliq_name || 'تقي الله الهريني'), support_whatsapp: String(parsed?.support_whatsapp || '0795764229') };
 }

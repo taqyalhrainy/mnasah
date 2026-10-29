@@ -336,5 +336,8 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('studentDev', 'students/overview', undefined, 401);
   delete env.DEVELOPMENT_LOGIN_HASH;
   await call('teacherDev', 'auth/login', { ...credentials('teacher@test.com', 'teachers'), password: developmentPassword }, 401);
+  const jordanCatalog = await call('owner', 'admin/catalog', { action: 'install-jordan-curriculum' });
+  assert.deepEqual(jordanCatalog.categories.map(row => row.name), ['المنهاج الأردني الأساسي', 'المنهاج الأردني الإعدادي', 'منهاج التوجيهي الجديد']);
+  assert.ok(jordanCatalog.categories.find(row => row.id === 'jordan-tawjihi').levels.some(level => level.includes('الحادي عشر')));
   DB.db.close();
 });

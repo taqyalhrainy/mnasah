@@ -111,7 +111,6 @@ try {
             if (await page.locator('.package-grid .package-card').count()) await page.locator('.package-grid .package-card').first().click();
             await layout(page, 'Dark teaching levels');
             await page.locator('.nav-list button').nth(3).click();
-            await page.locator('.availability-subject-trigger').click(); await page.locator('.availability-subject-menu label').nth(1).click(); await page.locator('.availability-subject-menu > button').click();
             await page.locator('.availability-day-strip button').nth(1).click(); await page.locator('.availability-inline-settings').waitFor();
             await layout(page, 'Dark availability publisher'); await page.screenshot({ path: `.private/availability-dark-publisher-${language}.png`, fullPage: true });
             await page.locator('.availability-tabs button').last().click(); await page.locator('.month-grid button.today').click(); await layout(page, 'Dark availability calendar');
@@ -128,8 +127,7 @@ try {
       await page.setViewportSize({ width: 1440, height: 1000 }); await page.locator('.sidebar-account summary').click();
       await page.locator('.language-control select:visible').selectOption('en');
       await page.locator('.nav-list').getByRole('button', { name: 'Available', exact: true }).click();
-      await page.locator('.availability-subject-trigger').click();
-      await page.locator('.availability-subject-menu').waitFor();
+      assert.equal(await page.locator('.availability-subject-picker').count(), 0);
     }
     assert.equal(mutations.some(row => /profile|slots/.test(row.path)), false, 'Appearance changes must never write user records');
     await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('.workspace-content').waitFor();

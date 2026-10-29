@@ -17,6 +17,7 @@ export function WalletPanel({ requiredAmount = 0 }: { requiredAmount?: number })
   const [copied, setCopied] = useState(false);
   const [proof, setProof] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
+  const [submitted, setSubmitted] = useState(false);
   const [revision, setRevision] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -24,7 +25,7 @@ export function WalletPanel({ requiredAmount = 0 }: { requiredAmount?: number })
     const load = async (initial = false) => {
       if (pending) return; pending = true;
       if (initial) setLoading(true);
-      try { const result = await request<WalletData>('students/wallet'); if (alive) { setData(result); setError(''); } }
+      try { const result = await request<WalletData>('students/wallet'); if (alive) { setData({ ...result, payment: { ...result.payment, cliq_name: 'تقي الله الهريني' } }); setError(''); } }
       catch (reason) { if (alive && initial) setError((reason as Error).message); }
       finally { pending = false; if (alive && initial) setLoading(false); }
     };
@@ -42,16 +43,19 @@ export function WalletPanel({ requiredAmount = 0 }: { requiredAmount?: number })
     try {
       const result = await requestFile<{ topup: WalletData['topups'][number] }>('students/wallet/topups', proof, { amount: String(fields.get('amount') || ''), reference: String(fields.get('reference') || '') });
       setData(current => current ? { ...current, topups: [result.topup, ...current.topups.filter(row => row.id !== result.topup.id)] } : current);
-      setSuccess(t('تم إرسال الحوالة وهي الآن قيد المراجعة.')); setProof(null); event.currentTarget.reset(); setRevision(value => value + 1);
+      setSuccess(t('تم إرسال الحوالة وهي الآن قيد المراجعة.')); setSubmitted(true); setProof(null); event.currentTarget.reset(); setRevision(value => value + 1);
     } catch (reason) { setError((reason as Error).message); } finally { setBusy(false); }
   }
   if (loading) return <section className="wallet-workspace"><div className="wallet-loading"><span className="wake-spinner" />{t('جارٍ تحميل المحفظة…')}</div></section>;
+  const supportNumber = data?.payment.support_whatsapp || '0795764229';
+  const supportLink = `https://wa.me/${supportNumber.replace(/\D/g, '').replace(/^0/, '962')}`;
   return <section className="wallet-workspace" aria-label={t('المحفظة')}>
+    {submitted && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSubmitted(false)} className="topup-submitted-dialog"><span className="topup-submitted-icon"><Check size={28} /></span><h2>{t('تم إرسال الطلب')}</h2><p>{t('تم إرسال الطلب، وهو الآن بانتظار التحقق.')}</p><p>{t('لاستجابة أسرع ابعث رسالة على رقم الدعم الفني.')}</p><a href={supportLink} target="_blank" rel="noopener noreferrer" dir="ltr">{supportNumber}</a><button className="primary-button" type="button" onClick={() => setSubmitted(false)}>{t('حسناً')}</button></dialog>}
     <header className="wallet-balance-band"><div><span><CreditCard size={19} />{t('رصيدك المتاح')}</span><strong>{money(data?.balance || 0)}</strong></div>{shortfall > 0 && <aside><b>{t('اشحن محفظتك لإكمال عملية الشراء')}</b><span>{t('المبلغ الناقص')} <strong>{money(shortfall)}</strong></span></aside>}</header>
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     <div className="wallet-columns">
       <section className="cliq-topup-panel"><div className="wallet-section-title"><div><h2>{t('شحن المحفظة عبر كليك')}</h2></div><span className="cliq-mark">CliQ</span></div>
-        {data?.payment.ready ? <><div className="cliq-alias-card"><span>{t('اسم كليك للتحويل')}</span><strong dir="ltr">{data.payment.cliq_alias}</strong><button type="button" aria-label={t('نسخ اسم كليك')} onClick={() => { void navigator.clipboard.writeText(data.payment.cliq_alias); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }}><Clipboard size={18} />{copied ? t('تم النسخ') : t('نسخ')}</button></div><p className="cliq-name-warning" role="note"><strong>{t('تنبيه مهم:')}</strong> {t('اكتب اسم كليك كما يظهر تماماً أعلاه وتأكد منه قبل تأكيد التحويل.')}</p>
+        {data?.payment.ready ? <><div className="cliq-alias-card"><span>{t('اسم كليك للتحويل')}</span><strong dir="ltr">{data.payment.cliq_alias}</strong><small>{t('باسم')} <b>{data.payment.cliq_name || 'تقي الله الهريني'}</b></small><button type="button" aria-label={t('نسخ اسم كليك')} onClick={() => { void navigator.clipboard.writeText(data.payment.cliq_alias); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }}><Clipboard size={18} />{copied ? t('تم النسخ') : t('نسخ')}</button></div><p className="cliq-name-warning" role="note"><strong>{t('تنبيه مهم:')}</strong> {t('اكتب اسم كليك كما يظهر تماماً أعلاه وتأكد منه قبل تأكيد التحويل.')}</p>
           <form className="topup-form" onSubmit={submit}><label>{t('المبلغ المحوّل بالدينار')}<input name="amount" type="number" inputMode="decimal" min="1" max="10000" step="0.001" defaultValue={shortfall ? (shortfall / 100).toFixed(3) : ''} placeholder="10.000" required /></label><label>{t('رقم الحوالة (اختياري)')}<input name="reference" maxLength={100} dir="ltr" /></label><div className="proof-picker"><input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => { setError(''); setSuccess(''); setProof(event.target.files?.[0] || null); }} />{preview ? <><img src={preview} alt={t('معاينة صورة الحوالة')} /><button className="icon-button" type="button" aria-label={t('إزالة الصورة')} onClick={() => { setError(''); setSuccess(''); setProof(null); if (input.current) input.current.value = ''; }}><X size={18} /></button><div><strong>{proof?.name}</strong><span>{t('صورة الحوالة جاهزة للإرسال')}</span></div></> : <button className="proof-empty" type="button" onClick={() => { setError(''); setSuccess(''); input.current?.click(); }}><ImagePlus size={25} /><span><strong>{t('أرفق صورة الحوالة')}</strong><small>PNG, JPG, WEBP · 5 MB</small></span></button>}</div><button className="primary-button topup-submit" disabled={busy || !proof}><Upload size={18} />{busy ? t('جارٍ الإرسال…') : t('إرسال للمراجعة')}</button></form>
         </> : <div className="cliq-unavailable"><Clock3 size={24} /><strong>{t('الدفع عبر كليك قيد التجهيز')}</strong><p>{t('ستظهر بيانات التحويل هنا فور اعتمادها من الإدارة.')}</p></div>}
       </section>

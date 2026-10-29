@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, Trash2, X } from 'lucide-react';
 import { catalogText, locale, t, usePreferences } from '../../i18n/preferences';
 import { money, request, type Booking, type Slot, type SlotOffering } from '../../services/platformApi';
 
@@ -36,17 +36,10 @@ const timeLabel = (value: string) => {
   const date = new Date(2026, 0, 1, Math.floor(minutes / 60), minutes % 60);
   return date.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 };
-const moveTime = (value: string, direction: number) => {
-  const current = Math.max(0, timeOptions.indexOf(value));
-  return timeOptions[(current + direction + timeOptions.length) % timeOptions.length];
-};
-
 export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome, onPublish, onDelete, onBookingDetails }: Props) {
   usePreferences();
   const today = dayStart();
   const [tab, setTab] = useState<'publish' | 'calendar'>('publish');
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
-  const [subjectMenuOpen, setSubjectMenuOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<number | null>(today);
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
   const [month, setMonth] = useState(monthStart(Date.now()));
@@ -89,9 +82,6 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
     if (closing - cursor >= 30 * 60000) windows.push([cursor, closing]); return windows;
   }, [calendarDay, daySlots, dayBookings]);
 
-  const allSubjectsSelected = subjects.length > 0 && selectedSubjects.length === subjects.length;
-  const subjectSummary = !selectedSubjects.length ? t('اختر مادة أو أكثر') : allSubjectsSelected ? t('كل المواد') : selectedSubjects.length === 1 ? catalogText(selectedSubjects[0]) : t('{v0} مواد مختارة', { v0: selectedSubjects.length });
-  const toggleSubject = (value: string) => { setSelectedSubjects(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value]); setLocalError(''); };
   const toggleDuration = (minutes: number, checked: boolean) => {
     setDurationPrices(current => {
       if (!checked) { const next = { ...current }; delete next[minutes]; return next; }
@@ -107,7 +97,6 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
   };
   const chooseDay = (value: number) => { setSelectedDay(value); setLocalError(''); };
   const publish = async () => {
-    if (!selectedSubjects.length) { setSubjectMenuOpen(true); setLocalError(t('اختر مادة واحدة على الأقل أولاً.')); return; }
     if (selectedDay === null) { setLocalError(t('اختر يوماً واحداً على الأقل.')); return; }
     const offerings = durationOptions.filter(minutes => durationPrices[minutes] !== undefined).map(minutes => ({ minutes, price: Math.round(Number(durationPrices[minutes]) * 100) }));
     if (!offerings.length) { setLocalError(t('اختر مدة حصة واحدة على الأقل.')); return; }
@@ -116,9 +105,9 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
     if (start <= Date.now()) { setLocalError(t('كل المواعيد يجب أن تبدأ بعد الوقت الحالي.')); return; }
     if (availableUntil - start < Math.max(...offerings.map(item => item.minutes)) * 60000) { setLocalError(t('الفترة المتاحة يجب أن تتسع لأطول مدة حصة اخترتها.')); return; }
     if (activeSlots.some(slot => start < (slot.available_until || slot.start + slot.minutes * 60000) && availableUntil > slot.start)) { setLocalError(t('الموعد يتعارض مع موعد آخر.')); return; }
-    const subject = allSubjectsSelected ? 'كل المواد المختارة' : selectedSubjects.join('، '); setLocalError('');
+    const subject = 'كل المواد المختارة'; setLocalError('');
     const defaultOffering = offerings[0];
-    if (!await onPublish([{ subject, subjects: [...selectedSubjects], start, availableUntil, minutes: defaultOffering.minutes, price: defaultOffering.price, offerings }])) return;
+    if (!await onPublish([{ subject, subjects: [...subjects], start, availableUntil, minutes: defaultOffering.minutes, price: defaultOffering.price, offerings }])) return;
     setLaunching(true); window.setTimeout(() => { setCalendarDay(selectedDay); setMonth(monthStart(selectedDay)); setSelectedDay(today); setTab('calendar'); setLaunching(false); }, 850);
   };
   const moveMonth = (direction: number) => { const next = new Date(month); next.setMonth(next.getMonth() + direction); setMonth(monthStart(next)); };
@@ -131,7 +120,6 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
       {launching && <div className="availability-electric-path" aria-hidden="true"><i /><i /><i /></div>}
       {tab === 'publish' && !subjects.length && <div className="availability-lock"><span><CalendarDays size={34} /></span><h3>{t('لتتمكن من إضافة مواعيدك، اختر مادتك أولاً من الصفحة الرئيسية.')}</h3><p>{t('بعد حفظ المادة ستظهر هنا تلقائياً وتقدر تبني جدولك خلال خطوات بسيطة.')}</p><button className="availability-light-button" type="button" onClick={onHome}>{t('الذهاب للرئيسية')}<ArrowLeft size={17} /></button></div>}
       {tab === 'publish' && subjects.length > 0 && <div className="availability-simple-publisher">
-        <div className={`availability-subject-picker ${subjectMenuOpen ? 'open' : ''}`}><button className="availability-subject-trigger" type="button" aria-expanded={subjectMenuOpen} onClick={() => setSubjectMenuOpen(value => !value)}><span><small>{t('المواد')}</small><strong>{subjectSummary}</strong></span><ChevronDown size={20} /></button>{subjectMenuOpen && <div className="availability-subject-menu"><label className="all-subjects"><input type="checkbox" checked={allSubjectsSelected} onChange={event => { setSelectedSubjects(event.currentTarget.checked ? [...subjects] : []); setLocalError(''); }} /><span><Check size={14} /></span><strong>{t('كل المواد')}</strong><small>{t('أي طالب، بأي مادة من موادك')}</small></label>{subjects.map(item => <label key={item}><input type="checkbox" checked={selectedSubjects.includes(item)} onChange={() => toggleSubject(item)} /><span><Check size={14} /></span><strong>{catalogText(item)}</strong></label>)}<button type="button" onClick={() => setSubjectMenuOpen(false)}>{t('تم')}</button></div>}</div>
         <div className="availability-date-picker"><div className="availability-date-head"><strong>{new Date(selectedDay ?? today).toLocaleDateString(locale(), { month: 'long', year: 'numeric' })}</strong><div><button type="button" title={t('تمرير الأيام للخلف')} onClick={() => dayStripRef.current?.scrollBy({ left: -260, behavior: 'smooth' })}><ChevronRight size={17} /></button><button type="button" title={t('تمرير الأيام للأمام')} onClick={() => dayStripRef.current?.scrollBy({ left: 260, behavior: 'smooth' })}><ChevronLeft size={17} /></button></div></div><div className="availability-day-strip" ref={dayStripRef}>{publishDays.map(value => <button type="button" key={value} aria-pressed={selectedDay === value} className={selectedDay === value ? 'selected' : ''} onClick={() => chooseDay(value)}><span>{new Date(value).toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{new Date(value).toLocaleDateString(locale(), { day: '2-digit' })}</strong><small>{new Date(value).toLocaleDateString(locale(), { month: 'short' })}</small></button>)}</div></div>
         {selectedDay !== null && <div className="availability-inline-settings"><div className="availability-selected-day"><CalendarDays size={18} /><strong>{dateLabel(selectedDay)}</strong></div><ScheduleRow label={t('الفترة المتاحة')} schedule={schedule} onChange={updateSchedule} /><div className={`availability-range-preview ${clockMinutes(schedule.to) <= clockMinutes(schedule.from) ? 'overnight' : ''}`}><Clock3 size={17} /><span><small>{clockMinutes(schedule.to) <= clockMinutes(schedule.from) ? t('الموعد ممتد لليوم التالي') : t('الفترة المختارة')}</small><strong dir="auto">{availabilityRangeLabel(atTime(selectedDay, schedule.from), availabilityEnd(selectedDay, schedule.from, schedule.to))}</strong></span></div><fieldset className="availability-duration-options"><legend>{t('مدد الحصة وأسعارها')}</legend><p>{t('اختر المدد التي تناسبك وحدد سعراً منفصلاً لكل واحدة. تحفظ اختياراتك تلقائياً للمرة القادمة.')}</p><div>{durationOptions.map(minutes => { const checked = durationPrices[minutes] !== undefined; return <label className={checked ? 'selected' : ''} key={minutes}><span className="duration-check"><input type="checkbox" checked={checked} onChange={event => toggleDuration(minutes, event.currentTarget.checked)} /><i><Check size={13} /></i><strong>{minutes} {t('دقيقة')}</strong></span><span className="duration-price"><input type="number" aria-label={t('سعر {v0} دقيقة', { v0: minutes })} min="0" max="1000" step="0.01" disabled={!checked} value={durationPrices[minutes] ?? ''} onChange={event => updateDurationPrice(minutes, event.target.value)} /><small>{t('د.أ')}</small></span></label>; })}</div></fieldset><button className="availability-publish" type="button" disabled={busy} onClick={() => void publish()}><span><CalendarPlus size={19} />{busy ? t('جارٍ الحفظ…') : t('نشر المواعيد')}</span><i aria-hidden="true" /></button></div>}
         {localError && <p className="availability-local-error" role="alert">{localError}</p>}
@@ -147,11 +135,36 @@ function ScheduleRow({ label, schedule, onChange }: { label: string; schedule: S
 }
 
 function TimeWheel({ label, value, onChange, note = '' }: { label: string; value: string; onChange: (value: string) => void; note?: string }) {
-  const step = (direction: number) => onChange(moveTime(value, direction));
-  return <label className="time-wheel">{label}<span role="spinbutton" tabIndex={0} data-value={value} aria-label={label} aria-valuetext={timeLabel(value)} onWheel={event => { event.preventDefault(); step(event.deltaY > 0 ? 1 : -1); }} onKeyDown={event => { if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') { event.preventDefault(); step(-1); } if (event.key === 'ArrowDown' || event.key === 'ArrowRight') { event.preventDefault(); step(1); } }}><button type="button" aria-label={t('الوقت السابق')} onClick={() => step(-1)}><ChevronUp size={15} /></button><strong dir="ltr">{timeLabel(value)}</strong><button type="button" aria-label={t('الوقت التالي')} onClick={() => step(1)}><ChevronDown size={15} /></button></span>{note && <small className="next-day-note">{note}</small>}</label>;
+  const [open, setOpen] = useState(false);
+  const drag = useRef<{ y: number; index: number; moved: boolean } | null>(null);
+  const currentIndex = Math.max(0, timeOptions.indexOf(value));
+  const selectIndex = (index: number) => onChange(timeOptions[(index + timeOptions.length) % timeOptions.length]);
+  const surrounding = Array.from({ length: 9 }, (_, index) => {
+    const offset = index - 4;
+    const optionIndex = (currentIndex + offset + timeOptions.length) % timeOptions.length;
+    return { offset, value: timeOptions[optionIndex] };
+  });
+  return <div className={`time-wheel ${open ? 'open' : ''}`}>
+    <span>{label}</span>
+    <button className="time-wheel-trigger" type="button" role="spinbutton" data-value={value} aria-label={label} aria-valuetext={timeLabel(value)} aria-expanded={open} onClick={() => setOpen(true)}><Clock3 size={16} /><strong dir="ltr">{timeLabel(value)}</strong></button>
+    {note && <small className="next-day-note">{note}</small>}
+    {open && <div className="time-wheel-backdrop" role="presentation" onPointerDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
+      <section className="time-wheel-popover" role="dialog" aria-modal="true" aria-label={`${label} ${timeLabel(value)}`} onWheel={event => { event.preventDefault(); selectIndex(currentIndex + (event.deltaY > 0 ? 1 : -1)); }} onPointerDown={event => { drag.current = { y: event.clientY, index: currentIndex, moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (!drag.current) return; const steps = Math.round((drag.current.y - event.clientY) / 28); if (steps) drag.current.moved = true; selectIndex(drag.current.index + steps); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); window.setTimeout(() => { drag.current = null; }, 0); }} onPointerCancel={() => { drag.current = null; }}>
+        <header><strong>{label}</strong><button type="button" aria-label={t('إغلاق')} onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}><X size={18} /></button></header>
+        <div className="time-wheel-options" aria-live="polite">{surrounding.map(option => <button type="button" className={option.offset === 0 ? 'selected' : ''} data-distance={Math.abs(option.offset)} key={`${option.offset}-${option.value}`} onClick={() => { if (drag.current?.moved) return; onChange(option.value); if (option.offset === 0) setOpen(false); }}><span dir="ltr">{timeLabel(option.value)}</span></button>)}</div>
+        <button className="time-wheel-done" type="button" onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}>{t('تم')}</button>
+      </section>
+    </div>}
+  </div>;
 }
 
 function MonthCalendar({ month, days, today, selected, slots, bookings, onMove, onDay }: { month: number; days: Array<number | null>; today: number; selected: number[]; slots: Slot[]; bookings: Booking[]; onMove: (direction: number) => void; onDay: (value: number) => void }) {
   const weekdays = Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 5 + index).toLocaleDateString(locale(), { weekday: 'short' }));
-  return <div className="month-calendar"><div className="month-calendar-head"><button type="button" onClick={() => onMove(-1)} title={t('الشهر السابق')}><ChevronRight size={18} /></button><strong>{new Date(month).toLocaleDateString(locale(), { month: 'long', year: 'numeric' })}</strong><button type="button" onClick={() => onMove(1)} title={t('الشهر التالي')}><ChevronLeft size={18} /></button></div><div className="month-weekdays">{weekdays.map(day => <span key={day}>{day}</span>)}</div><div className="month-grid">{days.map((value, index) => { if (value === null) return <i key={`blank-${index}`} />; const past = value < today; const open = slots.filter(slot => slot.status === 'open' && rangeIntersectsDay(slot.start, slot.available_until || slot.start + slot.minutes * 60000, value)).length; const booked = bookings.filter(booking => booking.status === 'confirmed' && sameDay(booking.start, value)).length; return <button type="button" key={value} aria-pressed={selected.includes(value)} aria-label={new Date(value).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })} className={`${selected.includes(value) ? 'selected' : ''} ${sameDay(value, today) ? 'today' : ''} ${past ? 'past' : ''} ${open ? 'has-open' : ''} ${booked ? 'has-booked' : ''}`} onClick={() => onDay(value)}><span>{new Date(value).getDate()}</span>{(open > 0 || booked > 0) && <small>{open > 0 && <b className="open-dot">{open}</b>}{booked > 0 && <b className="booked-dot">{booked}</b>}</small>}</button>; })}</div></div>;
+  return <div className="month-calendar"><div className="month-calendar-head"><button type="button" onClick={() => onMove(-1)} title={t('الشهر السابق')}><ChevronRight size={18} /></button><strong>{new Date(month).toLocaleDateString(locale(), { month: 'long', year: 'numeric' })}</strong><button type="button" onClick={() => onMove(1)} title={t('الشهر التالي')}><ChevronLeft size={18} /></button></div><div className="month-weekdays">{weekdays.map(day => <span key={day}>{day}</span>)}</div><div className="month-grid">{days.map((value, index) => {
+    if (value === null) return <i key={`blank-${index}`} />;
+    const past = value < today;
+    const open = slots.filter(slot => slot.status === 'open' && rangeIntersectsDay(slot.start, slot.available_until || slot.start + slot.minutes * 60000, value)).length;
+    const booked = bookings.filter(booking => (booking.status === 'confirmed' || booking.status === 'completed') && sameDay(booking.start, value)).length;
+    return <button type="button" key={value} aria-pressed={selected.includes(value)} aria-label={new Date(value).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })} className={`${selected.includes(value) ? 'selected' : ''} ${sameDay(value, today) ? 'today' : ''} ${past ? 'past' : ''} ${open ? 'has-open' : ''} ${booked ? 'has-booked' : ''}`} onClick={() => onDay(value)}><span>{new Date(value).getDate()}</span>{(open > 0 || booked > 0) && <small>{open > 0 && <b className="open-dot">{open}</b>}{booked > 0 && <b className="booked-dot">{booked}</b>}</small>}</button>;
+  })}</div></div>;
 }

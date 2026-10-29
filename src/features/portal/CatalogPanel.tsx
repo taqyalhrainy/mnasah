@@ -1,6 +1,6 @@
 import { t, direction, usePreferences } from '../../i18n/preferences';
 import { useState } from 'react';
-import { ArrowUp, ArrowDown, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { ArrowUp, ArrowDown, GraduationCap, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import { type Category, request } from '../../services/platformApi';
 
 export function CatalogPanel({ categories, onChanged }: { categories: Category[]; onChanged: (categories: Category[]) => void }) {
@@ -20,7 +20,7 @@ export function CatalogPanel({ categories, onChanged }: { categories: Category[]
     void mutate({ action: 'reorder', ids });
   }
   return <section>
-    <div className="section-heading"><h2>{t("بطاقات التصنيفات")}</h2><button className="primary-button" disabled={busy} onClick={() => setEditing({ id: '', name: '', description: '', icon: '', levels: [], subjects: [] })}><Plus size={18} />{t("إضافة بطاقة")}</button></div>
+    <div className="section-heading"><h2>{t("بطاقات التصنيفات")}</h2><div className="row-actions"><button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm(t('استبدال التصنيفات الحالية بالمنهاج الأردني الأساسي والإعدادي والتوجيهي؟'))) void mutate({ action: 'install-jordan-curriculum' }); }}><GraduationCap size={18} />{t('تطبيق المنهاج الأردني')}</button><button className="primary-button" disabled={busy} onClick={() => setEditing({ id: '', name: '', description: '', icon: '', levels: [], subjects: [] })}><Plus size={18} />{t("إضافة بطاقة")}</button></div></div>
     {error && <p className="notice error" role="alert">{t(error)}</p>}
     {editing && <form className="work-form" key={editing.id} onSubmit={async event => {
       event.preventDefault(); const data = new FormData(event.currentTarget);

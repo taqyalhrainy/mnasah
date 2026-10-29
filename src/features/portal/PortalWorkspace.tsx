@@ -1,6 +1,6 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
+import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, CircleAlert, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
 import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase, type PackageAvailabilityDay, type WeeklySchedule } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
@@ -115,6 +115,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [profileAvatarVersion, setProfileAvatarVersion] = useState(0);
   const [profileAvatarAvailable, setProfileAvatarAvailable] = useState(false);
   const [walletRequired, setWalletRequired] = useState(0);
+  const [insufficientWallet, setInsufficientWallet] = useState<{ balance: number; price: number } | null>(null);
   const [lessonPackages, setLessonPackages] = useState<LessonPackage[]>([]);
   const [packageDetails, setPackageDetails] = useState<LessonPackage | null>(null);
   const [packagePurchases, setPackagePurchases] = useState<PackagePurchase[]>([]);
@@ -326,7 +327,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const selectedCustomPackage = teacherPackageKey.startsWith('custom:') ? customPackages.find(item => `custom:${item.id}` === teacherPackageKey) : undefined;
   const commonLevels = [...new Set(catalog.flatMap(category => category.levels))];
   async function saveTeacherProfile(nextChoices = teachingChoices, nextPackages = customPackages, message = t('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.')) {
-    await act(async () => {
+    return act(async () => {
       const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject: serializeTeachingChoices(nextChoices), custom_packages: nextPackages });
       setCustomPackages(result.user.custom_packages || nextPackages);
       onUser(result.user);
@@ -371,13 +372,13 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     setBusy(true); setError(''); setSuccess('');
     try {
       const wallet = await request<WalletData>('students/wallet');
-      if (wallet.balance < item.price) { setWalletRequired(item.price); onView('wallet'); return; }
+      if (wallet.balance < item.price) { setWalletRequired(item.price); setPackageDetails(null); setInsufficientWallet({ balance: wallet.balance, price: item.price }); return; }
       if (!window.confirm(t('تأكيد شراء باقة {v0} من {v1} مقابل {v2}؟', { v0: item.name, v1: item.teacher_name || '', v2: money(item.price) }))) return;
       await request(`students/lesson-packages/${item.id}/purchase`, {});
       setSuccess(t('تم شراء الباقة. ستجدها الآن في «باقاتي».'));
       setSelectedPackagePurchase(''); refresh(); onView('packages');
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 402) { setWalletRequired(item.price); onView('wallet'); }
+      if (cause instanceof ApiError && cause.status === 402) { const wallet = await request<WalletData>('students/wallet').catch(() => ({ balance: 0 } as WalletData)); setWalletRequired(item.price); setPackageDetails(null); setInsufficientWallet({ balance: wallet.balance, price: item.price }); }
       else setError((cause as Error).message);
     } finally { setBusy(false); }
   }
@@ -386,7 +387,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     try {
       if (!purchase) {
         const wallet = await request<WalletData>('students/wallet');
-        if (wallet.balance < offering.price) { setWalletRequired(offering.price); setBookingSlot(null); onView('wallet'); return; }
+        if (wallet.balance < offering.price) { setWalletRequired(offering.price); setBookingSlot(null); setInsufficientWallet({ balance: wallet.balance, price: offering.price }); return; }
       }
       const confirmation = purchase
         ? t('تأكيد استخدام حصة من باقة {v0} لحجز {v1} لمدة {v2} دقيقة؟', { v0: purchase.package_name, v1: catalogText(subject), v2: offering.minutes })
@@ -395,7 +396,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       await post(`slots/${slot.id}`, { subject, minutes: offering.minutes, start, method: purchase ? 'package' : 'wallet', ...(purchase ? { package_purchase_id: purchase.id } : {}) });
       setWalletRequired(0); setBookingSlot(null); setBookingPackage(null); setSuccess(t(purchase ? 'تم تأكيد الحجز وخصم حصة واحدة من باقتك. ستجده في الحصص المحجوزة.' : 'تم تأكيد الحجز. ستجده الآن في الحصص المحجوزة.')); refresh(); onView('rooms');
     } catch (cause) {
-      if (!purchase && cause instanceof ApiError && cause.status === 402) { setWalletRequired(offering.price); setBookingSlot(null); onView('wallet'); }
+      if (!purchase && cause instanceof ApiError && cause.status === 402) { const wallet = await request<WalletData>('students/wallet').catch(() => ({ balance: 0 } as WalletData)); setWalletRequired(offering.price); setBookingSlot(null); setInsufficientWallet({ balance: wallet.balance, price: offering.price }); }
       else setError((cause as Error).message);
     } finally { setBusy(false); }
   }
@@ -445,7 +446,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       const { category, subject } = selectedBuiltInPackage;
       const choice = teachingChoices.find(item => item.categoryId === category.id && item.subject === subject);
       const allLevels = Boolean(choice && category.levels.length && category.levels.every(level => choice.levels.includes(level)));
-      return <div className="package-detail"><button type="button" className="package-back" onClick={() => { setTeacherPackageKey(''); setTeacherCategoryId(category.id); }}><ArrowRight size={18} />{t('مواد المجال')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('اختار المستوى الي حاب تعطيه المادة')}</h2><p>{t(category.description)}</p></div>{category.levels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{category.levels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void saveTeacherProfile()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
+      return <div className="package-detail"><button type="button" className="package-back" onClick={() => { setTeacherPackageKey(''); setTeacherCategoryId(category.id); }}><ArrowRight size={18} />{t('مواد المجال')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('اختار المستوى الي حاب تعطيه المادة')}</h2><p>{t(category.description)}</p></div>{category.levels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{category.levels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void (async () => { if (await saveTeacherProfile()) { setTeacherPackageKey(''); setTeacherCategoryId(''); } })()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
     })()}
   </div>;
   const lessonDetails = current && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelected(null)} className="detail-dialog" aria-labelledby="lesson-title"><div className="section-heading"><h2 id="lesson-title">{catalogText(current.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelected(null)}><X size={20} /></button></div>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<p>{current.teacher_name} · {current.student_name}</p><p>{date(current.start)} · {money(current.price)}</p>{portal === 'students' && current.teacher_phone && <p className="lesson-contact"><strong>{t('رقم الأستاذ')}</strong><a href={`tel:${current.teacher_phone}`} dir="ltr"><Phone size={16} />{current.teacher_phone}</a></p>}{portal === 'teachers' && current.student_phone && <p className="lesson-contact"><strong>{t('رقم الطالب')}</strong><a href={`tel:${current.student_phone}`} dir="ltr"><Phone size={16} />{current.student_phone}</a></p>}{portal === 'admin' && <p className="lesson-contact"><span>{current.teacher_phone}</span><span>{current.student_phone}</span></p>}<span className={`badge ${current.status}`}>{t(statusNames[current.status])}</span>
@@ -532,13 +533,14 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       <footer><div><small>{bookingPackage ? t('طريقة الدفع') : t('الإجمالي')}</small><strong>{bookingPackage ? t('من رصيد الباقة') : selectedOffering ? money(selectedOffering.price) : '—'}</strong></div><button className="primary-button" type="button" disabled={busy || !bookingSubject || !selectedOffering || !bookingStart} onClick={() => selectedOffering && bookingStart && void completeBooking(bookingSlot, bookingSubject, selectedOffering, bookingStart, bookingPackage)}><CalendarPlus size={18} />{t('تأكيد الحجز')}</button></footer>
     </dialog>;
   })();
+  const insufficientWalletDialog = insufficientWallet && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setInsufficientWallet(null)} className="detail-dialog wallet-shortfall-dialog" aria-labelledby="wallet-shortfall-title"><header><span><CircleAlert size={24} /></span><div><h2 id="wallet-shortfall-title">{t('رصيد محفظتك غير كافي')}</h2><p>{t('اشحن محفظتك ثم ارجع لتأكيد الحجز.')}</p></div><button className="icon-button" type="button" aria-label={t('إغلاق')} onClick={() => setInsufficientWallet(null)}><X size={20} /></button></header><dl><div><dt>{t('رصيد المحفظة')}</dt><dd>{money(insufficientWallet.balance)}</dd></div><div><dt>{t('سعر الطلب')}</dt><dd>{money(insufficientWallet.price)}</dd></div><div className="shortfall"><dt>{t('المتبقي لإتمامه')}</dt><dd>{money(Math.max(0, insufficientWallet.price - insufficientWallet.balance))}</dd></div></dl><button className="primary-button" type="button" onClick={() => setInsufficientWallet(null)}>{t('حسناً')}</button></dialog>;
   if (view === 'messages') return <>{callLayer}</>;
   if (portal === 'students' && view === 'wallet') return <>{callLayer}<WalletPanel requiredAmount={walletRequired} /></>;
   if (portal === 'admin' && view === 'topups') return <>{callLayer}<TopupReviewPanel /></>;
   if ((portal === 'admin' && view === 'payments') || (portal === 'teachers' && view === 'earnings')) return <>{callLayer}<PaymentsPanel portal={portal === 'admin' ? 'admin' : 'teachers'} /></>;
   if (portal === 'teachers' && view === 'packages') return <>{callLayer}<div className="portal-content tutor-experience"><LessonPackagesPanel subjects={teacherSubjects} /></div></>;
   if (portal === 'teachers' && view === 'profile' && !loading) return <>{callLayer}<div className="portal-content tutor-experience"><section className="student-page account-page"><h2>{t('حسابي')}</h2>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<div className="profile-layout"><form className="work-form" onSubmit={async event => { event.preventDefault(); const data = formData(event.currentTarget); await act(async () => { const result = await request<{ user: User }>('teachers/profile', data); onUser(result.user); }); }}><h3>{t('ملف الأستاذ')}</h3>{teacherAvatarEditor}<label>{t('الاسم الكامل')}<input name="name" defaultValue={user.name} required /></label><label>{t('البريد الإلكتروني')}<input value={user.email} readOnly dir="ltr" /></label><label>{t('المواد والمستويات')}<textarea value={teachingChoices.map(choice => teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))).join('\n')} readOnly rows={5} /></label><input type="hidden" name="subject" value={user.subject} /><label>{t('نبذة مهنية')}<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />{t('حفظ')}</button></form><div className="account-settings"><button onClick={() => setSuccess(t('حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب.'))}>{t('حالة التوثيق: حسب موافقة الإدارة')}</button><button onClick={() => onView('available')}>{t('إعدادات التوفر')}</button><button onClick={() => onView('earnings')}>{t('تفاصيل المستحقات')}</button><button onClick={reminders.toggle}>{t('إعدادات الإشعارات')}</button></div></div></section></div></>;
-  if (portal === 'students') return <>{callLayer}{lessonDetails}{bookingDialog}<div className="portal-content student-experience">
+  if (portal === 'students') return <>{callLayer}{lessonDetails}{bookingDialog}{insufficientWalletDialog}<div className="portal-content student-experience">
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" onClick={() => onView('rooms')}><Video size={17} />{t("فتح الغرف")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>

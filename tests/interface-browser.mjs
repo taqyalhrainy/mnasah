@@ -147,6 +147,13 @@ try {
       assert.match(await packageDialog.innerText(), /أيام وساعات الباقة/);
       assert.match(await packageDialog.innerText(), /23:00–02:00/);
       await packageDialog.getByTitle('إغلاق التفاصيل').click();
+      await page.getByRole('button', { name: 'شراء الباقة', exact: true }).first().click();
+      const shortfallDialog = page.getByRole('dialog', { name: 'رصيد محفظتك غير كافي' });
+      await shortfallDialog.waitFor();
+      assert.match(await shortfallDialog.innerText(), /رصيد المحفظة/);
+      assert.match(await shortfallDialog.innerText(), /سعر الطلب/);
+      assert.match(await shortfallDialog.innerText(), /المتبقي لإتمامه/);
+      await shortfallDialog.getByRole('button', { name: 'حسناً', exact: true }).click();
       await page.locator('.student-search input').focus();
       await page.waitForFunction(() => document.activeElement?.matches('.student-search input'));
       await page.getByTitle('عرض ملخّص الأسبوع').click();
@@ -212,26 +219,24 @@ try {
       await page.locator('.availability-hub').waitFor();
       assert.equal(await page.locator('.availability-day-strip button').first().getAttribute('aria-pressed'), 'true');
       await page.locator('.availability-inline-settings').waitFor();
-      await page.getByRole('button', { name: 'نشر المواعيد', exact: true }).click();
-      await page.getByText('اختر مادة واحدة على الأقل أولاً.', { exact: true }).waitFor();
-      await page.locator('.availability-subject-menu .all-subjects').click();
-      await page.getByRole('button', { name: 'تم', exact: true }).click();
-      assert.match(await page.locator('.availability-subject-trigger').innerText(), /كل المواد/);
+      assert.equal(await page.locator('.availability-subject-picker').count(), 0, 'availability must automatically use every saved teacher subject');
       await page.locator('.availability-day-strip button').nth(1).click();
       await page.locator('.availability-inline-settings').waitFor();
       const fromTime = page.locator('.time-wheel [role="spinbutton"]').nth(0);
       const toTime = page.locator('.time-wheel [role="spinbutton"]').nth(1);
       const setWheel = async (wheel, target) => {
         const minutes = value => value.split(':').map(Number).reduce((hours, part, index) => index ? hours + part : part * 60, 0);
-        await wheel.focus();
+        await wheel.click();
+        const picker = page.locator('.time-wheel-popover');
+        await picker.waitFor();
         for (let index = 0; index < 1440; index++) {
           const current = await wheel.getAttribute('data-value');
-          if (current === target) return;
+          if (current === target) { await picker.getByRole('button', { name: 'تم', exact: true }).click(); return; }
           const currentIndex = minutes(current);
           const targetIndex = minutes(target);
           const forward = (targetIndex - currentIndex + 1440) % 1440;
           const backward = (currentIndex - targetIndex + 1440) % 1440;
-          await wheel.press(forward <= backward ? 'ArrowDown' : 'ArrowUp');
+          await picker.dispatchEvent('wheel', { deltaY: forward <= backward ? 100 : -100 });
           await page.waitForTimeout(2);
         }
         throw new Error(`Could not move time wheel to ${target}`);

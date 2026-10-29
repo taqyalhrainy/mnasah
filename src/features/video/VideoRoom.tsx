@@ -1,7 +1,7 @@
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
-import { BringToFront, Camera, CameraOff, Copy, Download, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RadioTower, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
+import { BringToFront, Camera, CameraOff, Copy, Download, Grid2X2, Hand, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
@@ -76,6 +76,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [chatSending, setChatSending] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [siteMenuOpen, setSiteMenuOpen] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
   const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
@@ -807,7 +808,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         const width = Math.max(80 / whiteboardViewport.zoom, original.width + deltaX);
         next = { ...original, width, height: width / ratio };
       } else {
-        next = { ...original, width: Math.max(160 / whiteboardViewport.zoom, original.width + deltaX), height: Math.max(70 / whiteboardViewport.zoom, original.height + deltaY) };
+        const scaleX = (original.width + deltaX) / original.width;
+        const scaleY = (original.height + deltaY) / original.height;
+        const scale = Math.max(0.35, Math.abs(scaleX - 1) >= Math.abs(scaleY - 1) ? scaleX : scaleY);
+        next = { ...original, width: Math.max(160 / whiteboardViewport.zoom, original.width * scale), height: Math.max(70 / whiteboardViewport.zoom, original.height * scale), fontSize: Math.max(10 / whiteboardViewport.zoom, original.fontSize * scale) };
       }
       upsertWhiteboardItem(next);
       return;
@@ -870,11 +874,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     sendWhiteboard({ kind: 'clear' });
   };
 
-  const undoWhiteboardStroke = () => {
+  const undoWhiteboardAction = () => {
     if (role !== 'teacher') return;
-    const lastStroke = whiteboardStrokesRef.current.at(-1);
+    const created = (id = '') => Number(id.split('-')[0]) || 0;
+    const lastStroke = [...whiteboardStrokesRef.current].sort((left, right) => created(right.id) - created(left.id))[0];
+    const lastItem = [...whiteboardItemsRef.current].sort((left, right) => created(right.id) - created(left.id))[0];
+    if (!lastStroke && !lastItem) return;
+    if (lastItem && (!lastStroke || created(lastItem.id) >= created(lastStroke.id))) {
+      deleteWhiteboardItem(lastItem.id);
+      return;
+    }
     if (!lastStroke) return;
-    setSyncedWhiteboardStrokes((current) => current.slice(0, -1));
+    setSyncedWhiteboardStrokes((current) => current.filter(stroke => stroke.id !== lastStroke.id));
     sendWhiteboard({ kind: 'erase', ids: [lastStroke.id] });
   };
 
@@ -1011,7 +1022,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
         <button data-whiteboard-tool="image" className="tool-mode" type="button" onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}><ImagePlus size={17} /></button>
         <input ref={whiteboardImageInputRef} className="whiteboard-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardImageChange} />
-        {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardStroke} aria-label={t("تراجع خطوة")} title={t("تراجع خطوة")}><Undo2 size={17} /></button>}
+        {role === 'teacher' && <button className="tool-mode" type="button" onClick={undoWhiteboardAction} aria-label={t("تراجع خطوة")} title={t("تراجع خطوة")}><Undo2 size={17} /></button>}
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label={t("تصغير")}>-</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); fitWhiteboardToContent(whiteboardStrokesRef.current, whiteboardItemsRef.current); }} aria-label={t("إظهار كامل الرسم")} title={t("إظهار كامل الرسم")}><Maximize2 size={17} /></button>
@@ -1073,10 +1084,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
-      <div className="video-header call-header">
-        <div><h2>{t("الحصة المباشرة")}</h2><p>{t(status)}{hasRemoteStream ? t(" • {v0} مع {v1}", { v0: localName, v1: remoteName }) : t(" • بانتظار {v0}", { v0: remoteName })}</p></div>
-        <div className="call-header-actions">{compact && <button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button>}<div className="status-pill"><RadioTower size={17} />{isJoining ? t("جار الانضمام") : t(status)}</div></div>
-      </div>
+      {compact && <div className="compact-call-header"><button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button></div>}
 
       <div className="session-controls call-start">
         {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
@@ -1100,7 +1108,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}</span><span>{hasRemoteStream ? remoteName : t("{v0} بانتظار الدخول", { v0: remoteName })}</span></div></aside>}
       </div>
 
-      <div className="call-toolbar" aria-label={t("أدوات المكالمة")}>
+      <div className={`call-toolbar-shell ${toolbarOpen ? 'open' : ''}`} onMouseEnter={() => setToolbarOpen(true)} onMouseLeave={() => setToolbarOpen(false)} onFocus={() => setToolbarOpen(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setToolbarOpen(false); }}><button className="call-toolbar-toggle" type="button" aria-expanded={toolbarOpen} aria-label={t('إظهار أدوات المكالمة')} onClick={() => setToolbarOpen(value => !value)}><MoreHorizontal size={22} /></button><div className="call-toolbar" aria-label={t("أدوات المكالمة")}>
         <button className={audioEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleAudioToggle} title={audioEnabled ? t("إيقاف المايك") : t("تشغيل المايك")} type="button">{audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button>
         <button className={videoEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleVideoToggle} title={videoEnabled ? t("إيقاف الكاميرا") : t("تشغيل الكاميرا")} type="button">{videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}</button>
         <button className={isScreenSharing ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handleScreenShareToggle} title={isScreenSharing ? t("إيقاف مشاركة الشاشة") : t("مشاركة الشاشة")} type="button">{isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}</button>
@@ -1110,7 +1118,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button className={showMore ? 'tool-button active-share' : 'tool-button'} onClick={() => setShowMore(!showMore)} title={t("خيارات أكثر")} type="button"><MoreHorizontal size={20} /></button>
         <button className="tool-button danger" onClick={endCall} title={t("إنهاء المكالمة والخروج")} type="button"><PhoneOff size={20} /></button>
         {showMore && <div className="call-more-menu"><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />{t("المشاركون")}</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />{t("عرض الفيديو")}</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? t('ملء إطار الفيديو') : t('احتواء الفيديو')}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />{t("نافذة عائمة")}</button></div>}
-      </div>
+      </div></div>
 
       {sidePanel === 'chat' && <aside className="call-chat-drawer" aria-label={t("المحادثة")}>
         <div className="call-chat-head"><div><MessageSquare size={18} /><strong>{t("محادثة الحصة")}</strong><span>{t("تصل للطرف الآخر مباشرة")}</span></div><button type="button" onClick={() => { updateLocalTyping(false); setSidePanel(null); }} aria-label={t("إغلاق المحادثة")}>×</button></div>

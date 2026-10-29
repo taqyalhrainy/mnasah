@@ -17,6 +17,7 @@ const stressSteps = Number(process.env.WHITEBOARD_STRESS_STEPS || 600);
 const reconnectAttempts = Number(process.env.VIDEO_RECONNECT_ATTEMPTS || 3);
 teacher.on('pageerror', error => errors.push(error.message));
 student.on('pageerror', error => errors.push(error.message));
+const revealToolbar = async page => { const toggle = page.locator('.call-toolbar-toggle'); if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click(); await page.locator('.call-toolbar-shell.open').waitFor(); };
 
 try {
   const room = `browser-check-${Date.now()}`;
@@ -27,15 +28,16 @@ try {
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
 
-  await teacher.getByTitle('المحادثة').click();
-  await student.getByTitle('المحادثة').click();
+  await revealToolbar(teacher); await teacher.getByTitle('المحادثة').click();
+  await revealToolbar(student); await student.getByTitle('المحادثة').click();
   await teacher.getByLabel('رسالة جديدة').fill('أ');
   await student.locator('.call-typing-indicator').waitFor({ timeout: 10000 });
   assert.equal(await student.locator('.call-typing-indicator span').count(), 3);
   await student.locator('.call-typing-indicator').waitFor({ state: 'detached', timeout: 5000 });
-  await teacher.getByTitle('المحادثة').click();
-  await student.getByTitle('المحادثة').click();
+  await revealToolbar(teacher); await teacher.getByTitle('المحادثة').click();
+  await revealToolbar(student); await student.getByTitle('المحادثة').click();
 
+  await revealToolbar(teacher);
   await teacher.locator('.call-toolbar .tool-button').nth(3).click();
   await teacher.locator('.whiteboard-canvas').waitFor();
   await student.locator('.whiteboard-canvas').waitFor();
@@ -83,8 +85,17 @@ try {
   await teacher.locator('[data-whiteboard-tool="select"]').click();
   assert.equal(await teacher.locator('.whiteboard-inspector').count(), 0, 'text selection must not open a formatting bar');
   await student.waitForFunction(() => [...document.querySelectorAll('.whiteboard-text-content')].some(element => element.textContent === 'Shared board text'), undefined, { timeout: 10000 });
+  const textSizeBefore = Number.parseFloat(await teacher.locator('.whiteboard-text-content').first().evaluate(element => getComputedStyle(element).fontSize));
+  const textHandle = await teacher.locator('.whiteboard-resize-handle').boundingBox();
+  assert.ok(textHandle);
+  await teacher.mouse.move(textHandle.x + textHandle.width / 2, textHandle.y + textHandle.height / 2);
+  await teacher.mouse.down();
+  await teacher.mouse.move(textHandle.x + 100, textHandle.y + 70, { steps: 8 });
+  await teacher.mouse.up();
+  const textSizeAfter = Number.parseFloat(await teacher.locator('.whiteboard-text-content').first().evaluate(element => getComputedStyle(element).fontSize));
+  assert.ok(textSizeAfter > textSizeBefore, `resizing a text box must scale its text (${textSizeBefore} -> ${textSizeAfter})`);
 
-  const imageBuffer = await teacher.locator('.call-header').screenshot();
+  const imageBuffer = await teacher.locator('.call-stage').screenshot();
   await teacher.locator('.whiteboard-image-input').setInputFiles({ name: 'board-image.png', mimeType: 'image/png', buffer: imageBuffer });
   await student.locator('.whiteboard-board-image').waitFor({ timeout: 10000 });
   assert.ok((await student.locator('.whiteboard-board-image').getAttribute('src'))?.startsWith('data:image/webp'));
@@ -96,6 +107,8 @@ try {
     document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
   });
   await student.waitForFunction(() => document.querySelectorAll('.whiteboard-board-image').length === 2, undefined, { timeout: 10000 });
+  await teacher.getByTitle('تراجع خطوة').click();
+  await student.waitForFunction(() => document.querySelectorAll('.whiteboard-board-image').length === 1, undefined, { timeout: 10000 });
   const pastedSize = await teacher.locator('.whiteboard-canvas foreignObject').last().evaluate(element => {
     const svg = element.closest('svg');
     return { width: Number(element.getAttribute('width')), height: Number(element.getAttribute('height')), viewWidth: svg.viewBox.baseVal.width, viewHeight: svg.viewBox.baseVal.height };
@@ -105,6 +118,7 @@ try {
 
   async function leaveAndReturn(leaver, waitingParticipant) {
     await waitingParticipant.evaluate(() => { window.remoteStreamBeforeReturn = document.querySelectorAll('video')[0]?.srcObject; });
+    await revealToolbar(leaver);
     await leaver.locator('.call-toolbar .danger').click();
     await leaver.locator('.session-controls .primary-button').click();
     await leaver.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });

@@ -1,10 +1,17 @@
 import { all, run, statement, field, fail, auditEntry } from './db.js';
+import { jordanCatalog } from '../shared/jordan-catalog.js';
 
 export async function catalog(env, user, write, body) {
   if (write) {
     if (user.role !== 'admin') fail(403, 'تعديل التصنيفات متاح للإدارة فقط.');
     const rows = await all(env, "SELECT id FROM catalog WHERE kind='category' ORDER BY position,id");
-    if (body.action === 'reorder') {
+    if (body.action === 'install-jordan-curriculum') {
+      await env.DB.batch([
+        statement(env, "DELETE FROM catalog WHERE kind='category'"),
+        ...jordanCatalog.map((item, position) => statement(env, "INSERT INTO catalog (name,description,icon,levels,subjects,id,kind,position,created) VALUES (?,?,?,?,?,?,'category',?,?)", item.name, item.description, item.icon, JSON.stringify(item.levels), JSON.stringify(item.subjects), item.id, position, Date.now())),
+        auditEntry(env, user.id, 'catalog:install-jordan-curriculum', 'categories'),
+      ]);
+    } else if (body.action === 'reorder') {
       const ids = body.ids;
       if (!Array.isArray(ids) || ids.length !== rows.length || new Set(ids).size !== ids.length || ids.some(id => !rows.some(row => row.id === id))) fail(409, 'تغيّرت التصنيفات. حدّث الصفحة وأعد المحاولة.');
       await env.DB.batch([...ids.map((id, index) => statement(env, 'UPDATE catalog SET position=? WHERE id=?', index, id)), auditEntry(env, user.id, 'catalog:reorder', 'categories')]);

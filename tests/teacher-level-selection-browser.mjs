@@ -37,6 +37,7 @@ try {
   await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
   await page.getByText('لتتمكن من إضافة مواعيدك، اختر مادتك أولاً من الصفحة الرئيسية.').waitFor();
   await page.getByRole('button', { name: /الذهاب للرئيسية/ }).click();
+  await page.locator('.package-grid .package-card').filter({ hasText: 'المنهاج الأردني' }).click();
   await page.locator('.package-grid .package-card').filter({ hasText: 'رياضيات' }).click();
 
   const all = page.getByLabel('كل المستويات', { exact: true });
@@ -52,6 +53,7 @@ try {
   await fourth.uncheck();
   await page.getByRole('button', { name: 'حفظ اختياراتي', exact: true }).click();
   await page.getByText('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.').waitFor();
+  await page.getByText('شو حاب تدرّس؟', { exact: true }).waitFor();
 
   assert.match(savedSubject, /المنهاج الأردني › رياضيات/);
   assert.doesNotMatch(savedSubject, /الصف الأول/);
@@ -60,8 +62,8 @@ try {
   assert.match(savedSubject, /الصف السابع/);
   assert.match(savedSubject, /توجيهي/);
   await page.locator('.nav-list').getByRole('button', { name: 'المتاحة', exact: true }).click();
-  await page.locator('.availability-subject-trigger').waitFor();
-  assert.match(await page.locator('.availability-subject-trigger').innerText(), /اختر مادة أو أكثر/);
+  await page.locator('.availability-inline-settings').waitFor();
+  assert.equal(await page.locator('.availability-subject-picker').count(), 0);
   console.log('Teacher empty-state, subject linking and multi-level selection checks passed.');
 } finally {
   await browser.close();

@@ -18,6 +18,7 @@ import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-p
 import { parseVerification, registrationProfile } from '../shared/verification.js';
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
+import { jordanCatalog } from '../shared/jordan-catalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -306,14 +307,20 @@ async function audit(actor, action, target) {
   await db.collection('audit').insertOne({ id: crypto.randomUUID(), actor, action, target, created: Date.now() });
 }
 
-const starterCatalog = [
-  { name: 'رياضيات', description: 'جبر، هندسة، تفاضل وتكامل', icon: '∑', levels: ['مدرسي', 'توجيهي', 'جامعي'], subjects: ['رياضيات', 'فيزياء رياضية'] },
-  { name: 'علوم', description: 'فيزياء، كيمياء، أحياء', icon: '⚗', levels: ['مدرسي', 'توجيهي'], subjects: ['فيزياء', 'كيمياء', 'أحياء'] },
-  { name: 'لغات', description: 'عربي، إنجليزي، محادثة وكتابة', icon: 'Aa', levels: ['مبتدئ', 'متوسط', 'متقدم'], subjects: ['لغة عربية', 'لغة إنجليزية'] },
-];
+const starterCatalog = jordanCatalog;
+async function installJordanCatalog() {
+  await db.collection('catalog').deleteMany({ kind: 'category' });
+  await db.collection('catalog').insertMany(starterCatalog.map((item, position) => ({ ...item, kind: 'category', position, created: Date.now() })));
+}
 async function seedCatalog() {
-  if (await db.collection('catalog').countDocuments({ kind: 'category' })) return;
-  await db.collection('catalog').insertMany(starterCatalog.map((item, index) => ({ id: crypto.randomUUID(), kind: 'category', position: index, created: Date.now(), ...item })));
+  const migrationKey = 'jordan-catalog-2026';
+  const migrated = await db.collection('platform_settings').findOne({ key: migrationKey });
+  if (!migrated) {
+    await installJordanCatalog();
+    await db.collection('platform_settings').updateOne({ key: migrationKey }, { $set: { key: migrationKey, value: { installed_at: Date.now() } } }, { upsert: true });
+    return;
+  }
+  if (!await db.collection('catalog').countDocuments({ kind: 'category' })) await installJordanCatalog();
 }
 async function categories() {
   return db.collection('catalog').find({ kind: 'category' }, { projection: { _id: 0 } }).sort({ position: 1, id: 1 }).toArray();
@@ -322,7 +329,10 @@ async function handleCatalog(user, write, body) {
   if (write) {
     if (user.role !== 'admin') fail(403, 'تعديل التصنيفات متاح للإدارة فقط.');
     const rows = await categories();
-    if (body.action === 'reorder') {
+    if (body.action === 'install-jordan-curriculum') {
+      await installJordanCatalog();
+      await audit(user.id, 'catalog:install-jordan-curriculum', 'categories');
+    } else if (body.action === 'reorder') {
       if (!Array.isArray(body.ids) || body.ids.length !== rows.length || new Set(body.ids).size !== body.ids.length) fail(409, 'تغيرت التصنيفات. حدث الصفحة وأعد المحاولة.');
       await Promise.all(body.ids.map((id, index) => db.collection('catalog').updateOne({ id, kind: 'category' }, { $set: { position: index } })));
       await audit(user.id, 'catalog:reorder', 'categories');
