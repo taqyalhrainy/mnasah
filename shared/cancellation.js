@@ -9,7 +9,7 @@ function clampPercent(value, fallback = 20) {
  * Produce one authoritative cancellation quote for both backends and the UI.
  * Monetary values are integer fils/cents, matching booking.price.
  */
-export function cancellationQuote({ start, price, actorRole, now = Date.now(), commissionPercent = 20 }) {
+export function cancellationQuote({ start, price, actorRole, now = Date.now(), commissionPercent = 10 }) {
   const total = Math.max(0, Math.round(Number(price) || 0));
   const hoursBefore = (Number(start) - Number(now)) / HOUR;
   const teacherCancellation = actorRole === 'teachers' || actorRole === 'admin';

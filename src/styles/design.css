@@ -628,6 +628,9 @@ input[type=checkbox] { accent-color: var(--ink); }
   .redesigned-shell .sidebar { gap: 20px; padding-inline: 25px; }
   .redesigned-shell .brand .brand-monogram { display: none; }
   .redesigned-shell .sidebar .nav-button { padding-inline: 10px; gap: 6px; font-size: 12px; }
+  .redesigned-shell.portal-admin .sidebar .nav-button { padding-inline: 6px; gap: 4px; font-size: 11px; }
+  .redesigned-shell.portal-admin .sidebar .nav-label-full { display: none; }
+  .redesigned-shell.portal-admin .sidebar .nav-label-short { display: block; }
   .student-home-grid { grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr); gap: 26px; }
   .overview-schedule { grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr); gap: 26px; }
   .next-lesson { grid-template-columns: 56px minmax(0, 1fr); grid-template-areas: 'date body' 'date action'; gap: 10px 17px; }

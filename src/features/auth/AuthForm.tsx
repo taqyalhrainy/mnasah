@@ -1,5 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import { ArrowLeft, Eye, EyeOff, GraduationCap, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, GraduationCap, KeyRound, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { request, portalNames, type Portal, type User } from '../../services/platformApi';
 import { PreferenceControls, direction, t, usePreferences } from '../../i18n/preferences';
 import { RegistrationFlow } from './RegistrationFlow';
@@ -12,6 +12,10 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [recovery, setRecovery] = useState<'request' | 'reset' | 'done' | null>(null);
+  const [resetId, setResetId] = useState('');
+  const [recoveryHint, setRecoveryHint] = useState('');
+  const [debugCode, setDebugCode] = useState('');
   const base = import.meta.env.BASE_URL;
   const PortalIcon = portal === 'students' ? GraduationCap : portal === 'teachers' ? Users : ShieldCheck;
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -21,6 +25,26 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
       const result = await request<{ user: User }>(`auth/${setupToken ? 'setup' : register ? 'register' : 'login'}`, { ...data, role: portal, token: setupToken });
       history.replaceState({}, '', location.pathname); onLogin(result.user);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function requestReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      const result = await request<{ resetId?: string; channel?: string; destination?: string; debugCode?: string; message: string }>('auth/forgot-password', { ...data, role: portal });
+      if (!result.resetId) { setRecoveryHint(result.message); return; }
+      setResetId(result.resetId); setDebugCode(result.debugCode || '');
+      setRecoveryHint(result.channel === 'phone' ? `أرسلنا رمزاً إلى الرقم ${result.destination || ''}` : result.channel === 'development' ? 'وضع التطوير: استخدم الرمز الظاهر أدناه.' : `أرسلنا رمزاً إلى البريد ${result.destination || ''}`);
+      setRecovery('reset');
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+  async function completeReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    if (data.password !== data.confirm_password) { setError('كلمتا المرور غير متطابقتين.'); setBusy(false); return; }
+    try { await request('auth/reset-password', { ...data, resetId, role: portal }); setRecovery('done'); setRecoveryHint('تم تغيير كلمة المرور. يمكنك تسجيل الدخول الآن.'); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
   }
   const googleLogin = useCallback(async (credential: string) => {
     setBusy(true); setError('');
@@ -43,7 +67,26 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
         <h1>{setupToken ? t("إنشاء حساب الأونر") : register ? t("انضم إلى منصّة") : t("تسجيل الدخول")}</h1>
         <p className="auth-welcome">{register ? t("أهلاً في منصّة.") : t("أهلاً بعودتك.")}</p>
         {portal !== 'admin' && !setupToken && <nav className="auth-role-tabs" aria-label={t("بوابات المنصة")}><a href={`${base}students`} aria-current={portal === 'students' ? 'page' : undefined}><GraduationCap size={18} />{t("طالب")}</a><a href={`${base}teachers`} aria-current={portal === 'teachers' ? 'page' : undefined}><Users size={18} />{t("أستاذ")}</a></nav>}
-        <form onSubmit={submit}>
+        {recovery ? <div className="password-recovery" aria-live="polite">
+          <div className="password-recovery-icon"><KeyRound size={24} /></div>
+          <h2>{recovery === 'done' ? t('تم تغيير كلمة المرور') : t('استعادة كلمة المرور')}</h2>
+          {recoveryHint && <p className={recovery === 'done' ? 'notice success' : 'auth-welcome'}>{t(recoveryHint)}</p>}
+          {recovery === 'request' && <form onSubmit={requestReset}>
+            <label>{t('البريد الإلكتروني أو رقم الهاتف')}<div className="auth-input-wrap"><Mail size={18} /><input name="identifier" dir="ltr" autoComplete="username" placeholder="you@example.com / 0790000000" maxLength={254} required /></div></label>
+            {error && <p className="notice error" role="alert">{t(error)}</p>}
+            <button className="primary-button auth-submit" disabled={busy}><KeyRound size={18} />{busy ? t('جاري الإرسال…') : t('إرسال رمز التحقق')}</button>
+          </form>}
+          {recovery === 'reset' && <form onSubmit={completeReset}>
+            {debugCode && <p className="notice success" dir="ltr">DEV CODE: <strong>{debugCode}</strong></p>}
+            <label>{t('رمز التحقق')}<div className="auth-input-wrap"><KeyRound size={18} /><input name="code" inputMode="numeric" autoComplete="one-time-code" dir="ltr" pattern="[0-9]{6}" minLength={6} maxLength={6} required /></div></label>
+            <label>{t('كلمة المرور الجديدة')}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="password" type="password" dir="ltr" autoComplete="new-password" minLength={12} maxLength={128} required /></div></label>
+            <label>{t('تأكيد كلمة المرور')}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="confirm_password" type="password" dir="ltr" autoComplete="new-password" minLength={12} maxLength={128} required /></div></label>
+            {error && <p className="notice error" role="alert">{t(error)}</p>}
+            <button className="primary-button auth-submit" disabled={busy}>{busy ? t('جاري الحفظ…') : t('تغيير كلمة المرور')}</button>
+          </form>}
+          {recovery === 'done' && <button className="primary-button auth-submit" onClick={() => { setRecovery(null); setError(''); }}>{t('العودة لتسجيل الدخول')}</button>}
+          {recovery !== 'done' && <button className="text-button" type="button" onClick={() => { setRecovery(null); setError(''); }}>{t('العودة لتسجيل الدخول')}</button>}
+        </div> : <><form onSubmit={submit}>
           {register && <label>{t("الاسم الكامل")}<div className="auth-input-wrap"><UserPlus size={18} /><input name="name" autoComplete="name" placeholder={t("اسمك الكامل")} maxLength={100} required /></div></label>}
           <label>{t("البريد الإلكتروني")}<div className="auth-input-wrap"><Mail size={18} /><input name="email" type="email" dir="ltr" autoComplete="email" placeholder="you@example.com" maxLength={254} required /></div></label>
           <label>{t("كلمة المرور")}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="password" type={showPassword ? 'text' : 'password'} dir="ltr" autoComplete={register ? 'new-password' : 'current-password'} minLength={12} maxLength={128} required /><button type="button" className="password-toggle" aria-label={showPassword ? t("إخفاء كلمة المرور") : t("إظهار كلمة المرور")} title={showPassword ? t("إخفاء كلمة المرور") : t("إظهار كلمة المرور")} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
@@ -51,8 +94,9 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
           {error && <p className="notice error" role="alert">{t(error)}</p>}
           <button className="primary-button auth-submit" disabled={busy}><LogIn size={18} />{busy ? t("جارٍ المتابعة…") : register ? t("إنشاء الحساب") : t("دخول")}<ArrowLeft size={18} /></button>
         </form>
+        {!register && !setupToken && <button className="text-button forgot-password-link" type="button" onClick={() => { setRecovery('request'); setError(''); setRecoveryHint(''); }}>{t('نسيت كلمة المرور؟')}</button>}
         {portal !== 'admin' && !setupToken && !register && <div className="auth-google-option"><div className="registration-divider"><span>{t('أو')}</span></div><GoogleSignInButton onCredential={googleLogin} /></div>}
-        {portal !== 'admin' && <div className="auth-register"><span>{register ? t("لديك حساب؟") : t("أول مرة في منصّة؟")}</span><button className="text-button" onClick={() => { setRegister(!register); setError(''); }}><UserPlus size={17} />{register ? t("لدي حساب بالفعل") : t("إنشاء حساب جديد")}</button></div>}
+        {portal !== 'admin' && <div className="auth-register"><span>{register ? t("لديك حساب؟") : t("أول مرة في منصّة؟")}</span><button className="text-button" onClick={() => { setRegister(!register); setError(''); }}><UserPlus size={17} />{register ? t("لدي حساب بالفعل") : t("إنشاء حساب جديد")}</button></div>}</>}
       </section>
       <footer className="auth-footer"><ShieldCheck size={15} /><span>{t(portalNames[portal])}</span><span>امتداد العلم © {new Date().getFullYear()}</span></footer>
     </div>

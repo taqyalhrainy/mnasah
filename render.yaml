@@ -20,6 +20,21 @@ services:
         generateValue: true
       - key: CLIENT_ORIGIN
         sync: false
+      - key: PLATFORM_COMMISSION_PERCENT
+        value: 10
+      - key: PASSWORD_RESET_SECRET
+        generateValue: true
+      # Configure Resend for email recovery, or Twilio for SMS recovery.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: PASSWORD_RESET_FROM
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
       # Use the same OAuth 2.0 Web Client ID in both variables.
       - key: GOOGLE_CLIENT_ID
         sync: false

@@ -84,6 +84,8 @@ async function connect() {
     db.collection('users').createIndex({ role: 1 }),
     db.collection('sessions').createIndex({ token: 1 }, { unique: true }),
     db.collection('sessions').createIndex({ expires: 1 }, { expireAfterSeconds: 0 }),
+    db.collection('password_resets').createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+    db.collection('password_resets').createIndex({ user_id: 1, created: -1 }),
     db.collection('slots').createIndex({ teacher_id: 1, start: 1 }),
     db.collection('slots').createIndex({ start: 1 }),
     db.collection('bookings').createIndex({ slot_id: 1 }),
@@ -91,6 +93,9 @@ async function connect() {
     db.collection('bookings').createIndex({ student_id: 1, start: 1 }),
     db.collection('ratings').createIndex({ booking_id: 1, student_id: 1 }, { unique: true }),
     db.collection('ratings').createIndex({ teacher_id: 1, created: -1 }),
+    db.collection('lesson_reports').createIndex({ id: 1 }, { unique: true }),
+    db.collection('lesson_reports').createIndex({ status: 1, created: -1 }),
+    db.collection('lesson_reports').createIndex({ booking_id: 1, reporter_id: 1, status: 1 }),
     db.collection('messages').createIndex({ booking_id: 1, created: 1 }),
     db.collection('conversations').createIndex({ id: 1 }, { unique: true }),
     db.collection('conversations').createIndex({ teacher_id: 1, student_id: 1 }, { unique: true }),
@@ -248,6 +253,11 @@ function cookie(req, name) {
 function publicUser(u) {
   return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
 }
+async function restoreExpiredSuspension(user) {
+  if (user?.status !== 'suspended' || !Number(user.suspended_until || 0) || Number(user.suspended_until) > Date.now()) return user;
+  await db.collection('users').updateOne({ id: user.id, status: 'suspended' }, { $set: { status: 'active' }, $unset: { suspended_until: '', suspension_reason: '' } });
+  return { ...user, status: 'active', suspended_until: 0, suspension_reason: '' };
+}
 
 async function teacherRatingMap(teacherIds) {
   const ids = [...new Set((teacherIds || []).filter(Boolean))];
@@ -270,6 +280,42 @@ async function googleIdentity(credential) {
   if (!response.ok || profile.aud !== GOOGLE_CLIENT_ID || profile.email_verified !== 'true' || !profile.email) fail(401, 'تعذر التحقق من حساب Google.');
   return { email: String(profile.email).toLowerCase(), name: String(profile.name || '').trim(), sub: String(profile.sub || '') };
 }
+const normalizeJordanPhone = value => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (/^07[789]\d{7}$/.test(digits)) return digits;
+  if (/^9627[789]\d{7}$/.test(digits)) return `0${digits.slice(3)}`;
+  return '';
+};
+async function deliverPasswordReset(user, code) {
+  if (user.email && process.env.RESEND_API_KEY && process.env.PASSWORD_RESET_FROM) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: process.env.PASSWORD_RESET_FROM,
+        to: [user.email],
+        subject: 'رمز استعادة كلمة المرور - امتداد العلم',
+        html: `<div dir="rtl" style="font-family:Arial,sans-serif"><h2>استعادة كلمة المرور</h2><p>رمز التحقق الخاص بك:</p><p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p><p>ينتهي الرمز خلال 10 دقائق. لا تشاركه مع أي شخص.</p></div>`,
+      }),
+    });
+    if (!response.ok) throw new Error('تعذر إرسال رمز الاستعادة إلى البريد الإلكتروني.');
+    return { channel: 'email', destination: user.email.replace(/^(.{2}).*(@.*)$/, '$1***$2') };
+  }
+  const phone = normalizeJordanPhone(user.phone);
+  if (phone && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
+    const destination = `+962${phone.slice(1)}`;
+    const form = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM_NUMBER, Body: `رمز استعادة كلمة المرور في امتداد العلم: ${code}. صالح لمدة 10 دقائق.` });
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form,
+    });
+    if (!response.ok) throw new Error('تعذر إرسال رمز الاستعادة إلى رقم الهاتف.');
+    return { channel: 'phone', destination: `${phone.slice(0, 3)}****${phone.slice(-2)}` };
+  }
+  if (process.env.NODE_ENV !== 'production') return { channel: 'development', destination: 'local', debugCode: code };
+  fail(503, 'خدمة استعادة كلمة المرور غير مفعلة على الخادم بعد. راجع الدعم الفني.');
+}
 function setSession(res, role, token, expires) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure; SameSite=None' : '; SameSite=Lax';
   res.setHeader('Set-Cookie', `${sessionCookie(role)}=${token}; Path=/; HttpOnly${secure}; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}`);
@@ -284,7 +330,12 @@ async function getUser(req, role) {
   if (!token) return null;
   const session = await database.collection('sessions').findOne({ token: digest(token), expires: { $gt: Date.now() } });
   if (!session) return null;
-  return database.collection('users').findOne({ id: session.user_id });
+  const user = await database.collection('users').findOne({ id: session.user_id });
+  if (user?.status === 'suspended' && Number(user.suspended_until || 0) > 0 && Number(user.suspended_until) <= Date.now()) {
+    await database.collection('users').updateOne({ id: user.id, status: 'suspended', suspended_until: { $lte: Date.now() } }, { $set: { status: 'active' }, $unset: { suspended_until: '', suspension_reason: '' } });
+    return { ...user, status: 'active', suspended_until: 0, suspension_reason: '' };
+  }
+  return user;
 }
 io.use(async (socket, next) => {
   try {
@@ -356,6 +407,19 @@ async function bookingRows(filter = {}, limit = 500) {
   const bookings = await db.collection('bookings').find(filter, { projection: { _id: 0 } }).sort({ created: -1 }).limit(limit).toArray();
   return enrichBookings(bookings);
 }
+async function ensureAutomaticNoShowReports(bookings) {
+  const now = Date.now();
+  const missing = bookings.filter(row => row.status === 'confirmed' && Number(row.start) + 10 * 60000 <= now && !Number(row.teacher_joined_at || 0) && Number(row.student_joined_at || 0) > 0);
+  for (const row of missing) {
+    const reportId = `auto-no-show:${row.id}`;
+    const result = await db.collection('lesson_reports').updateOne(
+      { id: reportId },
+      { $setOnInsert: { id: reportId, booking_id: row.id, reporter_id: row.student_id, teacher_id: row.teacher_id, category: 'teacher_absent', note: 'تجاوز الأستاذ 10 دقائق من بداية الحصة دون الدخول.', status: 'pending', automatic: true, created: now, evidence: { lesson_start: Number(row.start), teacher_joined_at: 0, student_joined_at: Number(row.student_joined_at || 0) } } },
+      { upsert: true },
+    );
+    if (result.upsertedCount) await db.collection('bookings').updateOne({ id: row.id, status: 'confirmed' }, { $set: { payout_status: 'held', payout_hold_reason: `report:${reportId}` } });
+  }
+}
 async function enrichBookings(bookings) {
   const slotIds = [...new Set(bookings.map(b => b.slot_id))];
   const slots = await db.collection('slots').find({ id: { $in: slotIds } }, { projection: { _id: 0 } }).toArray();
@@ -400,6 +464,41 @@ app.all('/api/auth/:action', async (req, res, next) => {
       clearSession(res, requestedRole);
       return res.json({ user: null });
     }
+    if (action === 'forgot-password') {
+      const role = body.role;
+      if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
+      const identifier = field(body.identifier || body.email || body.phone, 254).toLowerCase();
+      const phone = normalizeJordanPhone(identifier);
+      const user = await db.collection('users').findOne({ role, ...(phone ? { phone: { $in: [phone, `+962${phone.slice(1)}`, `962${phone.slice(1)}`] } } : { email: identifier }) });
+      const generic = { ok: true, message: 'إذا كانت البيانات مرتبطة بحساب، سيصلك رمز الاستعادة الآن.' };
+      if (!user) return res.json(generic);
+      const recent = await db.collection('password_resets').countDocuments({ user_id: user.id, created: { $gt: Date.now() - 15 * 60000 } });
+      if (recent >= 3) fail(429, 'تم إرسال عدة رموز مؤخراً. انتظر 15 دقيقة ثم حاول مجدداً.');
+      const code = String(crypto.randomInt(100000, 1000000));
+      const resetId = crypto.randomUUID();
+      const delivery = await deliverPasswordReset(user, code);
+      await db.collection('password_resets').insertOne({ id: resetId, user_id: user.id, role, code_hash: digest(`${resetId}:${code}:${process.env.PASSWORD_RESET_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000), used_at: 0 });
+      return res.json({ ...generic, resetId, channel: delivery.channel, destination: delivery.destination, ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}) });
+    }
+    if (action === 'reset-password') {
+      const role = body.role;
+      if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
+      const resetId = field(body.resetId, 100), code = field(body.code, 6, 6), password = field(body.password, 128, 12);
+      if (!/^\d{6}$/.test(code)) fail(400, 'رمز التحقق يجب أن يتكون من 6 أرقام.');
+      const reset = await db.collection('password_resets').findOne({ id: resetId, role, used_at: 0 });
+      if (!reset || new Date(reset.expires_at).getTime() <= Date.now()) fail(400, 'رمز الاستعادة منتهي أو غير صالح. اطلب رمزاً جديداً.');
+      if (Number(reset.attempts || 0) >= 5) fail(429, 'تم تجاوز عدد المحاولات. اطلب رمزاً جديداً.');
+      const expected = digest(`${resetId}:${code}:${process.env.PASSWORD_RESET_SECRET || OWNER_SETUP_TOKEN}`);
+      if (!equal(expected, reset.code_hash)) {
+        await db.collection('password_resets').updateOne({ id: resetId }, { $inc: { attempts: 1 } });
+        fail(400, 'رمز التحقق غير صحيح.');
+      }
+      await db.collection('users').updateOne({ id: reset.user_id, role }, { $set: { password: passwordHash(password), must_change_password: 0, password_changed_at: Date.now() }, $unset: { temporary_password_expires: '' } });
+      await db.collection('password_resets').updateOne({ id: resetId, used_at: 0 }, { $set: { used_at: Date.now() } });
+      await db.collection('sessions').deleteMany({ user_id: reset.user_id });
+      await audit(reset.user_id, 'user:self-password-reset', reset.user_id);
+      return res.json({ ok: true });
+    }
     if (!['login', 'register', 'setup', 'google'].includes(action)) fail(404, 'الطلب غير موجود.');
     const google = action === 'google' ? await googleIdentity(body.credential) : null;
     const email = google?.email || field(body.email, 254).toLowerCase();
@@ -412,6 +511,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
       user = await db.collection('users').findOne({ email });
       const hash = passwordHash(password, user?.password?.split(':')[0] || 'missing-account-salt');
       if (!user || user.role !== role || !equal(hash, user.password)) fail(401, 'بيانات الدخول غير صحيحة لهذا القسم.');
+      user = await restoreExpiredSuspension(user);
       if (user.status === 'suspended') fail(403, 'الحساب موقوف. راجع الإدارة.');
     } else if (action === 'google') {
       user = await db.collection('users').findOne({ email });
@@ -426,6 +526,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
         await db.collection('users').updateOne({ id: user.id }, { $set: { auth_provider: 'google', email_verified: 1, google_sub: google.sub } });
         user = { ...user, auth_provider: 'google', email_verified: 1, google_sub: google.sub };
       }
+      user = await restoreExpiredSuspension(user);
       if (user.status === 'suspended') fail(403, 'الحساب موقوف. راجع الإدارة.');
     } else {
       if (action === 'setup') {
@@ -479,7 +580,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
 
     if (path === 'profile') {
       if (write) {
-        const profile = { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: field(body.phone || '', 40, 0) };
+        const requestedPhone = body.phone === undefined ? user.phone || '' : normalizeJordanPhone(body.phone);
+        if (body.phone !== undefined && !requestedPhone) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
+        const profile = { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: requestedPhone };
         if (body.custom_packages !== undefined) profile.custom_packages = serializeCustomPackages(body.custom_packages);
         await db.collection('users').updateOne({ id: user.id }, { $set: profile });
       }
@@ -504,11 +607,43 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json(result.data);
     }
     if (path === 'catalog') return res.json(await handleCatalog(user, write, body));
+    if (path === 'reports' && user.role === 'admin' && !write) {
+      const reports = await db.collection('lesson_reports').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(500).toArray();
+      const bookingDocs = await db.collection('bookings').find({ id: { $in: reports.map(report => report.booking_id) } }, { projection: { _id: 0 } }).toArray();
+      const enriched = await enrichBookings(bookingDocs);
+      const bookingMap = new Map(enriched.map(booking => [booking.id, booking]));
+      return res.json({ reports: reports.map(report => ({ ...report, booking: bookingMap.get(report.booking_id) || null })) });
+    }
+    if (/^reports\/[^/]+\/resolve$/.test(path) && user.role === 'admin' && write) {
+      const reportId = path.split('/')[1];
+      const report = await db.collection('lesson_reports').findOne({ id: reportId, status: 'pending' });
+      if (!report) fail(404, 'الشكوى غير موجودة أو تمت مراجعتها مسبقاً.');
+      const resolution = body.resolution === 'upheld' ? 'upheld' : body.resolution === 'dismissed' ? 'dismissed' : '';
+      if (!resolution) fail(400, 'اختر نتيجة صحيحة لمراجعة الشكوى.');
+      const action = ['none', 'warning', 'suspend_7d', 'suspend_30d', 'ban'].includes(body.action) ? body.action : 'none';
+      const booking = await db.collection('bookings').findOne({ id: report.booking_id });
+      if (!booking) fail(404, 'الحصة المرتبطة بالشكوى غير موجودة.');
+      const now = Date.now();
+      await db.collection('lesson_reports').updateOne({ id: reportId, status: 'pending' }, { $set: { status: resolution, action, owner_note: field(body.note || '', 2000, 0), resolved_at: now, resolved_by: user.id } });
+      await db.collection('bookings').updateOne({ id: booking.id }, { $set: { payout_status: resolution === 'dismissed' ? 'released' : 'forfeited', payout_reviewed_at: now } });
+      if (resolution === 'upheld') {
+        const teacherId = (await db.collection('slots').findOne({ id: booking.slot_id }))?.teacher_id;
+        if (teacherId && action !== 'none') {
+          const update = action === 'warning'
+            ? { $inc: { moderation_warnings: 1 }, $set: { last_warning_at: now } }
+            : { $set: { status: 'suspended', suspended_until: action === 'ban' ? 0 : now + (action === 'suspend_30d' ? 30 : 7) * 86400000, suspension_reason: `شكوى حصة مثبتة: ${reportId}` } };
+          await db.collection('users').updateOne({ id: teacherId, role: 'teachers' }, update);
+          await db.collection('sessions').deleteMany({ user_id: teacherId });
+        }
+      }
+      await audit(user.id, `report:${resolution}:${action}`, reportId);
+      return res.json({ ok: true });
+    }
     if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
       const range = paymentRange(req.query);
       const slots = await db.collection('slots').find({ start: { $gte: range.from, $lt: range.until }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { id: 1 } }).toArray();
       const bookings = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, $or: [{ status: 'completed' }, { status: 'cancelled', teacher_compensation: { $gt: 0 } }] }, { projection: { _id: 0 } }).toArray();
-      return res.json(paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 15));
+      return res.json(paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 10));
     }
     if (path === 'users' && user.role === 'admin' && !write) {
       const rows = await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray();
@@ -716,6 +851,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
     if (['overview', 'home', 'booked', 'available', 'history', 'reminders', 'rooms'].includes(path) && !write) {
       const bookings = await bookingRows(user.role === 'admin' ? {} : user.role === 'teachers' ? {} : { student_id: user.id });
+      await ensureAutomaticNoShowReports(bookings);
       const owned = user.role === 'teachers' ? bookings.filter(b => b.teacher_id === user.id) : bookings;
       const slots = user.role === 'teachers' ? await db.collection('slots').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ start: -1 }).limit(500).toArray() : undefined;
       return res.json({ bookings: owned, ...(slots ? { slots } : {}) });
@@ -825,9 +961,10 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           const key = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
           const peerKey = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
           const joinedKey = user.role === 'teachers' ? 'teacher_joined_at' : 'student_joined_at';
+          const seenKey = user.role === 'teachers' ? 'teacher_last_seen_at' : 'student_last_seen_at';
           const until = body.active === false ? 0 : Date.now() + 45000;
           const peerId = body.active === false ? '' : field(body.peerId || '', 160, 0);
-          await db.collection('bookings').updateOne({ id }, { $set: { [key]: until, [peerKey]: peerId } });
+          await db.collection('bookings').updateOne({ id }, { $set: { [key]: until, [peerKey]: peerId, [seenKey]: Date.now() } });
           if (body.active !== false) await db.collection('bookings').updateOne({ id, $or: [{ [joinedKey]: { $exists: false } }, { [joinedKey]: 0 }] }, { $set: { [joinedKey]: Date.now() } });
           row[key] = until;
           row[peerKey] = peerId;
@@ -853,14 +990,33 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         const names = new Map(users.map(u => [u.id, u.name]));
         return res.json({ messages: messages.map(m => ({ ...m, name: names.get(m.author_id) || '' })) });
       }
+      if (action === 'feedback' && write && user.role === 'students') {
+        if (row.student_id !== user.id || row.status === 'cancelled' || Date.now() < Number(row.start)) fail(409, 'يمكن إرسال تقييم الحصة أو الشكوى بعد بدء موعدها.');
+        const rating = Number(body.rating || 0);
+        if (rating && (!Number.isInteger(rating) || rating < 1 || rating > 5)) fail(400, 'اختر تقييماً بين 1 و5.');
+        const review = field(body.review || '', 1500, 0);
+        if (rating) await db.collection('ratings').updateOne({ booking_id: id, student_id: user.id }, { $set: { teacher_id: row.teacher_id, rating, review, updated: Date.now() }, $setOnInsert: { id: crypto.randomUUID(), booking_id: id, student_id: user.id, created: Date.now() } }, { upsert: true });
+        if (body.report === true) {
+          const category = ['teacher_absent', 'teacher_inactive', 'technical', 'conduct', 'content', 'other'].includes(body.category) ? body.category : 'other';
+          if (!review) fail(400, 'اكتب ملاحظة توضح سبب الشكوى.');
+          const existing = await db.collection('lesson_reports').findOne({ booking_id: id, reporter_id: user.id, status: 'pending' });
+          if (!existing) {
+            const report = { id: crypto.randomUUID(), booking_id: id, reporter_id: user.id, teacher_id: row.teacher_id, category, note: review, rating: rating || 0, status: 'pending', created: Date.now(), evidence: { lesson_start: Number(row.start), lesson_end: Number(row.start) + Number(row.minutes) * 60000, teacher_joined_at: Number(row.teacher_joined_at || 0), student_joined_at: Number(row.student_joined_at || 0), teacher_last_seen_at: Number(row.teacher_last_seen_at || 0), student_last_seen_at: Number(row.student_last_seen_at || 0), message_count: await db.collection('messages').countDocuments({ booking_id: id }) } };
+            await db.collection('lesson_reports').insertOne(report);
+            await db.collection('bookings').updateOne({ id }, { $set: { payout_status: 'held', payout_hold_reason: `report:${report.id}` } });
+            await audit(user.id, 'booking:report', id);
+          }
+        }
+        return res.json({ ok: true });
+      }
       if (action === 'cancellation' && !write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        return res.json({ quote: row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 }) });
+        return res.json({ quote: row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 10 }) });
       }
       if (action === 'cancel' && write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
         if (user.role === 'students' && Number(row.start) <= Date.now()) fail(409, 'بعد بدء الحصة استخدم بلاغ عدم حضور الأستاذ إن لم يدخل خلال 10 دقائق.');
-        const quote = row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 20 });
+        const quote = row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 10 });
         const cancellation = { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: user.role, cancellation_reason: field(body.reason || '', 300, 0), refund_amount: quote.refund, teacher_compensation: quote.teacherCompensation, platform_fee: quote.platformFee };
         const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: cancellation });
         if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
@@ -888,6 +1044,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: row.price, reference: `lesson-no-show-refund:${id}`, created: Date.now() });
         }
         if (row.package_purchase_id) await restorePackageLesson(row);
+        await db.collection('lesson_reports').updateOne(
+          { booking_id: id, reporter_id: user.id, category: 'teacher_absent' },
+          { $set: { teacher_id: row.teacher_id, note: field(body.reason || 'عدم حضور الأستاذ', 300, 0), status: 'upheld', automatic: true, resolved_at: Date.now(), evidence: { lesson_start: Number(row.start), teacher_joined_at: 0, student_joined_at: Number(row.student_joined_at || 0) } }, $setOnInsert: { id: crypto.randomUUID(), booking_id: id, reporter_id: user.id, category: 'teacher_absent', created: Date.now() } },
+          { upsert: true },
+        );
         await audit(user.id, 'booking:teacher-no-show', id);
         return res.json({ ok: true, quote });
       }

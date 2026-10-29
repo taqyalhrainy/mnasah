@@ -777,7 +777,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const loadWhiteboardFile = async (file: File) => {
     if (file.type.startsWith('image/')) return loadWhiteboardImage(file);
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error(t('حالياً يمكن فتح ملفات PDF والصور على اللوح.'));
+    const extension = file.name.toLowerCase().split('.').pop() || '';
+    if (['txt', 'md', 'csv', 'json', 'html', 'css', 'js', 'ts', 'tsx'].includes(extension) || file.type.startsWith('text/')) {
+      if (file.size > 2 * 1024 * 1024) throw new Error(t('الملف النصي أكبر من 2 ميغابايت.'));
+      const text = (await file.text()).slice(0, 12000);
+      const currentViewWidth = 1000 / whiteboardViewport.zoom;
+      const currentViewHeight = currentViewWidth / getLiveWhiteboardAspect();
+      const item: WhiteboardTextItem = { id: createWhiteboardId('file-text'), type: 'text', x: whiteboardViewport.x + currentViewWidth * .1, y: whiteboardViewport.y + currentViewHeight * .08, width: currentViewWidth * .8, height: currentViewHeight * .84, text: `${file.name}\n\n${text}`, color: '#18171c', fontSize: 20 / whiteboardViewport.zoom, fontFamily: 'Tajawal, sans-serif', fontWeight: 500, fontStyle: 'normal', textAlign: 'start', background: '#ffffff', opacity: 1 };
+      upsertWhiteboardItem(item, true); setSelectedWhiteboardItem(item.id); setWhiteboardTool('select'); return item;
+    }
+    if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(extension)) throw new Error(t('للحفاظ على شكل صفحات Word وPowerPoint أثناء الشرح، احفظ الملف بصيغة PDF ثم ارفعه هنا.'));
+    if (file.type !== 'application/pdf' && extension !== 'pdf') throw new Error(t('يمكن فتح PDF والصور والملفات النصية على مساحة الشرح.'));
     if (file.size > 20 * 1024 * 1024) throw new Error(t('الملف أكبر من 20 ميغابايت.'));
     setWhiteboardDocumentBusy(true);
     try {
@@ -824,6 +834,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    setStageMode('whiteboard');
+    sendWhiteboard({ kind: 'mode', mode: 'whiteboard' });
+    setFocusedParticipant(null); setSidePanel(null); setShowMore(false);
     void loadWhiteboardFile(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر فتح الملف على اللوح.')));
   };
 
@@ -1174,7 +1187,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
         <button data-whiteboard-tool="image" className="tool-mode" type="button" onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}><ImagePlus size={17} /></button>
         <input ref={whiteboardImageInputRef} className="whiteboard-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardImageChange} />
-        {role === 'teacher' && <><button data-whiteboard-tool="file" className="tool-mode" type="button" disabled={whiteboardDocumentBusy} onClick={() => whiteboardFileInputRef.current?.click()} aria-label={t('رفع ملف أو PDF')} title={t('رفع ملف أو PDF')}><FileUp size={17} /></button><input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input" type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardFileChange} /></>}
         <button className="tool-mode" type="button" onClick={undoWhiteboardAction} aria-label={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")} title={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")}><Undo2 size={17} /></button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(0.84); }} aria-label={t("تصغير")}>-</button>
@@ -1239,6 +1251,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : 'video-mode'}`}>
+      {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json,.doc,.docx,.ppt,.pptx,.xls,.xlsx" onChange={handleWhiteboardFileChange} />}
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
       {compact && <div className="compact-call-header"><button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button></div>}
 
@@ -1266,6 +1279,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button className={audioEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleAudioToggle} title={audioEnabled ? t("إيقاف المايك") : t("تشغيل المايك")} type="button">{audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button>
         <button className={videoEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleVideoToggle} title={videoEnabled ? t("إيقاف الكاميرا") : t("تشغيل الكاميرا")} type="button">{videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}</button>
         <button className={isScreenSharing ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handleScreenShareToggle} title={isScreenSharing ? t("إيقاف مشاركة الشاشة") : t("مشاركة الشاشة")} type="button">{isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}</button>
+        <button className="tool-button file-share-button" disabled={role !== 'teacher' || whiteboardDocumentBusy} onClick={() => whiteboardFileInputRef.current?.click()} title={role === 'teacher' ? t('فتح ملف للشرح والرسم عليه') : t('رفع الملف بتحكم الأستاذ')} type="button"><FileUp size={20} /><span>{t('ملف')}</span></button>
         <button className={stageMode === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} disabled={role !== 'teacher'} onClick={toggleWhiteboard} title={role === 'teacher' ? t("اللوح المشترك") : t("اللوح بتحكم الأستاذ")} type="button"><Grid2X2 size={20} /></button>
         <button className={sidePanel === 'chat' ? 'tool-button active-share' : 'tool-button'} onClick={() => { if (sidePanel === 'chat') updateLocalTyping(false); setSidePanel(sidePanel === 'chat' ? null : 'chat'); setShowMore(false); }} title={t("المحادثة")} type="button"><MessageSquare size={20} /></button>
         {installPrompt && <button className="tool-button" onClick={handleInstallApp} title={t("تثبيت كتطبيق")} type="button"><Download size={20} /></button>}

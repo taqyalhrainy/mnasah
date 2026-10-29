@@ -33,21 +33,23 @@ export function paymentRange(query, now = Date.now()) {
   const next = new Date(`${end}T12:00:00Z`); next.setUTCDate(next.getUTCDate() + 1);
   return { start, end, from: paymentMidnight(start), until: paymentMidnight(next.toISOString().slice(0, 10)) };
 }
-export function paymentSummary(rows, range, percent = 15) {
-  const commissionPercent = Number.isFinite(Number(percent)) ? Math.max(0, Math.min(90, Number(percent))) : 15;
+export function paymentSummary(rows, range, percent = 10) {
+  const commissionPercent = Number.isFinite(Number(percent)) ? Math.max(0, Math.min(90, Number(percent))) : 10;
   const bookings = rows.filter(row => (row.status === 'completed' || Number(row.teacher_compensation || 0) > 0) && row.start >= range.from && row.start < range.until).map(row => {
     const cancellationCompensation = Math.max(0, Number(row.teacher_compensation) || 0);
     const cancellationFee = Math.max(0, Number(row.platform_fee) || 0);
     const price = row.status === 'cancelled' ? cancellationCompensation + cancellationFee : Math.max(0, Number(row.price) || 0);
     const fee = row.status === 'cancelled' ? cancellationFee : Math.round(price * commissionPercent / 100);
-    return { ...row, price, fee, net: price - fee };
+    return { ...row, price, fee, net: price - fee, payoutHeld: row.payout_status === 'held', payoutForfeited: row.payout_status === 'forfeited' };
   }).sort((a, b) => b.start - a.start);
   const summarize = list => {
     const gross = list.reduce((sum, row) => sum + row.price, 0);
     const fee = list.reduce((sum, row) => sum + row.fee, 0);
+    const held = list.filter(row => row.payoutHeld).reduce((sum, row) => sum + row.net, 0);
+    const forfeited = list.filter(row => row.payoutForfeited).reduce((sum, row) => sum + row.net, 0);
     const minutes = list.reduce((sum, row) => sum + row.minutes, 0);
     const collected = list.filter(row => row.paid === 1).reduce((sum, row) => sum + row.price, 0);
-    return { gross, fee, net: gross - fee, collected, uncollected: gross - collected, minutes, lessons: list.length, averageHourly: minutes ? Math.round(gross * 60 / minutes) : 0 };
+    return { gross, fee, net: gross - fee - held - forfeited, ...(held ? { held } : {}), ...(forfeited ? { forfeited } : {}), collected, uncollected: gross - collected, minutes, lessons: list.length, averageHourly: minutes ? Math.round(gross * 60 / minutes) : 0 };
   };
   const byTeacher = new Map(), byDay = new Map();
   for (const row of bookings) {

@@ -11,6 +11,7 @@ import { TopupReviewPanel } from './TopupReviewPanel';
 import { WorkspaceOverview, WorkspaceSkeleton } from './WorkspaceOverview';
 import { TeacherAvailabilityHub, type AvailabilityDraft } from './TeacherAvailabilityHub';
 import { LessonPackagesPanel } from './LessonPackagesPanel';
+import { ReportsPanel } from './ReportsPanel';
 import type { Category } from '../../services/platformApi';
 import { GraduationCap, Library, Languages, PenLine, Sparkles, Sprout } from 'lucide-react';
 const VideoRoom = lazy(() => import('../video/VideoRoom').then(module => ({ default: module.VideoRoom })));
@@ -130,6 +131,10 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [callCompact, setCallCompact] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [ratingDraft, setRatingDraft] = useState(0);
+  const [feedbackBooking, setFeedbackBooking] = useState<Booking | null>(null);
+  const [feedbackReport, setFeedbackReport] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState('teacher_inactive');
+  const [feedbackReview, setFeedbackReview] = useState('');
   const reminders = useLessonReminders(portal, user.id, revision, room?.id);
   const focusedSearch = useRef(0);
   useEffect(() => { onReminderControls?.(reminders.enabled, reminders.hint, reminders.toggle); }, [reminders.enabled, reminders.hint, onReminderControls]);
@@ -162,7 +167,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return () => navigator.serviceWorker?.removeEventListener('message', open);
   }, [portal, onView]);
   useEffect(() => {
-    if (view === 'messages' || view === 'payments' || view === 'earnings' || view === 'wallet' || view === 'topups' || (portal === 'teachers' && view === 'packages')) return;
+    if (view === 'messages' || view === 'payments' || view === 'earnings' || view === 'wallet' || view === 'topups' || view === 'reports' || (portal === 'teachers' && view === 'packages')) return;
     let alive = true;
     setLoading(true); setError('');
     const path = portal === 'students' ? (view === 'home' || view === 'packages' ? 'slots' : view === 'profile' ? 'profile' : 'overview') : view === 'bookings' ? 'overview' : view;
@@ -291,6 +296,14 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       await refresh();
     }
   };
+  const submitLessonFeedback = async () => {
+    if (!feedbackBooking) return;
+    if (!ratingDraft && !feedbackReport) { setError(t('اختر تقييماً أو فعّل خيار إرسال شكوى.')); return; }
+    if (feedbackReport && !feedbackReview.trim()) { setError(t('اكتب ملاحظة توضح سبب الشكوى.')); return; }
+    if (await act(() => post(`bookings/${feedbackBooking.id}/feedback`, { rating: ratingDraft, review: feedbackReview, report: feedbackReport, category: feedbackCategory }), t(feedbackReport ? 'تم إرسال التقييم والشكوى للأونر، وتم تقييد مستحقات الحصة لحين المراجعة.' : 'شكراً، تم حفظ تقييمك.'))) {
+      setFeedbackBooking(null); setFeedbackReport(false); setFeedbackReview(''); setRatingDraft(0);
+    }
+  };
   const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && (portal !== 'students' || slotOfferings(s).some(offering => availableBookingStarts(s, offering.minutes).length)) && matches(searchText(slotSubjects(s).join(' '), s.teacher_name || '', s.teacher_subjects || '')));
   const teacherMap = new Map<string, Booking>();
   bookings.forEach(b => { if (!teacherMap.has(b.teacher_id)) teacherMap.set(b.teacher_id, b); });
@@ -328,7 +341,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const commonLevels = [...new Set(catalog.flatMap(category => category.levels))];
   async function saveTeacherProfile(nextChoices = teachingChoices, nextPackages = customPackages, message = t('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.')) {
     return act(async () => {
-      const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, subject: serializeTeachingChoices(nextChoices), custom_packages: nextPackages });
+      const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, phone: user.phone, subject: serializeTeachingChoices(nextChoices), custom_packages: nextPackages });
       setCustomPackages(result.user.custom_packages || nextPackages);
       onUser(result.user);
     }, message);
@@ -479,8 +492,17 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         const presence = await request<{ teacherPeerId?: string | null; studentPeerId?: string | null }>(`${portal}/bookings/${room.id}/presence`);
         return room.role === 'teacher' ? presence.studentPeerId : presence.teacherPeerId;
       }}
-      onLeave={() => { setRoom(null); setCallCompact(false); refresh(); }}
+      onLeave={() => { const ended = bookings.find(booking => booking.id === room.id) || null; setRoom(null); setCallCompact(false); if (portal === 'students' && ended && Date.now() >= ended.start) { setFeedbackBooking(ended); setRatingDraft(ended.student_rating || 0); } refresh(); }}
     /></Suspense></div>;
+  const feedbackDialog = feedbackBooking && <dialog ref={node => { if (node && !node.open) node.showModal(); }} className="detail-dialog lesson-feedback-dialog" onCancel={() => setFeedbackBooking(null)}>
+    <div className="section-heading"><div><span className="section-kicker">{t('بعد انتهاء المكالمة')}</span><h2>{t('كيف كانت الحصة؟')}</h2><p>{t('تقييمك يساعدنا على تحسين الجودة وحماية حقوقك.')}</p></div><button className="icon-button" onClick={() => setFeedbackBooking(null)} title={t('إغلاق')}><X size={20} /></button></div>
+    <div className="rating-stars feedback-stars" role="radiogroup" aria-label={t('تقييم الحصة')}>{[1, 2, 3, 4, 5].map(value => <button type="button" role="radio" aria-checked={ratingDraft === value} className={value <= ratingDraft ? 'active' : ''} onClick={() => setRatingDraft(value)} key={value}><Star size={30} fill="currentColor" /></button>)}</div>
+    <label className="feedback-note">{t('ملاحظتك')}<textarea rows={4} maxLength={1500} value={feedbackReview} onChange={event => setFeedbackReview(event.target.value)} placeholder={t('اكتب ملاحظتك عن الحصة…')} /></label>
+    <label className="feedback-report-toggle"><input type="checkbox" checked={feedbackReport} onChange={event => setFeedbackReport(event.target.checked)} /><span><strong>{t('إرسال شكوى للأونر')}</strong><small>{t('سيتم إيقاف تحويل مستحقات هذه الحصة حتى تنتهي المراجعة.')}</small></span></label>
+    {feedbackReport && <label>{t('نوع المشكلة')}<select value={feedbackCategory} onChange={event => setFeedbackCategory(event.target.value)}><option value="teacher_absent">{t('الأستاذ لم يحضر')}</option><option value="teacher_inactive">{t('لم يتم تقديم الحصة')}</option><option value="technical">{t('مشكلة تقنية')}</option><option value="content">{t('مشكلة في المحتوى')}</option><option value="conduct">{t('سلوك غير مناسب')}</option><option value="other">{t('أخرى')}</option></select></label>}
+    {error && <p className="notice error" role="alert">{t(error)}</p>}
+    <div className="row-actions"><button className="secondary-button" onClick={() => setFeedbackBooking(null)}>{t('لاحقاً')}</button><button className="primary-button" disabled={busy} onClick={() => void submitLessonFeedback()}>{t(feedbackReport ? 'إرسال التقييم والشكوى' : 'إرسال التقييم')}</button></div>
+  </dialog>;
   const packageMarketplace = <section className="lesson-package-marketplace">
     <div className="section-heading"><div><span className="section-kicker">{t('وفّر أكثر والتزم بخطتك')}</span><h3>{t('باقات الأساتذة')}</h3><p>{t('مجموعة حصص بسعر واحد، وتحجز مواعيدك لاحقاً حسب وقتك ووقت الأستاذ.')}</p></div></div>
     {!lessonPackages.length ? <div className="empty-state compact-empty"><PackageCheck size={30} /><p>{t('لا توجد باقات منشورة حالياً.')}</p></div> : <div className="lesson-package-offer-grid">{lessonPackages.slice(0, 8).map(item => <article className="lesson-package-offer" key={item.id}>
@@ -534,13 +556,15 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     </dialog>;
   })();
   const insufficientWalletDialog = insufficientWallet && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setInsufficientWallet(null)} className="detail-dialog wallet-shortfall-dialog" aria-labelledby="wallet-shortfall-title"><header><span><CircleAlert size={24} /></span><div><h2 id="wallet-shortfall-title">{t('رصيد محفظتك غير كافي')}</h2><p>{t('اشحن محفظتك ثم ارجع لتأكيد الحجز.')}</p></div><button className="icon-button" type="button" aria-label={t('إغلاق')} onClick={() => setInsufficientWallet(null)}><X size={20} /></button></header><dl><div><dt>{t('رصيد المحفظة')}</dt><dd>{money(insufficientWallet.balance)}</dd></div><div><dt>{t('سعر الطلب')}</dt><dd>{money(insufficientWallet.price)}</dd></div><div className="shortfall"><dt>{t('المتبقي لإتمامه')}</dt><dd>{money(Math.max(0, insufficientWallet.price - insufficientWallet.balance))}</dd></div></dl><button className="primary-button" type="button" onClick={() => setInsufficientWallet(null)}>{t('حسناً')}</button></dialog>;
+  const teacherNoShowWarnings = portal === 'teachers' && bookings.filter(b => b.status === 'confirmed' && reminders.now >= b.start && reminders.now < b.start + 10 * 60000 && !Number(b.teacher_joined_at || 0)).map(b => <div className="notice error teacher-no-show-warning" key={`warning-${b.id}`}><CircleAlert size={20} /><span>{t('بدأت حصة {v0}. ادخل الآن؛ بعد 10 دقائق سيُرفع بلاغ غياب تلقائي وتُقيّد مستحقات الحصة.', { v0: catalogText(b.subject) })}</span><button className="primary-button" onClick={() => void join(b)}><Video size={16} />{t('دخول الآن')}</button></div>);
   if (view === 'messages') return <>{callLayer}</>;
   if (portal === 'students' && view === 'wallet') return <>{callLayer}<WalletPanel requiredAmount={walletRequired} /></>;
   if (portal === 'admin' && view === 'topups') return <>{callLayer}<TopupReviewPanel /></>;
   if ((portal === 'admin' && view === 'payments') || (portal === 'teachers' && view === 'earnings')) return <>{callLayer}<PaymentsPanel portal={portal === 'admin' ? 'admin' : 'teachers'} /></>;
+  if (portal === 'admin' && view === 'reports') return <ReportsPanel />;
   if (portal === 'teachers' && view === 'packages') return <>{callLayer}<div className="portal-content tutor-experience"><LessonPackagesPanel subjects={teacherSubjects} /></div></>;
   if (portal === 'teachers' && view === 'profile' && !loading) return <>{callLayer}<div className="portal-content tutor-experience"><section className="student-page account-page"><h2>{t('حسابي')}</h2>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<div className="profile-layout"><form className="work-form" onSubmit={async event => { event.preventDefault(); const data = formData(event.currentTarget); await act(async () => { const result = await request<{ user: User }>('teachers/profile', data); onUser(result.user); }); }}><h3>{t('ملف الأستاذ')}</h3>{teacherAvatarEditor}<label>{t('الاسم الكامل')}<input name="name" defaultValue={user.name} required /></label><label>{t('البريد الإلكتروني')}<input value={user.email} readOnly dir="ltr" /></label><label>{t('المواد والمستويات')}<textarea value={teachingChoices.map(choice => teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))).join('\n')} readOnly rows={5} /></label><input type="hidden" name="subject" value={user.subject} /><label>{t('نبذة مهنية')}<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />{t('حفظ')}</button></form><div className="account-settings"><button onClick={() => setSuccess(t('حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب.'))}>{t('حالة التوثيق: حسب موافقة الإدارة')}</button><button onClick={() => onView('available')}>{t('إعدادات التوفر')}</button><button onClick={() => onView('earnings')}>{t('تفاصيل المستحقات')}</button><button onClick={reminders.toggle}>{t('إعدادات الإشعارات')}</button></div></div></section></div></>;
-  if (portal === 'students') return <>{callLayer}{lessonDetails}{bookingDialog}{insufficientWalletDialog}<div className="portal-content student-experience">
+  if (portal === 'students') return <>{callLayer}{feedbackDialog}{lessonDetails}{bookingDialog}{insufficientWalletDialog}<div className="portal-content student-experience">
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" disabled={busy} onClick={() => void join(b)}><Video size={17} />{t("دخول الغرفة")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
@@ -564,6 +588,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {currentSlot && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelectedSlot(null)} className="detail-dialog"><div className="section-heading"><h2>{catalogText(currentSlot.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelectedSlot(null)}><X size={20} /></button></div><p>{date(currentSlot.start)}</p><p>{currentSlot.minutes}{t(" دقيقة · ")}{money(currentSlot.price)}</p><span className={`badge ${currentSlot.status}`}>{t(statusNames[currentSlot.status])}</span><div className="row-actions">{currentSlot.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm(t("حذف هذا الموعد؟"))) void act(() => post(`slots/${currentSlot.id}`), t("تم حذف الموعد.")); setSelectedSlot(null); }}><X size={17} />{t("حذف الموعد")}</button>}</div></dialog>}
   </div></>;
   if (portal === 'teachers') return <>{callLayer}{lessonDetails}<div className="portal-content tutor-experience">
+    {teacherNoShowWarnings}
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} /><div><strong>{catalogText(b.subject)}</strong><p>{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" disabled={busy} onClick={() => void join(b)}><Video size={17} />{t("دخول الغرفة")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
@@ -576,7 +601,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       {view === 'history' && <section className="student-page"><h2>{t("السجل")}</h2><div className="history-tabs"><button onClick={() => setFilter('all')}>{t("الكل")}</button><button onClick={() => setFilter('completed')}>{t("الحصص")}</button><button onClick={() => onView('earnings')}>{t("المستحقات")}</button></div><div className="history-list">{bookings.filter(b => filter === 'all' || b.status === filter).map(b => <article key={b.id}><HistoryIcon size={20} /><div><strong>{b.student_name}</strong><p>{catalogText(b.subject)} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b></article>)}</div></section>}
     </>}
   </div></>;
-  return <>{callLayer}<div className="portal-content">
+  return <>{callLayer}{feedbackDialog}<div className="portal-content">
     {portal !== 'admin' && <div className="reminder-settings"><button className="secondary-button" aria-pressed={reminders.enabled} onClick={reminders.toggle} title={reminders.enabled ? t("إيقاف الصوت وإشعارات الجهاز") : t("تفعيل الصوت وإشعارات الجهاز")}>{reminders.enabled ? <Bell size={18} /> : <BellOff size={18} />}{reminders.enabled ? t("التنبيهات مفعّلة") : t("تفعيل تنبيهات الحصص")}</button>{reminders.hint && <small role="status">{t(reminders.hint)}</small>}</div>}
     {reminders.upcoming.map(b => <div className="lesson-reminder lesson-pulse" key={b.id}><Bell size={22} aria-hidden="true" /><div><strong>{catalogText(b.subject)}</strong><p role="status">{b.start > reminders.now ? t("تبدأ خلال {v0} دقيقة", { v0: Math.ceil((b.start - reminders.now) / 60000) }) : t("حان موعد الحصة")}</p></div><button className="primary-button" disabled={busy} onClick={() => { onView('bookings'); void join(b); }}><Video size={17} />{t("دخول الحصة")}</button></div>)}
     {error && <p className="notice error" role="alert">{t(error)}</p>}

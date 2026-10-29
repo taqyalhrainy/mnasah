@@ -1292,6 +1292,45 @@ button.day-event { font: inherit; }
 }
 .whiteboard-tools input { min-width: 0; accent-color: #DBEAFE; }
 .whiteboard-tools .whiteboard-image-input { display: none; }
+.call-file-input { display: none !important; }
+.file-share-button { width: auto !important; min-width: 58px; gap: 5px; padding-inline: 10px !important; }
+.file-share-button span { font-size: 11px; font-weight: 800; }
+.forgot-password-link { justify-self: center; margin-top: 8px; }
+.password-recovery { display: grid; gap: 16px; }
+.password-recovery h2 { margin: 0; }
+.password-recovery-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; color: #fff; background: var(--primary); }
+.reports-page { display: grid; gap: 22px; }
+.report-list { display: grid; gap: 16px; }
+.report-card { display: grid; gap: 15px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.report-card.pending { border-inline-start: 4px solid #d39421; }
+.report-card.upheld { border-inline-start: 4px solid #c5424b; }
+.report-card.dismissed { border-inline-start: 4px solid #2b9a6d; }
+.report-card > header { display: flex; align-items: center; gap: 11px; }
+.report-card > header > div { display: grid; gap: 4px; flex: 1; }
+.report-card > header small { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.report-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: var(--primary); background: var(--surface-soft); }
+.report-lesson { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 13px; border-radius: 12px; background: var(--surface-soft); }
+.report-lesson span { color: var(--muted); }
+.report-lesson time { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.report-note { margin: 0; white-space: pre-wrap; }
+.report-evidence { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.report-evidence > div { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.report-evidence dt { color: var(--muted); font-size: 12px; }
+.report-evidence dd { margin: 0; font-weight: 700; }
+.report-resolution { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.report-resolution label { display: grid; gap: 6px; }
+.report-resolution select,.report-resolution textarea { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--surface); }
+.report-owner-note { grid-column: 1 / -1; }
+.report-resolution .primary-button { grid-column: 1 / -1; justify-self: end; }
+.payment-held { color: #b06b00; }
+@media(max-width:700px){.report-evidence,.report-resolution{grid-template-columns:1fr}.report-lesson{grid-template-columns:1fr}.report-lesson time{grid-column:auto;grid-row:auto}.report-owner-note,.report-resolution .primary-button{grid-column:auto}}
+.lesson-feedback-dialog { display: grid; gap: 18px; max-width: 580px; }
+.feedback-stars { justify-content: center; padding: 12px; }
+.feedback-note { display: grid; gap: 7px; }
+.feedback-note textarea,.lesson-feedback-dialog select { width: 100%; padding: 11px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); }
+.feedback-report-toggle { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.feedback-report-toggle > span { display: grid; gap: 3px; }
+.feedback-report-toggle small { color: var(--muted); }
 .whiteboard-color-picker { position: relative; display: grid; place-items: center; min-height: 34px; overflow: hidden; border: 1px solid #4b505c; border-radius: 10px; background: conic-gradient(#f33, #fd3, #3d5, #2cf, #36f, #b4f, #f33); cursor: pointer; }
 .whiteboard-color-picker > span { width: 22px; height: 22px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 2px 8px #0008; }
 .whiteboard-color-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
