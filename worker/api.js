@@ -239,8 +239,7 @@ export async function api(request, env, portal, path, body) {
     const hasAvailabilityWindow = Number.isSafeInteger(availableUntil) && availableUntil >= start + maxMinutes * 60000;
     const until = hasAvailabilityWindow ? availableUntil : start + maxMinutes * 60000;
     const now = Date.now();
-    if (!Number.isSafeInteger(start) || start > now + 31536000000) fail(400, 'تحقق من الموعد والفترة المتاحة.');
-    if (!hasAvailabilityWindow && start <= now) fail(400, 'اختر وقتاً مخصصاً بعد الوقت الحالي.');
+    if (!Number.isSafeInteger(start) || start > now + 31536000000 || start < now - 60000) fail(400, 'تحقق من الموعد والفترة المتاحة.');
     if (until <= now) fail(400, 'انتهت فترة التوفر. اختر وقت نهاية بعد الوقت الحالي.');
     const result = await run(env, `INSERT INTO slots (id,teacher_id,start,minutes,price,subject,subjects,offerings,available_until) SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM slots WHERE teacher_id=? AND status!='cancelled' AND start<? AND COALESCE(NULLIF(available_until,0),start+minutes*60000)>?)`, crypto.randomUUID(), user.id, start, defaultOffering.minutes, defaultOffering.price, subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', JSON.stringify(subjects), JSON.stringify(offerings), until, user.id, until, start);
     if (!result.meta.changes) fail(409, 'الموعد يتعارض مع موعد آخر.');

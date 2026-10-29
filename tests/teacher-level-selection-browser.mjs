@@ -53,7 +53,10 @@ try {
   await fourth.uncheck();
   await page.getByRole('button', { name: 'حفظ اختياراتي', exact: true }).click();
   await page.getByText('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.').waitFor();
-  await page.getByText('شو حاب تدرّس؟', { exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'اختر المادة', exact: true }).waitFor();
+  await page.locator('.package-grid .package-card').filter({ hasText: 'رياضيات' }).waitFor();
+  assert.equal(await page.locator('.package-grid .package-card strong').first().evaluate(element => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight), true, 'subject names should wrap without clipping');
+  await page.screenshot({ path: '.private/teacher-subjects-full.png', fullPage: true });
 
   assert.match(savedSubject, /المنهاج الأردني › رياضيات/);
   assert.doesNotMatch(savedSubject, /الصف الأول/);

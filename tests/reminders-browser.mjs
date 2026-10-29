@@ -36,7 +36,7 @@ try {
   await page.getByText('تبدأ خلال 10 دقيقة', { exact: true }).waitFor();
   await page.waitForFunction(() => window.sentReminders.length === 1);
   assert.equal(await page.locator('.lesson-reminder').count(), 1);
-  await page.getByRole('button', { name: 'فتح الغرف' }).waitFor();
+  await page.getByRole('button', { name: 'دخول الغرفة' }).waitFor();
   await page.screenshot({ path: '.private/reminder-mobile.png', fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.locator('.mobile-account summary').click();

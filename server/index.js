@@ -740,7 +740,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const hasAvailabilityWindow = Number.isSafeInteger(suppliedUntil) && suppliedUntil >= start + maxMinutes * 60000;
       const until = hasAvailabilityWindow ? suppliedUntil : start + maxMinutes * 60000;
       const now = Date.now();
-      if (!Number.isSafeInteger(start) || start > now + 31536000000 || (!hasAvailabilityWindow && start <= now) || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
+      if (!Number.isSafeInteger(start) || start > now + 31536000000 || start < now - 60000 || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
       const overlaps = await db.collection('slots').findOne({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until }, $expr: { $gt: [{ $ifNull: ['$available_until', { $add: ['$start', { $multiply: ['$minutes', 60000] }] }] }, start] } });
       if (overlaps) fail(409, 'الموعد يتعارض مع موعد آخر.');
       await db.collection('slots').insertOne({ id: crypto.randomUUID(), teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() });

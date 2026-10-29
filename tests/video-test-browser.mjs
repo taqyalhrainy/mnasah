@@ -17,7 +17,6 @@ const stressSteps = Number(process.env.WHITEBOARD_STRESS_STEPS || 600);
 const reconnectAttempts = Number(process.env.VIDEO_RECONNECT_ATTEMPTS || 3);
 teacher.on('pageerror', error => errors.push(error.message));
 student.on('pageerror', error => errors.push(error.message));
-const revealToolbar = async page => { const toggle = page.locator('.call-toolbar-toggle'); if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click(); await page.locator('.call-toolbar-shell.open').waitFor(); };
 
 try {
   const room = `browser-check-${Date.now()}`;
@@ -28,16 +27,15 @@ try {
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
 
-  await revealToolbar(teacher); await teacher.getByTitle('المحادثة').click();
-  await revealToolbar(student); await student.getByTitle('المحادثة').click();
+  await teacher.getByTitle('المحادثة').click();
+  await student.getByTitle('المحادثة').click();
   await teacher.getByLabel('رسالة جديدة').fill('أ');
   await student.locator('.call-typing-indicator').waitFor({ timeout: 10000 });
   assert.equal(await student.locator('.call-typing-indicator span').count(), 3);
   await student.locator('.call-typing-indicator').waitFor({ state: 'detached', timeout: 5000 });
-  await revealToolbar(teacher); await teacher.getByTitle('المحادثة').click();
-  await revealToolbar(student); await student.getByTitle('المحادثة').click();
+  await teacher.getByTitle('المحادثة').click();
+  await student.getByTitle('المحادثة').click();
 
-  await revealToolbar(teacher);
   await teacher.locator('.call-toolbar .tool-button').nth(3).click();
   await teacher.locator('.whiteboard-canvas').waitFor();
   await student.locator('.whiteboard-canvas').waitFor();
@@ -118,7 +116,6 @@ try {
 
   async function leaveAndReturn(leaver, waitingParticipant) {
     await waitingParticipant.evaluate(() => { window.remoteStreamBeforeReturn = document.querySelectorAll('video')[0]?.srcObject; });
-    await revealToolbar(leaver);
     await leaver.locator('.call-toolbar .danger').click();
     await leaver.locator('.session-controls .primary-button').click();
     await leaver.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });

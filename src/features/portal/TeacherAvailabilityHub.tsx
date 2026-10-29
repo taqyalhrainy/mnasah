@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, Trash2, X } from 'lucide-react';
 import { catalogText, locale, t, usePreferences } from '../../i18n/preferences';
 import { money, request, type Booking, type Slot, type SlotOffering } from '../../services/platformApi';
@@ -16,7 +17,14 @@ const clockMinutes = (value: string) => {
   const [hours, minutes] = value.split(':').map(Number);
   return Number.isInteger(hours) && Number.isInteger(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60 ? hours * 60 + minutes : -1;
 };
-const initialSchedule = (): Schedule => { const from = new Date(); from.setSeconds(0, 0); from.setMinutes(from.getMinutes() + 2); return { from: timeValue(from), to: timeValue(new Date(from.getTime() + 60 * 60000)) }; };
+const initialSchedule = (): Schedule => {
+  const from = new Date();
+  const partialMinute = from.getSeconds() > 0 || from.getMilliseconds() > 0;
+  from.setSeconds(0, 0);
+  const remainder = from.getMinutes() % 15;
+  if (remainder || partialMinute) from.setMinutes(from.getMinutes() + (remainder ? 15 - remainder : 15));
+  return { from: timeValue(from), to: timeValue(new Date(from.getTime() + 60 * 60000)) };
+};
 const atTime = (day: number, value: string) => { const [hours, minutes] = value.split(':').map(Number); const result = new Date(day); result.setHours(hours || 0, minutes || 0, 0, 0); return result.getTime(); };
 const availabilityEnd = (day: number, from: string, to: string) => {
   const end = atTime(day, to);
@@ -28,7 +36,8 @@ const availabilityRangeLabel = (start: number, end: number) => sameDay(start, en
   ? `${new Date(start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })} – ${new Date(end).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`
   : `${new Date(start).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })} → ${new Date(end).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(end).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`;
 const durationOptions = [30, 45, 60, 90, 120] as const;
-const timeOptions = Array.from({ length: 24 * 60 }, (_, minutes) => {
+const timeOptions = Array.from({ length: 24 * 4 }, (_, index) => {
+  const minutes = index * 15;
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 });
 const timeLabel = (value: string) => {
@@ -102,7 +111,7 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
     if (!offerings.length) { setLocalError(t('اختر مدة حصة واحدة على الأقل.')); return; }
     if (offerings.some(item => !Number.isFinite(item.price) || item.price < 0 || item.price > 100000)) { setLocalError(t('أدخل سعراً صحيحاً لكل مدة مختارة.')); return; }
     const start = atTime(selectedDay, schedule.from), availableUntil = availabilityEnd(selectedDay, schedule.from, schedule.to);
-    if (start <= Date.now()) { setLocalError(t('كل المواعيد يجب أن تبدأ بعد الوقت الحالي.')); return; }
+    if (start < Date.now() - 60000) { setLocalError(t('كل المواعيد يجب أن تبدأ بعد الوقت الحالي.')); return; }
     if (availableUntil - start < Math.max(...offerings.map(item => item.minutes)) * 60000) { setLocalError(t('الفترة المتاحة يجب أن تتسع لأطول مدة حصة اخترتها.')); return; }
     if (activeSlots.some(slot => start < (slot.available_until || slot.start + slot.minutes * 60000) && availableUntil > slot.start)) { setLocalError(t('الموعد يتعارض مع موعد آخر.')); return; }
     const subject = 'كل المواد المختارة'; setLocalError('');
@@ -131,7 +140,7 @@ export function TeacherAvailabilityHub({ subjects, slots, bookings, busy, onHome
 
 function ScheduleRow({ label, schedule, onChange }: { label: string; schedule: Schedule; onChange: (key: keyof Schedule, value: string) => void }) {
   const crossesMidnight = clockMinutes(schedule.to) <= clockMinutes(schedule.from);
-  return <div className="schedule-row"><div><CalendarDays size={18} /><strong>{label}</strong></div><TimeWheel label={t('من')} value={schedule.from} onChange={value => onChange('from', value)} /><span aria-hidden="true">→</span><TimeWheel label={t('إلى')} value={schedule.to} onChange={value => onChange('to', value)} note={crossesMidnight ? t('اليوم التالي') : ''} /></div>;
+  return <div className="schedule-row"><div><CalendarDays size={18} /><strong>{label}</strong></div><TimeWheel label={t('من')} value={schedule.from} onChange={value => onChange('from', value)} /><TimeWheel label={t('إلى')} value={schedule.to} onChange={value => onChange('to', value)} note={crossesMidnight ? t('اليوم التالي') : ''} /></div>;
 }
 
 function TimeWheel({ label, value, onChange, note = '' }: { label: string; value: string; onChange: (value: string) => void; note?: string }) {
@@ -139,8 +148,8 @@ function TimeWheel({ label, value, onChange, note = '' }: { label: string; value
   const drag = useRef<{ y: number; index: number; moved: boolean } | null>(null);
   const currentIndex = Math.max(0, timeOptions.indexOf(value));
   const selectIndex = (index: number) => onChange(timeOptions[(index + timeOptions.length) % timeOptions.length]);
-  const surrounding = Array.from({ length: 9 }, (_, index) => {
-    const offset = index - 4;
+  const surrounding = Array.from({ length: 7 }, (_, index) => {
+    const offset = index - 3;
     const optionIndex = (currentIndex + offset + timeOptions.length) % timeOptions.length;
     return { offset, value: timeOptions[optionIndex] };
   });
@@ -148,13 +157,13 @@ function TimeWheel({ label, value, onChange, note = '' }: { label: string; value
     <span>{label}</span>
     <button className="time-wheel-trigger" type="button" role="spinbutton" data-value={value} aria-label={label} aria-valuetext={timeLabel(value)} aria-expanded={open} onClick={() => setOpen(true)}><Clock3 size={16} /><strong dir="ltr">{timeLabel(value)}</strong></button>
     {note && <small className="next-day-note">{note}</small>}
-    {open && <div className="time-wheel-backdrop" role="presentation" onPointerDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section className="time-wheel-popover" role="dialog" aria-modal="true" aria-label={`${label} ${timeLabel(value)}`} onWheel={event => { event.preventDefault(); selectIndex(currentIndex + (event.deltaY > 0 ? 1 : -1)); }} onPointerDown={event => { drag.current = { y: event.clientY, index: currentIndex, moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (!drag.current) return; const steps = Math.round((drag.current.y - event.clientY) / 28); if (steps) drag.current.moved = true; selectIndex(drag.current.index + steps); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); window.setTimeout(() => { drag.current = null; }, 0); }} onPointerCancel={() => { drag.current = null; }}>
-        <header><strong>{label}</strong><button type="button" aria-label={t('إغلاق')} onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}><X size={18} /></button></header>
+    {open && createPortal(<div className="time-wheel-backdrop" role="presentation" onPointerDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
+      <section className="time-wheel-popover" role="dialog" aria-modal="true" aria-label={`${label} ${timeLabel(value)}`} onWheel={event => { event.preventDefault(); selectIndex(currentIndex + (event.deltaY > 0 ? 1 : -1)); }} onPointerDown={event => { drag.current = { y: event.clientY, index: currentIndex, moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (!drag.current) return; const steps = Math.round((drag.current.y - event.clientY) / 42); if (steps) drag.current.moved = true; selectIndex(drag.current.index + steps); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); window.setTimeout(() => { drag.current = null; }, 0); }} onPointerCancel={() => { drag.current = null; }}>
+        <header><div><small>{t('اختيار الوقت')}</small><strong>{label}</strong></div><span className="time-wheel-current" dir="ltr">{timeLabel(value)}</span><button type="button" aria-label={t('إغلاق')} onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}><X size={18} /></button></header>
         <div className="time-wheel-options" aria-live="polite">{surrounding.map(option => <button type="button" className={option.offset === 0 ? 'selected' : ''} data-distance={Math.abs(option.offset)} key={`${option.offset}-${option.value}`} onClick={() => { if (drag.current?.moved) return; onChange(option.value); if (option.offset === 0) setOpen(false); }}><span dir="ltr">{timeLabel(option.value)}</span></button>)}</div>
         <button className="time-wheel-done" type="button" onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}>{t('تم')}</button>
       </section>
-    </div>}
+    </div>, document.body)}
   </div>;
 }
 

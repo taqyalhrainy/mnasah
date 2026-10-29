@@ -15,7 +15,6 @@ try {
   const page = await context.newPage();
   await page.goto(`${process.env.BASE_URL || 'http://127.0.0.1:8787'}/video-test?room=non-windows-share-check&role=teacher`);
   await page.waitForFunction(() => [...document.querySelectorAll('video')].some(video => video.srcObject), undefined, { timeout: 20000 });
-  await page.locator('.call-toolbar-toggle').hover();
   await page.locator('.call-toolbar .tool-button').nth(2).click();
   const notice = page.locator('.unsupported-share-panel');
   await notice.waitFor();

@@ -119,9 +119,9 @@ test('authorization and the full reservation lifecycle', async () => {
   const missing = await call('teacher', 'teachers/missing-page', undefined, 404);
   assert.equal(missing.error, 'الطلب غير موجود أو غير متاح لحسابك.');
   await call('student', 'auth/login', credentials('student@test.com', 'admin'), 401);
-  await call('teacher', 'teachers/slots', { start: Date.now() - 1000, minutes: 60, price: 1500, subject: 'Math' }, 400);
-  const activeRangeStart = Date.now() - 7200000;
-  await call('teacher', 'teachers/slots', { start: activeRangeStart, available_until: Date.now() + 60000, minutes: 60, price: 1500, subject: 'Active range' });
+  await call('teacher', 'teachers/slots', { start: Date.now() - 61000, minutes: 60, price: 1500, subject: 'Math' }, 400);
+  const activeRangeStart = Date.now() - 30000;
+  await call('teacher', 'teachers/slots', { start: activeRangeStart, available_until: activeRangeStart + 3600000, minutes: 60, price: 1500, subject: 'Active range' });
   const activeRange = (await call('teacher', 'teachers/slots')).slots.find(row => row.subject === 'Active range');
   assert.ok(activeRange, 'the teacher must still see an active availability range');
   assert.ok(!(await call('student', 'students/slots')).slots.some(row => row.id === activeRange.id), 'a range too short for its minimum lesson must not be offered to students');

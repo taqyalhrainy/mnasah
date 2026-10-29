@@ -32,6 +32,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
   });
   const completed = bookings.filter(booking => booking.status === 'completed').length;
   function openNext() {
+    if (teacher) { onView('available'); return; }
     if (!next && !teacher) {
       document.getElementById('learning-path')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
       return;
@@ -58,7 +59,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
       <article className={`next-lesson ${!next ? 'no-next-lesson' : ''}`}>
         <div className="next-lesson-body"><span className="next-lesson-kicker"><span />{next ? next.start <= now ? t("حصة جارية") : t("على جدولك") : t("جدولك مفتوح")}</span><h3>{next ? catalogText(next.subject) : t("لا توجد حصص قادمة")}</h3><p>{next ? `${teacher ? next.student_name : next.teacher_name} · ${date(next.start)}` : teacher ? t("مواعيد متاحة: ") + availableCount : t("أساتذة متاحون: ") + availableCount}</p></div>
         <div className="next-lesson-mark" aria-hidden="true">{next ? <><strong>{new Date(next.start).toLocaleDateString(locale(), { day: 'numeric' })}</strong><span>{new Date(next.start).toLocaleDateString(locale(), { month: 'short' })}</span><small>{next.minutes}{t(" دقيقة")}</small></> : <GraduationCap size={72} strokeWidth={1} />}</div>
-        <button className="primary-button" onClick={openNext}>{next ? <Video size={18} /> : <BookOpen size={18} />}{next ? t("عرض الغرفة") : teacher ? t("إضافة موعد") : t("استكشف المجالات")}<ArrowLeft size={17} /></button>
+        <button className="primary-button" onClick={openNext}>{teacher ? <BookOpen size={18} /> : next ? <Video size={18} /> : <BookOpen size={18} />}{teacher ? t("إضافة موعد") : next ? t("عرض الغرفة") : t("استكشف المجالات")}<ArrowLeft size={17} /></button>
       </article>
       <section className={`week-agenda ${weekExpanded ? 'expanded' : ''}`} aria-label={t("حصص الأسبوع")}><div className="section-heading"><h3>{t("أسبوعك")}</h3><div className="agenda-actions"><button className="icon-button agenda-toggle" title={weekExpanded ? t("طي ملخّص الأسبوع") : t("عرض ملخّص الأسبوع")} aria-expanded={weekExpanded} aria-controls={`weekly-summary-${portal} week-metrics-${portal}`} onClick={() => setWeekExpanded(value => !value)}><ChevronDown size={18} /></button><button className="icon-button" title={t("عرض جدول الحصص")} onClick={() => onView(teacher ? 'available' : 'rooms')}><ArrowLeft size={18} /></button></div></div><div className="agenda-days" id={`weekly-summary-${portal}`}>{days.map(({ day, count }, index) => <div className={index === 0 ? 'agenda-day today' : 'agenda-day'} key={day.getTime()}><span>{day.toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{day.toLocaleDateString(locale(), { day: 'numeric' })}</strong><i className={count ? 'has-lessons' : ''} title={t("{v0} حصة", { v0: count })} /></div>)}</div><div className="agenda-footer"><CalendarDays size={16} /><span>{upcoming.filter(booking => booking.start < days[6].day.getTime() + 86400000).length}{t(" حصص خلال الأيام السبعة القادمة")}</span></div></section>
     </div>

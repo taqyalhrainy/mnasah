@@ -224,11 +224,13 @@ try {
       await page.locator('.availability-inline-settings').waitFor();
       const fromTime = page.locator('.time-wheel [role="spinbutton"]').nth(0);
       const toTime = page.locator('.time-wheel [role="spinbutton"]').nth(1);
+      let wheelCaptured = false;
       const setWheel = async (wheel, target) => {
         const minutes = value => value.split(':').map(Number).reduce((hours, part, index) => index ? hours + part : part * 60, 0);
         await wheel.click();
         const picker = page.locator('.time-wheel-popover');
         await picker.waitFor();
+        if (!wheelCaptured) { await page.screenshot({ path: '.private/time-wheel-quarter.png' }); wheelCaptured = true; }
         for (let index = 0; index < 1440; index++) {
           const current = await wheel.getAttribute('data-value');
           if (current === target) { await picker.getByRole('button', { name: 'تم', exact: true }).click(); return; }

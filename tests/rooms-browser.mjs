@@ -44,6 +44,8 @@ try {
   await page.getByText('LIVE', { exact: true }).waitFor();
   await roomsNav.click();
   await page.getByRole('heading', { name: 'الحصص المحجوزة' }).waitFor();
+  await page.getByRole('heading', { name: 'الحصص القادمة', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'المنتهية أو الملغاة', exact: true }).waitFor();
   await page.getByRole('tab', { name: 'السابقة', exact: true }).click();
   await page.locator('.room-card.is-past').waitFor();
   assert.equal(await page.locator('.room-card.is-past').count(), 1, 'finished lessons should use the muted past card');
