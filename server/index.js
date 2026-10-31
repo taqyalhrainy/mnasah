@@ -39,7 +39,7 @@ const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
 const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
 const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
-const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:support@mnasah.onrender.com').trim();
+const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:support@emtidad-alelm.onrender.com').trim();
 const pushReady = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 if (pushReady) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 function validChatOrigin(origin, req) {
@@ -48,7 +48,7 @@ function validChatOrigin(origin, req) {
     const url = new URL(origin);
     if (req && url.host === req.headers.host) return true;
     return CLIENT_ORIGIN.split(',').map(value => value.trim()).includes(origin)
-      || origin === 'https://mnasah.onrender.com' || origin === 'https://imtidad-alelm-academy.onrender.com' || origin === 'https://taqyalhrainy.github.io'
+      || origin === 'https://mnasah.onrender.com' || origin === 'https://emtidad-alelm.onrender.com' || origin === 'https://taqyalhrainy.github.io'
       || (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname));
   } catch { return false; }
 }
@@ -56,6 +56,14 @@ function validChatOrigin(origin, req) {
 if (!MONGODB_URI) {
   console.warn('MONGODB_URI is not set. Add it to .env before using the backend with real data.');
 }
+
+app.use((req, res, next) => {
+  const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
+  if (forwardedHost === 'mnasah.onrender.com') {
+    return res.redirect(301, `https://emtidad-alelm.onrender.com${req.originalUrl}`);
+  }
+  next();
+});
 
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
