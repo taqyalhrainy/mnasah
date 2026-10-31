@@ -25,6 +25,8 @@ export function ReportsPanel() {
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState('');
+  const [day, setDay] = useState(() => { const value = new Date(); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; });
+  const visibleReports = reports.filter(report => !day || (() => { const value = new Date(report.created); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}` === day; })());
   useEffect(() => {
     let alive = true; setLoading(true); setError('');
     request<{ reports: LessonReport[] }>('admin/reports').then(result => { if (alive) setReports(result.reports || []); }).catch(cause => { if (alive) setError((cause as Error).message); }).finally(() => { if (alive) setLoading(false); });
@@ -37,9 +39,9 @@ export function ReportsPanel() {
     finally { setBusy(''); }
   }
   return <section className="reports-page">
-    <header className="section-heading"><div><span className="section-kicker">{t('الجودة والحماية')}</span><h2>{t('شكاوى الحصص')}</h2><p>{t('سجل الحضور والأوقات والرسائل محفوظ مع كل شكوى لمراجعة عادلة.')}</p></div><button className="icon-button" title={t('تحديث')} onClick={() => setRevision(value => value + 1)}><RefreshCw size={19} /></button></header>
+    <header className="section-heading"><div><span className="section-kicker">{t('الجودة والحماية')}</span><h2>{t('شكاوى الحصص')}</h2><p>{t('سجل الحضور والأوقات والرسائل محفوظ مع كل شكوى لمراجعة عادلة.')}</p></div><div className="admin-filter-actions"><input type="date" value={day} onChange={event => setDay(event.target.value)} /><button type="button" className="text-button" onClick={() => setDay('')}>{t('الكل')}</button><button className="icon-button" title={t('تحديث')} onClick={() => setRevision(value => value + 1)}><RefreshCw size={19} /></button></div></header>
     {error && <p className="notice error" role="alert">{t(error)}</p>}
-    {loading ? <div className="payment-loading"><span className="wake-spinner" />{t('جاري تحميل الشكاوى…')}</div> : !reports.length ? <div className="empty-state"><BadgeCheck size={34} /><h3>{t('لا توجد شكاوى')}</h3><p>{t('كل الحصص تسير بشكل طبيعي حالياً.')}</p></div> : <div className="report-list">{reports.map(report => <article className={`report-card ${report.status}`} key={report.id}>
+    {loading ? <div className="payment-loading"><span className="wake-spinner" />{t('جاري تحميل الشكاوى…')}</div> : !visibleReports.length ? <div className="empty-state"><BadgeCheck size={34} /><h3>{t('لا توجد شكاوى')}</h3><p>{t('لا توجد شكاوى ضمن التاريخ المحدد.')}</p></div> : <div className="report-list">{visibleReports.map(report => <article className={`report-card ${report.status}`} key={report.id}>
       <header><span className="report-icon">{report.status === 'pending' ? <ShieldAlert size={21} /> : report.status === 'upheld' ? <AlertTriangle size={21} /> : <BadgeCheck size={21} />}</span><div><strong>{t(categoryLabels[report.category] || report.category)}</strong><small><Clock3 size={14} />{date(report.created)}{report.automatic ? ` · ${t('تلقائي')}` : ''}</small></div><span className={`badge ${report.status === 'pending' ? 'pending' : report.status === 'upheld' ? 'suspended' : 'active'}`}>{t(report.status === 'pending' ? 'قيد المراجعة' : report.status === 'upheld' ? 'مثبتة' : 'غير مثبتة')}</span></header>
       {report.booking && <div className="report-lesson"><strong>{catalogText(report.booking.subject)}</strong><span>{report.booking.teacher_name} · {report.booking.student_name}</span><time>{date(report.booking.start)}</time></div>}
       <p className="report-note">{report.note}</p>

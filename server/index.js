@@ -325,6 +325,28 @@ async function deliverPasswordReset(user, code) {
   if (process.env.NODE_ENV !== 'production') return { channel: 'development', destination: 'local', debugCode: code };
   fail(503, 'خدمة استعادة كلمة المرور غير مفعلة على الخادم بعد. راجع الدعم الفني.');
 }
+async function deliverPhoneVerification(phone, code) {
+  const normalized = normalizeJordanPhone(phone);
+  if (!normalized) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
+    const destination = `+962${normalized.slice(1)}`;
+    const form = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM_NUMBER, Body: `رمز التحقق من رقمك في امتداد العلم: ${code}. صالح لمدة 10 دقائق.` });
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
+    if (!response.ok) fail(503, 'تعذر إرسال رمز التحقق إلى الهاتف. حاول مجدداً أو تواصل مع الدعم الفني.');
+    return { channel: 'phone', destination: `${normalized.slice(0, 3)}****${normalized.slice(-2)}` };
+  }
+  if (process.env.NODE_ENV !== 'production') return { channel: 'development', destination: normalized, debugCode: code };
+  fail(503, 'خدمة التحقق من الهاتف غير مفعلة على الخادم. راجع الدعم الفني.');
+}
+async function consumePhoneVerification(id, code, phone) {
+  const normalized = normalizeJordanPhone(phone), verification = await db.collection('phone_verifications').findOne({ id, phone: normalized, used_at: 0 });
+  if (!verification || new Date(verification.expires_at).getTime() <= Date.now()) fail(400, 'رمز تحقق الهاتف منتهٍ أو غير صالح. اطلب رمزاً جديداً.');
+  if (Number(verification.attempts || 0) >= 5) fail(429, 'تم تجاوز عدد محاولات التحقق. اطلب رمزاً جديداً.');
+  const expected = digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`);
+  if (!/^\d{6}$/.test(String(code || '')) || !equal(expected, verification.code_hash)) { await db.collection('phone_verifications').updateOne({ id }, { $inc: { attempts: 1 } }); fail(400, 'رمز تحقق الهاتف غير صحيح.'); }
+  await db.collection('phone_verifications').updateOne({ id, used_at: 0 }, { $set: { used_at: Date.now() } });
+  return normalized;
+}
 function setSession(res, role, token, expires) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure; SameSite=None' : '; SameSite=Lax';
   res.setHeader('Set-Cookie', `${sessionCookie(role)}=${token}; Path=/; HttpOnly${secure}; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}`);
@@ -528,6 +550,16 @@ app.all('/api/auth/:action', async (req, res, next) => {
       clearSession(res, requestedRole);
       return res.json({ user: null });
     }
+    if (action === 'phone-code') {
+      const phone = normalizeJordanPhone(body.phone);
+      if (!phone) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
+      const recent = await db.collection('phone_verifications').countDocuments({ phone, created: { $gt: Date.now() - 15 * 60000 } });
+      if (recent >= 3) fail(429, 'تم إرسال عدة رموز مؤخراً. انتظر 15 دقيقة ثم حاول مجدداً.');
+      const id = crypto.randomUUID(), code = String(crypto.randomInt(100000, 1000000));
+      const delivery = await deliverPhoneVerification(phone, code);
+      await db.collection('phone_verifications').insertOne({ id, phone, code_hash: digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, used_at: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000) });
+      return res.json({ id, channel: delivery.channel, destination: delivery.destination, ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}) });
+    }
     if (action === 'forgot-password') {
       const role = body.role;
       if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
@@ -584,6 +616,8 @@ app.all('/api/auth/:action', async (req, res, next) => {
         if (body.loginOnly === true) fail(404, 'لا يوجد حساب مرتبط بهذا البريد في هذا القسم. أنشئ حساباً جديداً أولاً.');
         if (role === 'admin') fail(403, 'تسجيل Google غير متاح للإدارة.');
         const verification = registrationProfile(body, role);
+        verification.phone = await consumePhoneVerification(field(body.phone_verification_id, 100), field(body.phone_verification_code, 6, 6), verification.phone);
+        verification.phone_verified_at = Date.now();
         user = { id: crypto.randomUUID(), email, name: [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(random()), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone, verification, auth_provider: 'google', email_verified: 1, google_sub: google.sub, created: Date.now(), must_change_password: 0 };
         try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً.'); }
       } else {
@@ -737,7 +771,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const range = paymentRange(req.query);
       const slots = await db.collection('slots').find({ start: { $gte: range.from, $lt: range.until }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { id: 1 } }).toArray();
       const bookings = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, $or: [{ status: 'completed' }, { status: 'cancelled', teacher_compensation: { $gt: 0 } }] }, { projection: { _id: 0 } }).toArray();
-      return res.json(paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 10));
+      const pendingPackages = await db.collection('package_purchases').find({ status: { $in: ['active', 'scheduled', 'exhausted'] }, expires_at: { $gt: Date.now() }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { _id: 0, teacher_id: 1, teacher_name: 1, package_name: 1, price: 1, refunded_amount: 1, lesson_count: 1, remaining_lessons: 1, created: 1 } }).toArray();
+      const report = paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 10);
+      return res.json({ ...report, packagePending: pendingPackages.reduce((sum, item) => sum + Math.max(0, Number(item.price || 0) - Number(item.refunded_amount || 0)), 0), pendingPackages });
     }
     if (path === 'users' && user.role === 'admin' && !write) {
       const rows = await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray();

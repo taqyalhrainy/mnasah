@@ -1561,6 +1561,10 @@ button.day-event { font: inherit; }
 .lesson-grace-countdown strong { color: #f4cf4d; font-size: 18px; }
 .remote-call-audio { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .remote-audio-unlock { position: fixed; z-index: 90; top: max(14px, env(safe-area-inset-top)); inset-inline-start: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; border: 1px solid #f4cf4d; border-radius: 999px; color: #161318; background: #f4cf4d; box-shadow: 0 14px 40px #0008; font-weight: 800; cursor: pointer; }
+.admin-date-filter,.admin-filter-actions { display: flex; align-items: center; gap: 8px; }
+.admin-date-filter { padding: 5px 9px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.admin-date-filter input,.admin-filter-actions input { min-height: 39px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); }
+@media (max-width: 650px) { .admin-filter-actions { width: 100%; flex-wrap: wrap; } }
 @media (max-width: 600px) {
   .lesson-grace-countdown { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 24px); max-width: 430px; justify-content: center; flex-wrap: wrap; border-radius: 18px; text-align: center; line-height: 1.35; }
   .lesson-grace-countdown span { flex: 1 1 230px; }
