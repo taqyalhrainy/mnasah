@@ -6,6 +6,7 @@ type PeerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
   onRemoteVideoSource: (source: VideoSource) => void;
   onRemoteVideoEnabled?: (enabled: boolean) => void;
+  onRemoteAudioEnabled?: (enabled: boolean) => void;
   onWhiteboardMessage?: (message: unknown) => void;
   onRemoteTyping?: (typing: boolean) => void;
   onRemoteSpeaking?: (speaking: boolean) => void;
@@ -106,6 +107,7 @@ export class VideoConnection {
       track.enabled = enabled;
     });
     if (enabled) void this.repairAudio();
+    this.sendAudioState();
   }
 
   async repairAudio() {
@@ -563,6 +565,7 @@ export class VideoConnection {
       this.pendingDataConnections.clear();
       this.sendVideoSource();
       this.sendVideoState();
+      this.sendAudioState();
       this.callbacks.onDataOpen?.();
       // A fresh student data channel is an explicit presence handshake and
       // replaces any media connection that belongs to the previous session.
@@ -587,6 +590,10 @@ export class VideoConnection {
       }
       if (isVideoStateMessage(message)) {
         this.callbacks.onRemoteVideoEnabled?.(message.enabled);
+        return;
+      }
+      if (isAudioStateMessage(message)) {
+        this.callbacks.onRemoteAudioEnabled?.(message.enabled);
         return;
       }
       if (isWhiteboardMessage(message)) this.callbacks.onWhiteboardMessage?.(message.message);
@@ -615,6 +622,11 @@ export class VideoConnection {
   private sendVideoState() {
     if (!this.activeDataConnection?.open) return;
     this.activeDataConnection.send({ type: 'video-state', enabled: this.videoEnabled });
+  }
+
+  private sendAudioState() {
+    if (!this.activeDataConnection?.open) return;
+    this.activeDataConnection.send({ type: 'audio-state', enabled: this.audioEnabled });
   }
 }
 
@@ -646,4 +658,10 @@ function isVideoStateMessage(message: unknown): message is { type: 'video-state'
   if (!message || typeof message !== 'object') return false;
   const candidate = message as { type?: unknown; enabled?: unknown };
   return candidate.type === 'video-state' && typeof candidate.enabled === 'boolean';
+}
+
+function isAudioStateMessage(message: unknown): message is { type: 'audio-state'; enabled: boolean } {
+  if (!message || typeof message !== 'object') return false;
+  const candidate = message as { type?: unknown; enabled?: unknown };
+  return candidate.type === 'audio-state' && typeof candidate.enabled === 'boolean';
 }

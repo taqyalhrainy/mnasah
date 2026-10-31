@@ -843,6 +843,14 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const bookings = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, $or: [{ status: 'completed' }, { status: 'cancelled', teacher_compensation: { $gt: 0 } }] }, { projection: { _id: 0 } }).toArray();
       const pendingPackages = await db.collection('package_purchases').find({ status: { $in: ['active', 'scheduled', 'exhausted'] }, expires_at: { $gt: Date.now() }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { _id: 0, teacher_id: 1, teacher_name: 1, package_name: 1, price: 1, refunded_amount: 1, lesson_count: 1, remaining_lessons: 1, created: 1 } }).toArray();
       const report = paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 10);
+      if (user.role === 'admin') {
+        const accounts = await db.collection('users').find({ role: 'teachers', status: { $ne: 'suspended' } }, { projection: { _id: 0, id: 1, name: 1 } }).sort({ name: 1 }).toArray();
+        const completedByTeacher = new Map(report.teachers.map(item => [item.id, item]));
+        const pendingByTeacher = new Map();
+        for (const item of pendingPackages) pendingByTeacher.set(item.teacher_id, (pendingByTeacher.get(item.teacher_id) || 0) + Math.max(0, Number(item.price || 0) - Number(item.refunded_amount || 0)));
+        const empty = { gross: 0, fee: 0, net: 0, held: 0, forfeited: 0, collected: 0, uncollected: 0, minutes: 0, lessons: 0, averageHourly: 0 };
+        report.teachers = accounts.map(account => ({ ...empty, ...(completedByTeacher.get(account.id) || {}), id: account.id, name: account.name, packagePending: pendingByTeacher.get(account.id) || 0 }));
+      }
       return res.json({ ...report, packagePending: pendingPackages.reduce((sum, item) => sum + Math.max(0, Number(item.price || 0) - Number(item.refunded_amount || 0)), 0), pendingPackages });
     }
     if (path === 'users' && user.role === 'admin' && !write) {

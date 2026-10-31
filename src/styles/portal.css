@@ -1214,6 +1214,8 @@ button.day-event { font: inherit; }
   font-weight: 800;
 }
 .participant-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-mic-state { position: absolute; z-index: 4; top: 12px; inset-inline-start: 12px; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #ffffff32; border-radius: 50%; color: #fff; background: #d93632; box-shadow: 0 7px 20px #0007; pointer-events: none; }
+.participant-list > span { display: flex; align-items: center; gap: 7px; }
 .floating-preview {
   position: absolute;
   left: 18px;

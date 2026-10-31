@@ -48,6 +48,12 @@ try {
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 25000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 25000 });
 
+  await teacher.getByTitle('إيقاف المايك').click();
+  await student.locator('.participant-mic-state').waitFor({ timeout: 10000 });
+  assert.equal(await student.locator('.participant-mic-state').count(), 1, 'the other participant must see the muted microphone badge');
+  await teacher.getByTitle('تشغيل المايك').click();
+  await student.locator('.participant-mic-state').waitFor({ state: 'detached', timeout: 10000 });
+
   assert.equal(await teacher.getByTitle('تشغيل الكاميرا').isVisible(), true, 'camera must start off');
   const initialRequests = await teacher.evaluate(() => window.__mediaRequests);
   assert.equal(initialRequests.some(request => request.video), false, 'joining must not request camera access');
@@ -55,6 +61,7 @@ try {
   await teacher.getByTitle('إيقاف الكاميرا').waitFor();
   await student.waitForFunction(() => document.querySelectorAll('.camera-placeholder').length === 1, undefined, { timeout: 10000 });
   await teacher.getByTitle('إيقاف الكاميرا').click();
+  await teacher.getByTitle('تشغيل الكاميرا').waitFor();
   await teacher.getByTitle('تشغيل الكاميرا').click();
   await teacher.getByTitle('إيقاف الكاميرا').waitFor();
   const enabledRequests = await teacher.evaluate(() => window.__mediaRequests);

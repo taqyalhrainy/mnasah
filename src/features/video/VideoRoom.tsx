@@ -80,6 +80,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [showScreenShareNotice, setShowScreenShareNotice] = useState(false);
   const [remoteVideoSource, setRemoteVideoSource] = useState<VideoSource>('camera');
   const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(false);
+  const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | null>(null);
   const [stageMode, setStageMode] = useState<StageMode>('video');
@@ -181,6 +182,24 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     } catch { /* Audio can remain blocked until the next user gesture. */ }
   }, []);
 
+  useEffect(() => {
+    const unlockNotificationAudio = () => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextClass) return;
+        const context = notificationAudioRef.current || new AudioContextClass();
+        notificationAudioRef.current = context;
+        void context.resume().catch(() => undefined);
+      } catch { /* The next user gesture can try again. */ }
+    };
+    window.addEventListener('pointerdown', unlockNotificationAudio, { passive: true });
+    window.addEventListener('keydown', unlockNotificationAudio);
+    return () => {
+      window.removeEventListener('pointerdown', unlockNotificationAudio);
+      window.removeEventListener('keydown', unlockNotificationAudio);
+    };
+  }, []);
+
   const resumeRemoteAudio = useCallback(async () => {
     const element = remoteAudioRef.current;
     const stream = remoteStreamRef.current;
@@ -274,7 +293,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     void whiteboardDocumentRef.current?.pdf.destroy();
     void sharedDocumentSourceRef.current?.destroy?.();
     connectionRef.current?.close();
-    if (notificationAudioRef.current) void notificationAudioRef.current.close();
+    if (notificationAudioRef.current) {
+      void notificationAudioRef.current.close();
+      notificationAudioRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -389,6 +411,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setShowScreenShareNotice(false);
       setRemoteVideoSource('camera');
       setRemoteVideoEnabled(false);
+      setRemoteAudioEnabled(true);
       setHasRemoteStream(false);
       setFocusedParticipant(null);
       localPeerIdRef.current = null;
@@ -413,6 +436,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           }
         },
         onRemoteVideoEnabled: setRemoteVideoEnabled,
+        onRemoteAudioEnabled: setRemoteAudioEnabled,
         onWhiteboardMessage: handleWhiteboardMessage,
         onRemoteTyping: (typing) => {
           if (remoteTypingTimerRef.current !== null) window.clearTimeout(remoteTypingTimerRef.current);
@@ -441,6 +465,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
           setRemoteVideoSource('camera');
           setRemoteVideoEnabled(false);
+          setRemoteAudioEnabled(true);
           setHasRemoteStream(false);
           setFocusedParticipant(null);
         },
@@ -1562,12 +1587,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const source: VideoSource = isLocal ? (isScreenSharing ? 'screen' : 'camera') : remoteVideoSource;
     const hasStream = isLocal ? isConnected : hasRemoteStream;
     const showVideo = hasStream && (isLocal ? videoEnabled || isScreenSharing : remoteVideoSource === 'screen' || remoteVideoEnabled);
+    const micMuted = isLocal ? !audioEnabled : hasStream && !remoteAudioEnabled;
     const ratio = videoRatios[id];
     return (
       <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${(isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
         <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={source === 'camera' ? 'mirrored-video' : undefined} />
         {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
-        <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{isLocal && !audioEnabled && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
+        {micMuted && <span className="participant-mic-state" role="status" aria-label={t("المايك مغلق")}><MicOff size={18} /></span>}
+        <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{micMuted && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
       </button>
     );
   };
@@ -1617,7 +1644,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
             {focusedParticipant ? <>{renderTile(focusedParticipant, 'focus')}<div className="floating-preview" style={{ '--video-ratio': String(videoRatios[focusedParticipant === 'local' ? 'remote' : 'local']) } as CSSProperties}>{renderTile(focusedParticipant === 'local' ? 'remote' : 'local', 'pip')}</div></> : <>{renderTile('remote')}{renderTile('local')}</>}
           </div>
         )}
-        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}</span><span>{hasRemoteStream ? remoteName : t("{v0} بانتظار الدخول", { v0: remoteName })}</span></div></aside>}
+        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}{!audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span><span>{hasRemoteStream ? remoteName : t("{v0} بانتظار الدخول", { v0: remoteName })}{hasRemoteStream && !remoteAudioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span></div></aside>}
       </div>
 
       <div className="call-toolbar" aria-label={t("أدوات المكالمة")}>

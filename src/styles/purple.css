@@ -202,6 +202,8 @@
 :root[data-theme=dark] .package-week-row { background: #2d2238; border-color: #594666; }
 :root[data-theme=dark] .package-week-row.selected { border-color: #a88ac0; }
 :root[data-theme=dark] .teacher-package-card.archived,:root[data-theme=dark] .owned-package-card.expired,:root[data-theme=dark] .owned-package-card.exhausted { background: #251c2e; }
+:root[data-theme=dark] .package-schedule-locked { color: #bdf4e5; background: #173832; border-color: #3a8f7d; }
+:root[data-theme=dark] .package-schedule-locked small { color: #9ccfc2; }
 :root[data-theme=dark] .package-direct-booking { background: #241a2e; border-color: #594666; }
 :root[data-theme=dark] .package-direct-booking > .package-schedule-summary,:root[data-theme=dark] .package-time-picker { background: #33243d; }
 :root[data-theme=dark] .package-day-picker button { color: var(--ink); background: #2d2238; border-color: #594666; }
