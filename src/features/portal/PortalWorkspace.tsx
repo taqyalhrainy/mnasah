@@ -314,7 +314,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     if (!feedbackBooking) return;
     if (!ratingDraft && !feedbackReport) { setError(t('اختر تقييماً أو فعّل خيار إرسال شكوى.')); return; }
     if (feedbackReport && !feedbackReview.trim()) { setError(t('اكتب ملاحظة توضح سبب الشكوى.')); return; }
-    if (await act(() => post(`bookings/${feedbackBooking.id}/feedback`, { rating: ratingDraft, review: feedbackReview, report: feedbackReport, category: feedbackCategory }), t(feedbackReport ? 'تم إرسال التقييم والشكوى للأونر، وتم تقييد مستحقات الحصة لحين المراجعة.' : 'شكراً، تم حفظ تقييمك.'))) {
+    if (await act(() => post(`bookings/${feedbackBooking.id}/feedback`, { rating: ratingDraft, review: feedbackReview, report: feedbackReport, category: feedbackCategory }), t(feedbackReport ? 'تم إرسال التقييم والشكوى للدعم الفني.' : 'شكراً، تم حفظ تقييمك.'))) {
       setFeedbackBooking(null); setFeedbackReport(false); setFeedbackReview(''); setRatingDraft(0);
     }
   };
@@ -431,8 +431,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     if (!packageBookingStart || !packageBookingSubject) { setError(t('اختر المادة واليوم والوقت المناسب.')); return; }
     setBusy(true); setError(''); setSuccess('');
     try {
-      await request(`students/package-purchases/${purchase.id}/book`, { start: packageBookingStart, subject: packageBookingSubject });
-      setSuccess(t('تم حجز حصتك من الباقة بنجاح، وستجدها في الحصص المحجوزة.'));
+      await request(`students/package-purchases/${purchase.id}/book`, { start: packageBookingStart, subject: packageBookingSubject, recurring: true });
+      setSuccess(t('تم تثبيت جميع حصص الباقة أسبوعياً في نفس اليوم والوقت، وستجدها في الحصص المحجوزة.'));
       setSelectedPackagePurchase(''); refresh(); onView('rooms');
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
@@ -515,7 +515,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     <div className="section-heading"><div><span className="section-kicker">{t('بعد انتهاء المكالمة')}</span><h2>{t('كيف كانت الحصة؟')}</h2><p>{t('تقييمك يساعدنا على تحسين الجودة وحماية حقوقك.')}</p></div><button className="icon-button" onClick={() => setFeedbackBooking(null)} title={t('إغلاق')}><X size={20} /></button></div>
     <div className="rating-stars feedback-stars" role="radiogroup" aria-label={t('تقييم الحصة')}>{[1, 2, 3, 4, 5].map(value => <button type="button" role="radio" aria-checked={ratingDraft === value} className={value <= ratingDraft ? 'active' : ''} onClick={() => setRatingDraft(value)} key={value}><Star size={30} fill="currentColor" /></button>)}</div>
     <label className="feedback-note">{t('ملاحظتك')}<textarea rows={4} maxLength={1500} value={feedbackReview} onChange={event => setFeedbackReview(event.target.value)} placeholder={t('اكتب ملاحظتك عن الحصة…')} /></label>
-    <label className="feedback-report-toggle"><input type="checkbox" checked={feedbackReport} onChange={event => setFeedbackReport(event.target.checked)} /><span><strong>{t('إرسال شكوى للأونر')}</strong><small>{t('سيتم إيقاف تحويل مستحقات هذه الحصة حتى تنتهي المراجعة.')}</small></span></label>
+    <label className="feedback-report-toggle"><input type="checkbox" checked={feedbackReport} onChange={event => setFeedbackReport(event.target.checked)} /><span><strong>{t('إرسال شكوى للدعم الفني عن الحصة أو الأستاذ')}</strong></span></label>
     {feedbackReport && <label>{t('نوع المشكلة')}<select value={feedbackCategory} onChange={event => setFeedbackCategory(event.target.value)}><option value="teacher_absent">{t('الأستاذ لم يحضر')}</option><option value="teacher_inactive">{t('لم يتم تقديم الحصة')}</option><option value="technical">{t('مشكلة تقنية')}</option><option value="content">{t('مشكلة في المحتوى')}</option><option value="conduct">{t('سلوك غير مناسب')}</option><option value="other">{t('أخرى')}</option></select></label>}
     {error && <p className="notice error" role="alert">{t(error)}</p>}
     <div className="row-actions"><button className="secondary-button" onClick={() => setFeedbackBooking(null)}>{t('لاحقاً')}</button><button className="primary-button" disabled={busy} onClick={() => void submitLessonFeedback()}>{t(feedbackReport ? 'إرسال التقييم والشكوى' : 'إرسال التقييم')}</button></div>
@@ -528,7 +528,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       {item.description && <p>{item.description}</p>}
       <div className="lesson-package-tags">{item.subjects.map(subject => <span key={subject}>{catalogText(subject)}</span>)}</div>
       <dl><div><dt>{t('عدد الحصص')}</dt><dd>{item.lesson_count}</dd></div><div><dt>{t('مدة الحصة')}</dt><dd>{item.minutes} {t('دقيقة')}</dd></div><div><dt>{t('صلاحية')}</dt><dd>{item.validity_days} {t('يوماً')}</dd></div></dl>
-      <footer><div><strong>{money(item.price)}</strong><small>{t('{v0} للحصة تقريباً', { v0: money(Math.round(item.price / item.lesson_count)) })}</small></div><div className="package-offer-actions"><button className="secondary-button" type="button" onClick={() => setPackageDetails(item)}><BookOpen size={17} />{t('تفاصيل الباقة')}</button><button className="primary-button" disabled={busy} onClick={() => void purchaseLessonPackage(item)}><ShoppingBag size={17} />{t('شراء الباقة')}</button></div></footer>
+      <footer><div><strong>{money(item.price)}</strong><small>{t('{v0} للحصة تقريباً', { v0: money(Math.round(item.price / item.lesson_count)) })}</small></div><div className="package-offer-actions"><button className="secondary-button" type="button" onClick={() => setPackageDetails(item)}><BookOpen size={17} />{t('تفاصيل الباقة')}</button></div></footer>
     </article>)}</div>}
   </section>;
   const packageDetailsDialog = packageDetails && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setPackageDetails(null)} className="detail-dialog package-details-dialog" aria-labelledby="package-details-title">
@@ -672,10 +672,11 @@ function RoomHub({ portal, bookings, now, filter, onFilter, busy, canJoin, onJoi
   }).sort((a, b) => filter === 'past' || filter === 'all' ? b.start - a.start : a.start - b.start);
   const countdown = (start: number) => {
     const seconds = Math.max(0, Math.floor((start - now) / 1000));
-    const hours = Math.floor(seconds / 3600);
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const rest = seconds % 60;
-    return `${hours ? `${String(hours).padStart(2, '0')}:` : ''}${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+    return `${days ? `${days} ${t('يوم')} ` : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
   };
   const isArchived = (booking: Booking) => booking.start + booking.minutes * 60000 < now || booking.status === 'completed' || booking.status === 'cancelled';
   const upcomingBookings = visible.filter(booking => !isArchived(booking));

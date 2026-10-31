@@ -167,7 +167,7 @@ function PortalApp() {
     : [{ id: 'bookings', label: t("الحصص والحجوزات"), icon: CalendarDays },
       { id: 'reports', label: t('شكاوى الحصص'), icon: ShieldAlert },
       ...(portal === 'admin' ? [{ id: 'users', label: t("الحسابات"), icon: Users }, { id: 'topups', label: t("شحن المحافظ"), icon: WalletCards }, { id: 'audit', label: t("سجل العمليات"), icon: ClipboardList }] : [{ id: 'slots', label: t("مواعيدي المتاحة"), icon: Search }]),
-      { id: 'payments', label: t("المستحقات"), icon: Wallet },
+      { id: 'payments', label: t("مستحقات الأساتذة"), icon: Wallet },
       { id: 'catalog', label: t("التصنيفات والمواد"), icon: ClipboardList },
       { id: 'profile', label: t("حسابي"), icon: Settings }];
   const accountAvatar = user.avatar_url && user.status === 'active' ? <span className="account-avatar has-photo"><img src={apiMediaUrl(user.avatar_url)} alt="" /></span> : <span className="account-avatar">{user.name.trim().charAt(0)}</span>;

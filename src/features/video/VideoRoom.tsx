@@ -92,6 +92,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
   const [mutedSpeechWarning, setMutedSpeechWarning] = useState(false);
   const [unreadCallMessages, setUnreadCallMessages] = useState(0);
+  const [remoteAudioBlocked, setRemoteAudioBlocked] = useState(false);
   const [remainingGrace, setRemainingGrace] = useState<number | null>(null);
   const [siteMenuOpen, setSiteMenuOpen] = useState(false);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
@@ -114,6 +115,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [documentAnnotations, setDocumentAnnotations] = useState<DocumentAnnotation[]>([]);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const notificationAudioRef = useRef<AudioContext | null>(null);
   const whiteboardSvgRef = useRef<SVGSVGElement>(null);
   const whiteboardImageInputRef = useRef<HTMLInputElement>(null);
   const whiteboardFileInputRef = useRef<HTMLInputElement>(null);
@@ -158,14 +161,54 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   useEffect(() => { stageModeRef.current = stageMode; }, [stageMode]);
   useEffect(() => { documentAnnotationsRef.current = documentAnnotations; }, [documentAnnotations]);
 
+  const playMessageChime = useCallback(() => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = notificationAudioRef.current || new AudioContextClass();
+      notificationAudioRef.current = context;
+      void context.resume().then(() => {
+        const gain = context.createGain();
+        const oscillator = context.createOscillator();
+        oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(740, context.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(980, context.currentTime + .12);
+        gain.gain.setValueAtTime(.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(.16, context.currentTime + .018);
+        gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + .2);
+        oscillator.connect(gain); gain.connect(context.destination);
+        oscillator.start(); oscillator.stop(context.currentTime + .21);
+      }).catch(() => undefined);
+    } catch { /* Audio can remain blocked until the next user gesture. */ }
+  }, []);
+
+  const resumeRemoteAudio = useCallback(async () => {
+    const element = remoteAudioRef.current;
+    const stream = remoteStreamRef.current;
+    if (!element || !stream) return;
+    if (element.srcObject !== stream) element.srcObject = stream;
+    try { await element.play(); setRemoteAudioBlocked(false); }
+    catch { setRemoteAudioBlocked(true); }
+  }, []);
+
   useEffect(() => {
     const previous = messageCountRef.current;
-    if (messages.length > previous && sidePanel !== 'chat') {
+    if (messages.length > previous) {
       const incoming = messages.slice(previous).filter(message => !currentUserId || message.author_id !== currentUserId).length;
-      if (incoming) setUnreadCallMessages(value => value + incoming);
+      if (incoming) {
+        playMessageChime();
+        if (sidePanel !== 'chat') setUnreadCallMessages(value => value + incoming);
+      }
     }
     messageCountRef.current = messages.length;
-  }, [messages, sidePanel, currentUserId]);
+  }, [messages, sidePanel, currentUserId, playMessageChime]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    const restore = () => { if (document.visibilityState === 'visible') void resumeRemoteAudio(); };
+    document.addEventListener('visibilitychange', restore);
+    window.addEventListener('pointerdown', restore, { passive: true });
+    return () => { document.removeEventListener('visibilitychange', restore); window.removeEventListener('pointerdown', restore); };
+  }, [isConnected, resumeRemoteAudio]);
 
   useEffect(() => {
     if (sidePanel === 'chat') setUnreadCallMessages(0);
@@ -207,6 +250,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     void whiteboardDocumentRef.current?.pdf.destroy();
     void sharedDocumentSourceRef.current?.destroy?.();
     connectionRef.current?.close();
+    if (notificationAudioRef.current) void notificationAudioRef.current.close();
   }, []);
 
   useEffect(() => {
@@ -331,6 +375,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
             remoteVideoRef.current.srcObject = stream;
             void remoteVideoRef.current.play().catch(() => undefined);
           }
+          if (remoteAudioRef.current) remoteAudioRef.current.srcObject = stream;
+          for (const track of stream.getAudioTracks()) track.onunmute = () => void resumeRemoteAudio();
+          void resumeRemoteAudio();
           setHasRemoteStream(true);
           setStatus(t("متصل"));
         },
@@ -1494,7 +1541,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const ratio = videoRatios[id];
     return (
       <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${(isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
-        <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted={isLocal} playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={source === 'camera' ? 'mirrored-video' : undefined} />
+        <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={source === 'camera' ? 'mirrored-video' : undefined} />
         {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
         <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{isLocal && !audioEnabled && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
       </button>
@@ -1518,6 +1565,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
+      <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
+      {remoteAudioBlocked && <button type="button" className="remote-audio-unlock" onClick={() => void resumeRemoteAudio()}><Mic size={18} />{t('اضغط لتشغيل صوت المكالمة')}</button>}
       {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file" accept="application/pdf,.pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,.ppt,.pptx,image/jpeg,image/png,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json" onChange={handleWhiteboardFileChange} />}
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
       {compact && <div className="compact-call-header"><button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button></div>}

@@ -1559,6 +1559,12 @@ button.day-event { font: inherit; }
 .muted-speaking-warning small { color: #ffd7a4; }
 .lesson-grace-countdown { position: fixed; z-index: 79; top: max(12px, env(safe-area-inset-top)); inset-inline-start: 50%; display: flex; align-items: center; gap: 9px; transform: translateX(-50%); padding: 10px 15px; border: 1px solid #f4cf4d; border-radius: 999px; color: #fff; background: #342f1ff2; box-shadow: 0 14px 40px #0008; }
 .lesson-grace-countdown strong { color: #f4cf4d; font-size: 18px; }
+.remote-call-audio { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.remote-audio-unlock { position: fixed; z-index: 90; top: max(14px, env(safe-area-inset-top)); inset-inline-start: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; border: 1px solid #f4cf4d; border-radius: 999px; color: #161318; background: #f4cf4d; box-shadow: 0 14px 40px #0008; font-weight: 800; cursor: pointer; }
+@media (max-width: 600px) {
+  .lesson-grace-countdown { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 24px); max-width: 430px; justify-content: center; flex-wrap: wrap; border-radius: 18px; text-align: center; line-height: 1.35; }
+  .lesson-grace-countdown span { flex: 1 1 230px; }
+}
 
 .call-experience .tool-button.danger {
   width: 56px;

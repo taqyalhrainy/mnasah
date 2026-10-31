@@ -38,7 +38,7 @@ export function useLessonReminders(portal: Portal, userId: string, revision: num
     const visible = () => { if (document.visibilityState === 'visible') void sync(); };
     void sync();
     const poll = setInterval(sync, 30000);
-    const clock = setInterval(() => setNow(Date.now()), 10000);
+    const clock = setInterval(() => setNow(Date.now()), 1000);
     document.addEventListener('visibilitychange', visible);
     return () => { alive = false; clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', visible); };
   }, [portal, revision]);
