@@ -48,7 +48,7 @@ function validChatOrigin(origin, req) {
     const url = new URL(origin);
     if (req && url.host === req.headers.host) return true;
     return CLIENT_ORIGIN.split(',').map(value => value.trim()).includes(origin)
-      || origin === 'https://mnasah.onrender.com' || origin === 'https://taqyalhrainy.github.io'
+      || origin === 'https://mnasah.onrender.com' || origin === 'https://imtidad-alelm-academy.onrender.com' || origin === 'https://taqyalhrainy.github.io'
       || (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname));
   } catch { return false; }
 }

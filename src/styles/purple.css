@@ -45,7 +45,7 @@
 :root[data-theme=dark] .redesigned-shell .sidebar .nav-button.active { background: #382746; color: #f4eaff; }
 :root[data-theme=dark] .redesigned-shell .sidebar-footer .icon-button { color: #b6a9c8; background: transparent; }
 :root[data-theme=dark] .redesigned-shell .topbar { background: transparent; }
-:root[data-theme=dark] .brand-monogram,:root[data-theme=dark] .brand .brand-monogram { background: #131017; }
+:root[data-theme=dark] .brand-monogram,:root[data-theme=dark] .brand .brand-monogram { background: #fff; border-color: #39516f; }
 :root[data-theme=dark] .redesigned-shell .primary-button { background: var(--brand); border-color: var(--brand); color: #24152d; }
 :root[data-theme=dark] .redesigned-shell .primary-button:hover:not(:disabled) { background: #d1b1f5; border-color: #d1b1f5; }
 :root[data-theme=dark] .redesigned-shell .secondary-button { background: #2c2137; border-color: #584365; color: var(--ink); }

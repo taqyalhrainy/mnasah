@@ -1,7 +1,7 @@
 {
-  "name": "امتداد العلم",
+  "name": "امتداد العلم أكاديمي",
   "short_name": "امتداد العلم",
-  "description": "منصة تعليم خصوصي بمكالمات فيديو مباشرة.",
+  "description": "منصة أردنية للتعليم الخصوصي عن بُعد بحصص فيديو مباشرة ولوح تفاعلي ومواعيد مرنة.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
@@ -10,9 +10,15 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "images/imtidad-alelm-academy-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "images/imtidad-alelm-academy-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

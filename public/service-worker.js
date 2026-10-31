@@ -1,7 +1,7 @@
-const CACHE_NAME = 'imtidad-shell-v9';
+const CACHE_NAME = 'imtidad-shell-v10';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
-const SHELL_FILES = ['', 'index.html', 'icon.svg', 'manifest.webmanifest'].map(shellUrl);
+const SHELL_FILES = ['', 'index.html', 'images/imtidad-alelm-academy-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -63,10 +63,10 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('push', event => {
   const payload = event.data?.json?.() || {};
-  event.waitUntil(self.registration.showNotification(payload.title || 'امتداد العلم', {
+  event.waitUntil(self.registration.showNotification(payload.title || 'امتداد العلم أكاديمي', {
     body: payload.body || 'لديك تحديث جديد',
-    icon: shellUrl('icon.svg'),
-    badge: shellUrl('icon.svg'),
+    icon: shellUrl('images/imtidad-alelm-academy-logo-192.png'),
+    badge: shellUrl('images/imtidad-alelm-academy-logo-192.png'),
     tag: payload.tag || 'imtidad-update',
     renotify: true,
     data: { url: payload.url || 'students' },
