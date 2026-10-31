@@ -2,9 +2,10 @@ import { t } from '../../i18n/preferences';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, type Portal, type User } from '../../services/platformApi';
 import type { ChatSettings, ChatThread } from './chatTypes';
+import { ensureDevicePush, removeDevicePush } from '../../services/pushNotifications';
 
 const defaults: ChatSettings = { readReceipts: true, showPresence: true, notifications: true, sounds: false };
-export type BookingCreatedNotice = { id: string; subject: string; start: number; minutes: number; teacher_name?: string; student_name?: string; audience: 'teacher' | 'student' };
+export type BookingCreatedNotice = { id: string; subject: string; start: number; minutes: number; teacher_name?: string; student_name?: string; teacher_phone?: string; student_phone?: string; audience: 'teacher' | 'student' };
 export function useDirectChat(portal: Portal, user: User | null, active: boolean, onOpen: () => void, onBookingCreated?: (notice: BookingCreatedNotice) => void) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [settings, setSettings] = useState<ChatSettings>(defaults);
@@ -62,6 +63,9 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
   }, [enabled, user?.id, refresh]);
   useEffect(() => {
+    if (enabled && settings.notifications && 'Notification' in window && Notification.permission === 'granted') void ensureDevicePush(portal).catch(() => undefined);
+  }, [enabled, portal, settings.notifications]);
+  useEffect(() => {
     if (!enabled) return;
     const heartbeat = () => { void request(`${portal}/chat/presence`, { active: document.visibilityState === 'visible' }).catch(() => undefined); };
     heartbeat(); const timer = window.setInterval(heartbeat, 20000);
@@ -103,6 +107,8 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
     const previous = settings;
     savingSettings.current = true; setSettings(value => ({ ...value, ...changes }));
     try {
+      if (changes.notifications === true) await ensureDevicePush(portal, true);
+      if (changes.notifications === false) await removeDevicePush(portal);
       const result = await request<{ settings: ChatSettings }>(`${portal}/chat/settings`, changes);
       setSettings(result.settings);
     } catch (error) { setSettings(previous); throw error; }

@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'امتداد',
   webDir: 'dist',
   server: {
-    url: 'https://mansah-platform.taqialhrainy.chatgpt.site',
+    url: 'https://mnasah.onrender.com',
     cleartext: false,
   },
   android: {

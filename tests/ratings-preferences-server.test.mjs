@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
-test('teacher duration preferences persist and public ratings require five distinct students', async t => {
+test('teacher duration preferences persist and public ratings appear from the first student', async t => {
   const now = Date.now();
   const teacher = { id: 'rating-teacher', role: 'teachers', status: 'active', name: 'الأستاذ سامر', email: 'teacher@rating.test', password: 'unused', subject: 'رياضيات' };
   const students = Array.from({ length: 5 }, (_, index) => ({ id: `rating-student-${index + 1}`, role: 'students', status: 'active', name: `طالب ${index + 1}`, email: `student${index + 1}@rating.test`, password: 'unused' }));
@@ -38,7 +38,7 @@ test('teacher duration preferences persist and public ratings require five disti
   }
   let listed = (await json('students', students[0], 'slots')).slots.find(slot => slot.id === publicSlot.id);
   assert.equal(listed.teacher_rating_count, 4);
-  assert.equal(listed.teacher_rating, null, 'the public average stays hidden before five distinct students rate');
+  assert.equal(listed.teacher_rating, 3.5, 'the public average appears as soon as ratings exist');
 
   await json('students', students[4], `bookings/${bookings[4].id}/rating`, { rating: 5 });
   listed = (await json('students', students[0], 'slots')).slots.find(slot => slot.id === publicSlot.id);

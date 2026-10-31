@@ -77,6 +77,10 @@ Generate future migrations with `npm run db:generate`; do not rewrite already de
 
 Payment records represent manual receipt confirmation, not card processing or automatic refunds. Cancelled paid lessons are flagged for refund review. Email verification, automated password recovery, notifications and a payment processor are not connected. Arrange D1 backups and retention procedures before collecting substantial business data.
 
-PeerJS currently uses hosted public signaling and STUN. A managed TURN service is still required for reliable connectivity on restrictive networks. The room gate revokes access on the next client check (30 seconds); existing direct media is not centrally terminable without a managed media/signaling service. No recording is performed.
+PeerJS currently uses hosted public signaling and STUN. A managed TURN service is still required for reliable connectivity on restrictive networks. Scheduled rooms close after the five-minute grace period and cannot be re-entered. Existing direct media still cannot be centrally terminated before that deadline without a managed media/signaling service. No recording is performed.
+
+### Device push notifications
+
+Generate a VAPID key pair once with `npx web-push generate-vapid-keys`, then add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` to the Render environment. Never commit the private key. After deployment, users who enable message notifications receive Web Push notifications even when the site is closed (subject to Android/browser notification permissions).
 
 The downloadable APK is the existing debug-signed WebView wrapper. It receives website updates live. Native Android screen capture and a release-signed application are not implemented; native changes require an APK update.

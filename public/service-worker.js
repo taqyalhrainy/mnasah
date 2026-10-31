@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v8';
+const CACHE_NAME = 'imtidad-shell-v9';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'icon.svg', 'manifest.webmanifest'].map(shellUrl);
@@ -59,6 +59,20 @@ self.addEventListener('fetch', (event) => {
       return cached || network;
     })());
   }
+});
+
+self.addEventListener('push', event => {
+  const payload = event.data?.json?.() || {};
+  event.waitUntil(self.registration.showNotification(payload.title || 'امتداد العلم', {
+    body: payload.body || 'لديك تحديث جديد',
+    icon: shellUrl('icon.svg'),
+    badge: shellUrl('icon.svg'),
+    tag: payload.tag || 'imtidad-update',
+    renotify: true,
+    data: { url: payload.url || 'students' },
+    dir: 'rtl',
+    lang: 'ar',
+  }));
 });
 
 self.addEventListener('notificationclick', event => {

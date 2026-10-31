@@ -47,3 +47,10 @@ services:
         sync: false
       - key: VITE_TURN_CREDENTIAL
         sync: false
+      # Web Push: generate once with `npx web-push generate-vapid-keys` and keep the private key secret.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:support@mnasah.onrender.com

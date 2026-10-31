@@ -7,6 +7,7 @@ type PeerCallbacks = {
   onRemoteVideoEnabled?: (enabled: boolean) => void;
   onWhiteboardMessage?: (message: unknown) => void;
   onRemoteTyping?: (typing: boolean) => void;
+  onRemoteSpeaking?: (speaking: boolean) => void;
   onDataOpen?: () => void;
   onLocalPeerId?: (peerId: string | null) => void | Promise<void>;
   getRemotePeerId?: () => Promise<string | null | undefined>;
@@ -339,6 +340,12 @@ export class VideoConnection {
     return true;
   }
 
+  sendSpeaking(speaking: boolean) {
+    if (!this.activeDataConnection?.open) return false;
+    this.activeDataConnection.send({ type: 'speaking', speaking });
+    return true;
+  }
+
   private startPeerSearch() {
     if (this.closed) return;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
@@ -537,6 +544,10 @@ export class VideoConnection {
         this.callbacks.onRemoteTyping?.(message.typing);
         return;
       }
+      if (isSpeakingMessage(message)) {
+        this.callbacks.onRemoteSpeaking?.(message.speaking);
+        return;
+      }
       if (isVideoSourceMessage(message)) {
         this.callbacks.onRemoteVideoSource(message.source);
         return;
@@ -578,6 +589,12 @@ function isTypingMessage(message: unknown): message is { type: 'typing'; typing:
   if (!message || typeof message !== 'object') return false;
   const candidate = message as { type?: unknown; typing?: unknown };
   return candidate.type === 'typing' && typeof candidate.typing === 'boolean';
+}
+
+function isSpeakingMessage(message: unknown): message is { type: 'speaking'; speaking: boolean } {
+  if (!message || typeof message !== 'object') return false;
+  const candidate = message as { type?: unknown; speaking?: unknown };
+  return candidate.type === 'speaking' && typeof candidate.speaking === 'boolean';
 }
 
 function isWhiteboardMessage(message: unknown): message is { type: 'whiteboard'; message: unknown } {

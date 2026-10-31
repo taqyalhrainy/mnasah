@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, PackageCheck, ShieldAlert } from 'lucide-react';
+import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, PackageCheck, ShieldAlert, Star } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { RegistrationFlow } from '../features/auth/RegistrationFlow';
@@ -10,6 +10,7 @@ import { useDirectChat, type BookingCreatedNotice } from '../features/chat/useDi
 import { PreferenceControls, direction, usePreferences, t, locale } from '../i18n/preferences';
 const DirectMessages = lazy(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
 const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
+type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 const defaultSupportWhatsapp = '0795764229';
 const whatsappHrefNumber = (value: string) => {
   const digits = value.replace(/\D/g, '');
@@ -69,7 +70,13 @@ function PortalApp() {
   const [lessonReminders, setLessonReminders] = useState({ enabled: false, hint: '' });
   const [supportWhatsapp, setSupportWhatsapp] = useState(defaultSupportWhatsapp);
   const [bookingAlert, setBookingAlert] = useState<BookingCreatedNotice | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const toggleLessonReminders = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    const capture = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
+    window.addEventListener('beforeinstallprompt', capture);
+    return () => window.removeEventListener('beforeinstallprompt', capture);
+  }, []);
   useEffect(() => {
     const closeAccountMenus = (event: PointerEvent) => {
       document.querySelectorAll<HTMLDetailsElement>('details.account-menu[open]').forEach(menu => {
@@ -133,6 +140,15 @@ function PortalApp() {
   async function logout() {
     try { await request(`auth/logout?portal=${portal}`, { role: portal }); setUser(null); setRoomLive(false); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
+  async function installAndroidApp() {
+    if (!installPrompt) {
+      setError(t('إذا كان التطبيق مثبتاً فلن يظهر الطلب. غير ذلك افتح قائمة المتصفح واختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية».'));
+      return;
+    }
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === 'accepted') setInstallPrompt(null);
+  }
   function openQuickAction() {
     if (portal === 'students') {
       setView('home');
@@ -155,12 +171,12 @@ function PortalApp() {
       { id: 'catalog', label: t("التصنيفات والمواد"), icon: ClipboardList },
       { id: 'profile', label: t("حسابي"), icon: Settings }];
   const accountAvatar = user.avatar_url && user.status === 'active' ? <span className="account-avatar has-photo"><img src={apiMediaUrl(user.avatar_url)} alt="" /></span> : <span className="account-avatar">{user.name.trim().charAt(0)}</span>;
-  const learningAccountMenu = (className: string) => <details className={`account-menu ${className}`}><summary title={t('خيارات الحساب')}>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><div className="account-preferences"><PreferenceControls /></div><button className="account-reminders" aria-pressed={lessonReminders.enabled} onClick={() => toggleLessonReminders.current()}>{lessonReminders.enabled ? <Bell size={16} /> : <BellOff size={16} />}<span><strong>{t("تنبيهات الحصص")}</strong><small>{lessonReminders.enabled ? t("مفعّلة") : t("غير مفعّلة")}</small></span></button>{lessonReminders.hint && <small className="account-reminder-hint" role="status">{t(lessonReminders.hint)}</small>}<a href={assetUrl('downloads/mansah.apk')}><Download size={16} />{t("تطبيق أندرويد")}</a><button className="account-logout" onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>;
+  const learningAccountMenu = (className: string) => <details className={`account-menu ${className}`}><summary title={t('خيارات الحساب')}>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><div className="account-preferences"><PreferenceControls /></div><button className="account-reminders" aria-pressed={lessonReminders.enabled} onClick={() => toggleLessonReminders.current()}>{lessonReminders.enabled ? <Bell size={16} /> : <BellOff size={16} />}<span><strong>{t("تنبيهات الحصص")}</strong><small>{lessonReminders.enabled ? t("مفعّلة") : t("غير مفعّلة")}</small></span></button>{lessonReminders.hint && <small className="account-reminder-hint" role="status">{t(lessonReminders.hint)}</small>}<button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button className="account-logout" onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>;
   return <main className={`app-shell business-shell redesigned-shell portal-${portal} ${portal !== 'admin' ? 'learning-shell' : ''}`} dir={direction()}>
     <a className="skip-link" href="#main-content">{t("انتقل إلى المحتوى")}</a>
     <aside className="sidebar"><button className="brand" onClick={() => setView(portal === 'admin' ? 'bookings' : 'home')} title="امتداد العلم"><img className="brand-monogram" src={assetUrl('icon.svg')} width="38" height="38" alt="" /><div><strong>امتداد العلم<span className="brand-dot">.</span></strong><span>{t(portalNames[portal])}</span></div></button>
       <nav className="nav-list" aria-label={t("التنقل الرئيسي")}>{nav.map(({ id, label, icon: Icon }) => <button key={id} aria-label={`${label}${id === 'rooms' && roomLive ? ' LIVE' : ''}`} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={20} strokeWidth={1.8} /><span className="nav-label-full">{t(label)}</span><span className="nav-label-short">{id === 'bookings' ? t("الحجوزات") : id === 'audit' ? t("العمليات") : id === 'catalog' ? t("المواد") : label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}{id === 'messages' && chat.unread > 0 && <span className="nav-unread" aria-label={t("{v0} رسائل غير مقروءة", { v0: chat.unread })}>{chat.unread > 99 ? '99+' : chat.unread}</span>}</button>)}</nav>
-      {portal !== 'admin' ? learningAccountMenu('sidebar-account') : <div className="sidebar-footer"><a href={assetUrl('downloads/mansah.apk')} className="icon-button" title={t("تطبيق أندرويد")}><Download size={19} /></a><button className="icon-button" onClick={logout} title={t("تسجيل الخروج")}><LogOut size={19} /></button></div>}
+      {portal !== 'admin' ? learningAccountMenu('sidebar-account') : <div className="sidebar-footer"><button type="button" onClick={() => void installAndroidApp()} className="icon-button" title={t("تثبيت تطبيق أندرويد")}><Download size={19} /></button><button className="icon-button" onClick={logout} title={t("تسجيل الخروج")}><LogOut size={19} /></button></div>}
     </aside>
     {portal !== 'admin' && learningAccountMenu('mobile-account')}
     <section className="workspace">{portal === 'admin' && <header className="topbar">
@@ -168,14 +184,15 @@ function PortalApp() {
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
         <PreferenceControls />
         <button className="icon-button quick-action" onClick={openQuickAction} title={t("إدارة الحسابات")}><Users size={19} /></button>
-        <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><a href={assetUrl('downloads/mansah.apk')}><Download size={16} />{t("تطبيق أندرويد")}</a><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>
+        <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>
       </div>}</header>}
       <div className={`workspace-content ${portal !== 'admin' && view === 'home' ? 'home-workspace-content' : ''}`} id="main-content" tabIndex={-1}>
+      {portal === 'teachers' && view === 'profile' && <div className="teacher-profile-rating-summary"><Star fill="currentColor" /><span><small>{t('تقييمك على المنصة')}</small><strong>{user.teacher_rating_count && user.teacher_rating !== null && user.teacher_rating !== undefined ? `${user.teacher_rating.toFixed(1)} / 5` : t('لم تُقيّم بعد')}</strong>{Boolean(user.teacher_rating_count) && <em>{t('{v0} تقييم', { v0: user.teacher_rating_count || 0 })}</em>}</span></div>}
       {error && <p className="notice error" role="alert">{t(error)}</p>}
       {user.status === 'suspended' ? <p className="notice error">{t("حسابك موقوف. راجع الإدارة.")}</p> : user.status === 'pending' && portal === 'teachers' && user.verification?.verification_status !== 'submitted' && user.verification?.verification_status !== 'approved' ? <RegistrationFlow portal="teachers" existingUser={user} onLogin={setUser} onCancel={logout} /> : user.status === 'pending' && view !== 'profile' ? <section className="empty-state"><ShieldCheck size={34} /><h2>{t("طلبك قيد المراجعة")}</h2><p>{t("وصلت بياناتك وصورتك وفيديو التحقق والمستندات إلى الأونر. سنفعّل الحساب بعد المراجعة.")}</p><button className="secondary-button" onClick={() => setRetry(retry + 1)}>{t("تحديث حالة الطلب")}</button></section> : <PortalWorkspace key={user.id} portal={portal} user={user} view={view} onUser={setUser} onView={setView} onRoomLiveChange={setRoomLive} onReminderControls={captureLessonReminders} searchFocusKey={searchFocusKey} />}
       {portal !== 'admin' && user.status === 'active' && <div hidden={view !== 'messages'}><Suspense fallback={<p role="status">{t("جارٍ تجهيز الرسائل…")}</p>}><DirectMessages key={user.id} portal={portal} user={user} chat={chat} active={view === 'messages'} /></Suspense></div>}
       </div></section>
-    {bookingAlert && <button className="booking-created-toast" type="button" onClick={() => { setView('rooms'); setBookingAlert(null); }}><Bell size={21} /><span><strong>{t(bookingAlert.audience === 'teacher' ? 'حجز جديد' : 'تم تأكيد حجزك')}</strong><small>{bookingAlert.audience === 'teacher' ? t('حجز طالب حصة جديدة معك. افتح الحصص المحجوزة للتفاصيل.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.')}</small></span></button>}
+    {bookingAlert && <button className="booking-created-toast" type="button" onClick={() => { setView('rooms'); setBookingAlert(null); }}><Bell size={21} /><span><strong>{t(bookingAlert.audience === 'teacher' ? 'حجز جديد' : 'تم تأكيد حجزك')}</strong><small>{bookingAlert.audience === 'teacher' ? t('حجز طالب حصة جديدة معك. افتح الحصص المحجوزة للتفاصيل.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.')}</small>{(bookingAlert.audience === 'teacher' ? bookingAlert.student_phone : bookingAlert.teacher_phone) && <b dir="ltr">{bookingAlert.audience === 'teacher' ? bookingAlert.student_phone : bookingAlert.teacher_phone}</b>}</span></button>}
     {portal !== 'admin' && supportWhatsapp && <a className="support-whatsapp" href={`https://wa.me/${whatsappHrefNumber(supportWhatsapp)}?text=${encodeURIComponent(t('مرحباً، أحتاج مساعدة في منصة امتداد العلم'))}`} target="_blank" rel="noreferrer" aria-label={t('التواصل مع الدعم عبر واتساب')}><WhatsAppIcon /><span><small>{t('الدعم الفني')}</small><strong dir="ltr">{supportWhatsapp}</strong></span></a>}
   </main>;
 }

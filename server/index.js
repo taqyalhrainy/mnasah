@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
+import webpush from 'web-push';
 import { handleChat, ensureChat } from '../shared/chat.js';
 import { mongoChatStore } from './chat-store.js';
 import { paymentDay, paymentMidnight, paymentRange, paymentSummary } from '../shared/payments.js';
@@ -36,6 +37,11 @@ const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || '';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
 const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-token';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
+const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:support@mnasah.onrender.com').trim();
+const pushReady = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (pushReady) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 function validChatOrigin(origin, req) {
   if (!origin) return true;
   try {
@@ -67,7 +73,7 @@ app.use((req, res, next) => {
   next();
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
-app.get('/api/public/config', (_req, res) => res.json({ googleClientId: GOOGLE_CLIENT_ID }));
+app.get('/api/public/config', (_req, res) => res.json({ googleClientId: GOOGLE_CLIENT_ID, vapidPublicKey: pushReady ? VAPID_PUBLIC_KEY : '' }));
 
 let db;
 let client;
@@ -118,6 +124,8 @@ async function connect() {
     db.collection('lesson_packages').createIndex({ teacher_id: 1, status: 1 }),
     db.collection('package_purchases').createIndex({ student_id: 1, created: -1 }),
     db.collection('package_purchases').createIndex({ teacher_id: 1, status: 1 }),
+    db.collection('push_subscriptions').createIndex({ endpoint: 1 }, { unique: true }),
+    db.collection('push_subscriptions').createIndex({ user_id: 1, updated: -1 }),
   ]);
   await seedCatalog();
   return db;
@@ -271,7 +279,7 @@ async function teacherRatingMap(teacherIds) {
   return new Map(ids.map(id => {
     const values = grouped.get(id) || [];
     const count = values.length;
-    return [id, { teacher_rating_count: count, teacher_rating: count >= 5 ? Math.round(values.reduce((sum, value) => sum + value, 0) / count * 10) / 10 : null }];
+    return [id, { teacher_rating_count: count, teacher_rating: count ? Math.round(values.reduce((sum, value) => sum + value, 0) / count * 10) / 10 : null }];
   }));
 }
 async function googleIdentity(credential) {
@@ -359,6 +367,17 @@ async function audit(actor, action, target) {
   await db.collection('audit').insertOne({ id: crypto.randomUUID(), actor, action, target, created: Date.now() });
 }
 
+async function sendDevicePush(userId, payload) {
+  if (!pushReady || !userId) return;
+  const rows = await db.collection('push_subscriptions').find({ user_id: userId }, { projection: { _id: 0 } }).limit(20).toArray();
+  await Promise.all(rows.map(async row => {
+    try { await webpush.sendNotification(row.subscription, JSON.stringify(payload), { TTL: 86400, urgency: 'high' }); }
+    catch (error) {
+      if ([404, 410].includes(Number(error?.statusCode))) await db.collection('push_subscriptions').deleteOne({ endpoint: row.endpoint, user_id: userId });
+    }
+  }));
+}
+
 const starterCatalog = jordanCatalog;
 async function installJordanCatalog() {
   await db.collection('catalog').deleteMany({ kind: 'category' });
@@ -407,6 +426,20 @@ async function handleCatalog(user, write, body) {
 async function bookingRows(filter = {}, limit = 500) {
   const bookings = await db.collection('bookings').find(filter, { projection: { _id: 0 } }).sort({ created: -1 }).limit(limit).toArray();
   return enrichBookings(bookings);
+}
+async function finalizeEndedBookings(filter = {}) {
+  const now = Date.now();
+  const candidates = await db.collection('bookings').find({ ...filter, status: 'confirmed', start: { $lte: now } }, { projection: { _id: 0 } }).limit(500).toArray();
+  for (const booking of candidates) {
+    const graceEnd = Number(booking.start || 0) + Number(booking.minutes || 0) * 60000 + 5 * 60000;
+    if (!Number(booking.start) || !Number(booking.minutes) || graceEnd > now) continue;
+    const bothJoined = Number(booking.teacher_joined_at || 0) > 0 && Number(booking.student_joined_at || 0) > 0;
+    if (!bothJoined) continue;
+    await db.collection('bookings').updateOne(
+      { id: booking.id, status: 'confirmed' },
+      { $set: { status: 'completed', completed_at: now, payout_status: booking.payout_status === 'held' ? 'held' : 'released', room: random() } },
+    );
+  }
 }
 async function ensureAutomaticNoShowReports(bookings) {
   const now = Date.now();
@@ -458,7 +491,12 @@ app.all('/api/auth/:action', async (req, res, next) => {
     const action = req.params.action;
     const body = req.body || {};
     const requestedRole = req.query.portal || body.role;
-    if (action === 'me') return res.json({ user: publicUser(await getUser(req, requestedRole)) });
+    if (action === 'me') {
+      const account = await getUser(req, requestedRole);
+      const visible = publicUser(account);
+      if (account?.role === 'teachers') Object.assign(visible, (await teacherRatingMap([account.id])).get(account.id));
+      return res.json({ user: visible });
+    }
     if (action === 'logout') {
       const token = cookie(req, sessionCookie(requestedRole));
       if (token) await db.collection('sessions').deleteOne({ token: digest(token) });
@@ -587,7 +625,10 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (body.custom_packages !== undefined) profile.custom_packages = serializeCustomPackages(body.custom_packages);
         await db.collection('users').updateOne({ id: user.id }, { $set: profile });
       }
-      return res.json({ user: publicUser(await db.collection('users').findOne({ id: user.id })) });
+      const account = await db.collection('users').findOne({ id: user.id });
+      const visible = publicUser(account);
+      if (account?.role === 'teachers') Object.assign(visible, (await teacherRatingMap([account.id])).get(account.id));
+      return res.json({ user: visible });
     }
     if (path === 'password' && write) {
       const old = field(body.current, 128, 12), nextPass = field(body.password, 128, 12);
@@ -597,6 +638,20 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ ok: true });
     }
     if (user.status !== 'active') fail(403, 'هذا الحساب بانتظار موافقة الإدارة.');
+    if (path === 'push/subscribe' && write) {
+      if (!pushReady) fail(503, 'إشعارات الهاتف تحتاج مفاتيح VAPID على الخادم.');
+      const subscription = body.subscription;
+      const endpoint = field(subscription?.endpoint || '', 2000);
+      const p256dh = field(subscription?.keys?.p256dh || '', 500);
+      const auth = field(subscription?.keys?.auth || '', 500);
+      if (!/^https:\/\//i.test(endpoint)) fail(400, 'اشتراك الإشعارات غير صالح.');
+      await db.collection('push_subscriptions').updateOne({ endpoint }, { $set: { endpoint, user_id: user.id, portal: user.role, subscription: { endpoint, expirationTime: subscription.expirationTime || null, keys: { p256dh, auth } }, updated: Date.now() } }, { upsert: true });
+      return res.json({ ok: true });
+    }
+    if (path === 'push/unsubscribe' && write) {
+      await db.collection('push_subscriptions').deleteMany({ user_id: user.id, ...(body.endpoint ? { endpoint: field(body.endpoint, 2000) } : {}) });
+      return res.json({ ok: true });
+    }
     if (path.startsWith('chat/')) {
       if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
       if (await serveChatAttachment(req, res, { db, user, path, ...(attachmentBytes ? { bytes: attachmentBytes } : {}) })) return;
@@ -605,9 +660,21 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (path.endsWith('/typing')) io.to(`chat:${userId}`).emit('chat:typing', { threadId: path.split('/')[2], authorId: user.id, active: body.active === true });
         else io.to(`chat:${userId}`).emit('chat:changed', { threadId: path === 'chat/settings' ? null : result.threadId || path.split('/')[2] || null });
       }
+      if (path.endsWith('/messages') && write) void Promise.all(result.notify.filter(userId => userId !== user.id).map(userId => sendDevicePush(userId, { title: user.name, body: field(body.body || 'أرسل لك رسالة جديدة', 180, 0) || 'أرسل لك ملفاً جديداً', tag: result.threadId || 'chat', url: `${user.role === 'teachers' ? 'students' : 'teachers'}?view=messages` })));
       return res.json(result.data);
     }
     if (path === 'catalog') return res.json(await handleCatalog(user, write, body));
+    if (/^teachers\/[^/]+\/profile$/.test(path) && !write && user.role === 'students') {
+      const teacherId = path.split('/')[1];
+      const teacher = await db.collection('users').findOne({ id: teacherId, role: 'teachers', status: 'active' }, { projection: { _id: 0, password: 0 } });
+      if (!teacher) fail(404, 'ملف الأستاذ غير موجود.');
+      const rating = (await teacherRatingMap([teacherId])).get(teacherId) || { teacher_rating: null, teacher_rating_count: 0 };
+      const reviews = await db.collection('ratings').find({ teacher_id: teacherId, review: { $exists: true, $ne: '' } }, { projection: { _id: 0, rating: 1, review: 1, student_id: 1, created: 1 } }).sort({ created: -1 }).limit(30).toArray();
+      const students = await db.collection('users').find({ id: { $in: [...new Set(reviews.map(review => review.student_id))] } }, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
+      const names = new Map(students.map(student => [student.id, student.name]));
+      const hasBooking = Boolean(await db.collection('slots').findOne({ teacher_id: teacherId, id: { $in: (await db.collection('bookings').find({ student_id: user.id }, { projection: { slot_id: 1 } }).toArray()).map(row => row.slot_id) } }));
+      return res.json({ teacher: { ...publicUser(teacher), ...rating, phone: hasBooking ? teacher.phone || '' : '' }, reviews: reviews.map(review => ({ rating: Number(review.rating), review: review.review, created: Number(review.created), student_name: (names.get(review.student_id) || 'طالب').split(' ')[0] })) });
+    }
     if (path === 'reports' && user.role === 'admin' && !write) {
       const reports = await db.collection('lesson_reports').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(500).toArray();
       const bookingDocs = await db.collection('bookings').find({ id: { $in: reports.map(report => report.booking_id) } }, { projection: { _id: 0 } }).toArray();
@@ -641,6 +708,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ ok: true });
     }
     if (path === 'payments' && !write && ['admin', 'teachers'].includes(user.role)) {
+      await finalizeEndedBookings();
       const range = paymentRange(req.query);
       const slots = await db.collection('slots').find({ start: { $gte: range.from, $lt: range.until }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { id: 1 } }).toArray();
       const bookings = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, $or: [{ status: 'completed' }, { status: 'cancelled', teacher_compensation: { $gt: 0 } }] }, { projection: { _id: 0 } }).toArray();
@@ -855,9 +923,12 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       await ensureChat(mongoChatStore(db), purchase.teacher_id, user.id);
       io.to(`chat:${purchase.teacher_id}`).emit('chat:changed', {});
-      const bookingNotice = { id: bookingId, subject, start, minutes: Number(purchase.minutes), teacher_name: purchase.teacher_name || '', student_name: user.name };
+      const teacherAccount = await db.collection('users').findOne({ id: purchase.teacher_id }, { projection: { _id: 0, phone: 1 } });
+      const bookingNotice = { id: bookingId, subject, start, minutes: Number(purchase.minutes), teacher_name: purchase.teacher_name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || '', student_phone: user.phone || '' };
       io.to(`chat:${purchase.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
       io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
+      void sendDevicePush(purchase.teacher_id, { title: 'حجز جديد', body: `حجز ${user.name} حصة ${subject}`, tag: `booking-${bookingId}`, url: 'teachers' });
+      void sendDevicePush(user.id, { title: 'تم تأكيد حجزك', body: `تم حجز حصة ${subject} بنجاح`, tag: `booking-${bookingId}`, url: 'students' });
       await audit(user.id, 'package:book', bookingId);
       return res.json({ ok: true, id: bookingId });
     }
@@ -889,6 +960,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ purchase: publicPackagePurchase(purchase) });
     }
     if (['overview', 'home', 'booked', 'available', 'history', 'reminders', 'rooms'].includes(path) && !write) {
+      await finalizeEndedBookings();
       const bookings = await bookingRows(user.role === 'admin' ? {} : user.role === 'teachers' ? {} : { student_id: user.id });
       await ensureAutomaticNoShowReports(bookings);
       const owned = user.role === 'teachers' ? bookings.filter(b => b.teacher_id === user.id) : bookings;
@@ -979,18 +1051,23 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
       io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
-      const bookingNotice = { id: bookingId, subject: selectedSubject, start: selectedStart, minutes: selectedOffering.minutes, teacher_name: slot.teacher_name || '', student_name: user.name };
+      const teacherAccount = await db.collection('users').findOne({ id: slot.teacher_id }, { projection: { _id: 0, phone: 1 } });
+      const bookingNotice = { id: bookingId, subject: selectedSubject, start: selectedStart, minutes: selectedOffering.minutes, teacher_name: slot.teacher_name || teacherAccount?.name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || '', student_phone: user.phone || '' };
       io.to(`chat:${slot.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
       io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
+      void sendDevicePush(slot.teacher_id, { title: 'حجز جديد', body: `حجز ${user.name} حصة ${selectedSubject}`, tag: `booking-${bookingId}`, url: 'teachers' });
+      void sendDevicePush(user.id, { title: 'تم تأكيد حجزك', body: `تم حجز حصة ${selectedSubject} بنجاح`, tag: `booking-${bookingId}`, url: 'students' });
       return res.json({ ok: true, id: bookingId });
     }
     const [category, id, action] = path.split('/');
     if (category === 'bookings' && id) {
+      if (action === 'room' || action === 'presence' || action === 'complete') await finalizeEndedBookings({ id });
       const row = (await enrichBookings([await db.collection('bookings').findOne({ id }, { projection: { _id: 0 } })]))[0];
       if (!row || (user.role !== 'admin' && row.teacher_id !== user.id && row.student_id !== user.id)) fail(404, 'الحصة غير موجودة.');
       if (action === 'room' && !write) {
         if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الدخول متاح فقط لطرفي الحصة المؤكدة.');
         if (Date.now() < row.start - 900000) fail(403, 'يمكن دخول الحصة قبل موعدها بخمس عشرة دقيقة.');
+        if (Date.now() >= Number(row.start) + Number(row.minutes) * 60000 + 5 * 60000) fail(403, 'انتهت الحصة وأُغلقت الغرفة. لا يمكن الدخول إليها مرة أخرى.');
         const bookingDocument = await db.collection('bookings').findOne({ id }, { projection: { _id: 0, room: 1 } });
         return res.json({ room: bookingDocument.room, role: user.role === 'teachers' ? 'teacher' : 'student' });
       }
@@ -1091,8 +1168,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         await audit(user.id, 'booking:teacher-no-show', id);
         return res.json({ ok: true, quote });
       }
-      if (action === 'complete' && write && user.role === 'teachers') {
-        await db.collection('bookings').updateOne({ id }, { $set: { status: 'completed', room: random() } });
+      if (action === 'complete' && write && ['teachers', 'students'].includes(user.role)) {
+        const scheduledEnd = Number(row.start) + Number(row.minutes) * 60000;
+        if (user.role === 'students' && Date.now() < scheduledEnd + 5 * 60000) fail(409, 'لا يمكن إنهاء الحصة تلقائياً قبل انتهاء وقتها الإضافي.');
+        if (!Number(row.teacher_joined_at || 0) || !Number(row.student_joined_at || 0)) fail(409, 'لم يكتمل حضور طرفي الحصة، وستبقى قيد المراجعة.');
+        await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: { status: 'completed', completed_at: Date.now(), payout_status: row.payout_status === 'held' ? 'held' : 'released', room: random() } });
         return res.json({ ok: true });
       }
       if (action === 'notes' && write && user.role === 'teachers') {

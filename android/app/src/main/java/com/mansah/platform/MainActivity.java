@@ -11,7 +11,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
-    private static final String START_URL = "https://mansah-platform.taqialhrainy.chatgpt.site/video";
+    private static final String START_URL = "https://mnasah.onrender.com/students";
     private static final int MEDIA_PERMISSION_REQUEST = 1001;
 
     private WebView webView;
