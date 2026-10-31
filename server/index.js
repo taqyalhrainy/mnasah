@@ -1416,7 +1416,7 @@ export function startPlatformServer({ database, attachmentStore, topupProofStore
   if (attachmentStore) attachmentBytes = attachmentStore;
   if (topupProofStore) topupProofBytes = topupProofStore;
   return new Promise(resolve => httpServer.listen(port, () => {
-    console.log(`Imtidad backend listening on port ${httpServer.address().port}`);
+    console.log(`Emtidad backend listening on port ${httpServer.address().port}`);
     connect().then(() => console.log('MongoDB connection warmed.')).catch(error => {
       console.error('MongoDB warmup failed:', error.message);
     });
