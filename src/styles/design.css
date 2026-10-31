@@ -602,6 +602,38 @@ input[type=checkbox] { accent-color: var(--ink); }
 .package-day-picker small,.package-day-picker span { color: var(--muted); }
 .package-time-picker { display: flex; flex-wrap: wrap; gap: 9px; padding: 16px; border-radius: 14px; background: color-mix(in srgb,var(--yellow) 11%,var(--surface)); }
 .package-time-picker button { display: inline-flex; align-items: center; gap: 7px; direction: ltr; }
+.package-purchase-planner { display: grid; gap: 10px; margin-top: 14px; }
+.package-purchase-planner article { display: grid; grid-template-columns: minmax(190px, .8fr) minmax(260px, 1.2fr); align-items: center; gap: 14px; padding: 12px; border: 1px solid #ded5b5; border-radius: 15px; color: #251c2d; background: #fffdf6; }
+.package-purchase-planner article.selected { border-color: #735389; background: #fbf5ff; box-shadow: 0 0 0 3px #73538914; }
+.package-purchase-planner article.unavailable { color: #77716a; background: #f1f1f1; border-color: #d7d7d7; }
+.package-day-toggle { display: grid; grid-template-columns: 28px minmax(0,1fr); align-items: center; gap: 2px 10px; min-width: 0; padding: 7px; border: 0; color: inherit; background: transparent; text-align: start; cursor: pointer; }
+.package-day-toggle > span { grid-row: 1 / 3; display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid #988da0; border-radius: 9px; color: #fff; background: #fff; }
+.selected > .package-day-toggle > span { border-color: #68417e; background: #68417e; }
+.package-day-toggle strong { font-size: 15px; }
+.package-day-toggle small { color: #655d69; }
+.package-range-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.package-range-fields label { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 9px; color: #504857; font-size: 12px; font-weight: 800; }
+.package-range-fields select { width: 100%; min-height: 43px; padding: 8px 11px; border: 1px solid #cfc5d4; border-radius: 11px; color: #201826; background: #fff; font: inherit; direction: ltr; }
+.package-range-fields select:disabled { color: #817887; background: #ece9ee; }
+.package-booking-subjects button.selected,.package-time-picker button.selected { color: #fff !important; background: #68417e !important; border-color: #68417e !important; }
+.package-details-schedule > p { color: #645d68; }
+.room-contact-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 3px 10px; padding: 10px 12px; border: 1px solid #d6e0ed; border-radius: 12px; color: #334155; background: #f8fbff; }
+.room-contact-card > span { display: inline-flex; align-items: center; gap: 6px; color: #64748b; font-size: 11px; font-weight: 800; }
+.room-contact-card > a,.room-contact-card > strong { grid-column: 2; color: #183b86; font-size: 15px; font-weight: 900; text-decoration: none; }
+.room-contact-card > a:hover { text-decoration: underline; }
+.room-groups .room-contact-card { grid-column: 1 / -1; }
+:root[data-theme=dark] .package-purchase-planner article { color: #f3edf8; background: #2d2238; border-color: #594666; }
+:root[data-theme=dark] .package-purchase-planner article.selected { color: #fff; background: #493259; border-color: #c19add; }
+:root[data-theme=dark] .package-purchase-planner article.unavailable { color: #aaa0af; background: #211a28; border-color: #493d50; }
+:root[data-theme=dark] .package-day-toggle > span { border-color: #8c7d97; background: #241a2e; }
+:root[data-theme=dark] .selected > .package-day-toggle > span { border-color: #d0a9ec; background: #735389; }
+:root[data-theme=dark] .package-day-toggle small,:root[data-theme=dark] .package-details-schedule > p { color: #c9bbd2; }
+:root[data-theme=dark] .package-range-fields label { color: #dccde5; }
+:root[data-theme=dark] .package-range-fields select { color: #f7f1fb; background: #211827; border-color: #715d7d; color-scheme: dark; }
+:root[data-theme=dark] .package-range-fields select:disabled { color: #a79cae; background: #19151e; }
+:root[data-theme=dark] .room-contact-card { color: #f3edf8; background: #34253f; border-color: #5d4869; }
+:root[data-theme=dark] .room-contact-card > span { color: #c7b7d2; }
+:root[data-theme=dark] .room-contact-card > a,:root[data-theme=dark] .room-contact-card > strong { color: #f0d98d; }
 .package-booking-confirm { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 17px; border-top: 1px solid var(--line); }
 .package-booking-confirm > div { display: grid; gap: 3px; }
 .package-booking-confirm small { color: var(--muted); }
@@ -1014,4 +1046,11 @@ input[type=checkbox] { accent-color: var(--ink); }
   .availability-range-preview { grid-column: 2; min-width: 0; padding: 6px 8px; }
   .availability-range-preview strong { font-size: 10px; }
   .availability-range-preview small { font-size: 9px; }
+}
+
+@media (max-width: 680px) {
+  .package-purchase-planner article { grid-template-columns: 1fr; }
+  .package-range-fields { grid-template-columns: 1fr 1fr; }
+  .package-details-dialog > header, .package-details-dialog > footer { padding-inline: 15px; }
+  .package-details-dialog > .lesson-package-tags, .package-details-description, .package-details-schedule, .package-details-dialog > .booking-cancellation-policy { margin-inline: 15px; }
 }

@@ -187,8 +187,58 @@ function lessonPackageInput(body) {
   if (!Number.isInteger(validityDays) || validityDays < 7 || validityDays > 365) fail(400, 'صلاحية الباقة يجب أن تكون بين 7 و365 يوماً.');
   return { name: field(body.name, 100), description: field(body.description || '', 500, 0), subjects, lesson_count: lessonCount, minutes, price, validity_days: validityDays, weekly_schedule: weeklySchedule(body) };
 }
-const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), weekly_schedule: storedWeeklySchedule(row), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), teacher_rating: row.teacher_rating ?? null, teacher_rating_count: Number(row.teacher_rating_count || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
-const publicPackagePurchase = row => ({ id: row.id, package_id: row.package_id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', package_name: row.package_name || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), remaining_lessons: Number(row.remaining_lessons), minutes: Number(row.minutes), price: Number(row.price), weekly_schedule: storedWeeklySchedule(row), status: row.status === 'completed' ? 'completed' : Number(row.expires_at) <= Date.now() ? 'expired' : row.status === 'scheduled' ? 'scheduled' : Number(row.remaining_lessons) <= 0 ? 'exhausted' : row.status || 'active', expires_at: Number(row.expires_at), created: Number(row.created || 0) });
+const storedSelectedSchedule = row => weeklySchedule({ weekly_schedule: Array.isArray(row?.selected_schedule) ? row.selected_schedule : [] }, false);
+const publicLessonPackage = row => ({ id: row.id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', name: row.name, description: row.description || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), minutes: Number(row.minutes), price: Number(row.price), validity_days: Number(row.validity_days), weekly_schedule: storedWeeklySchedule(row), reserved_schedule: storedSelectedSchedule({ selected_schedule: row.reserved_schedule }), status: row.status || 'active', sold_count: Number(row.sold_count || 0), active_students: Number(row.active_students || 0), teacher_rating: row.teacher_rating ?? null, teacher_rating_count: Number(row.teacher_rating_count || 0), created: Number(row.created || 0), updated: Number(row.updated || 0) });
+const publicPackagePurchase = row => ({ id: row.id, package_id: row.package_id, teacher_id: row.teacher_id, teacher_name: row.teacher_name || '', package_name: row.package_name || '', subjects: row.subjects || [], lesson_count: Number(row.lesson_count), remaining_lessons: Number(row.remaining_lessons), minutes: Number(row.minutes), price: Number(row.price), weekly_schedule: storedWeeklySchedule(row), selected_schedule: storedSelectedSchedule(row), status: row.status === 'completed' ? 'completed' : Number(row.expires_at) <= Date.now() ? 'expired' : row.status === 'scheduled' ? 'scheduled' : Number(row.remaining_lessons) <= 0 ? 'exhausted' : row.status || 'active', expires_at: Number(row.expires_at), created: Number(row.created || 0) });
+
+function selectedPackageSchedule(body, offer) {
+  const rows = Array.isArray(body.selections) ? body.selections : [];
+  if (!rows.length || rows.length > 7) fail(400, 'اختر يوماً واحداً على الأقل من أيام الباقة قبل الشراء.');
+  const available = storedWeeklySchedule(offer);
+  const minutes = Number(offer.minutes);
+  const selected = rows.map(value => ({ weekday: Number(value?.weekday), from: String(value?.from || ''), to: String(value?.to || '') }));
+  if (new Set(selected.map(row => row.weekday)).size !== selected.length) fail(400, 'لا يمكن اختيار اليوم نفسه أكثر من مرة.');
+  for (const row of selected) {
+    if (!clockPattern.test(row.from) || !clockPattern.test(row.to)) fail(400, 'تحقق من وقت البداية والنهاية لأيام الباقة.');
+    const source = available.find(item => item.weekday === row.weekday);
+    if (!source) fail(400, 'أحد الأيام المختارة ليس ضمن الأيام التي أتاحها الأستاذ.');
+    const sourceStart = minutesOfDay(source.from);
+    let sourceEnd = minutesOfDay(source.to);
+    if (sourceEnd <= sourceStart) sourceEnd += 1440;
+    let start = minutesOfDay(row.from);
+    if (start < sourceStart && sourceEnd > 1440) start += 1440;
+    let end = minutesOfDay(row.to);
+    while (end <= start) end += 1440;
+    if (start % 15 || end % 15 || end - start !== minutes || start < sourceStart || end > sourceEnd) fail(400, `اختر فترة مدتها ${minutes} دقيقة ضمن وقت الأستاذ وبفواصل ربع ساعة.`);
+  }
+  return selected.sort((left, right) => left.weekday - right.weekday);
+}
+
+function selectedStartForDay(day, sourceRow, selectedRow) {
+  const sourceStart = minutesOfDay(sourceRow.from);
+  let sourceEnd = minutesOfDay(sourceRow.to);
+  if (sourceEnd <= sourceStart) sourceEnd += 1440;
+  let selectedStart = minutesOfDay(selectedRow.from);
+  if (selectedStart < sourceStart && sourceEnd > 1440) selectedStart += 1440;
+  return paymentMidnight(day) + selectedStart * 60000;
+}
+
+function plannedPackageStarts(offer, selected, expiresAt, earliest = Date.now() + 60000) {
+  const schedule = storedWeeklySchedule(offer);
+  const today = paymentDay();
+  const result = [];
+  const maximumDays = Math.min(Number(offer.validity_days) + 7, 372);
+  for (let offset = 0; offset < maximumDays && result.length < Number(offer.lesson_count); offset++) {
+    const day = civilAdd(today, offset);
+    const weekday = civilWeekday(day);
+    const selectedRow = selected.find(row => row.weekday === weekday);
+    const sourceRow = schedule.find(row => row.weekday === weekday);
+    if (!selectedRow || !sourceRow) continue;
+    const start = selectedStartForDay(day, sourceRow, selectedRow);
+    if (start >= earliest && start + Number(offer.minutes) * 60000 <= expiresAt) result.push(start);
+  }
+  return result.sort((left, right) => left - right).slice(0, Number(offer.lesson_count));
+}
 async function restorePackageLesson(booking) {
   if (!booking?.package_purchase_id) return false;
   const purchase = await db.collection('package_purchases').findOne({ id: booking.package_purchase_id, student_id: booking.student_id });
@@ -506,7 +556,7 @@ async function enrichBookings(bookings) {
   const slots = await db.collection('slots').find({ id: { $in: slotIds } }, { projection: { _id: 0 } }).toArray();
   const slotMap = new Map(slots.map(s => [s.id, s]));
   const userIds = [...new Set(slots.flatMap(s => [s.teacher_id]).concat(bookings.map(b => b.student_id)))];
-  const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, phone: 1, bio: 1, subject: 1 } }).toArray();
+  const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, phone: 1, verification: 1, bio: 1, subject: 1 } }).toArray();
   const userMap = new Map(users.map(u => [u.id, u]));
   const ratings = await db.collection('ratings').find({ booking_id: { $in: bookings.map(row => row.id) } }, { projection: { _id: 0, booking_id: 1, rating: 1 } }).toArray();
   const ratingMap = new Map(ratings.map(row => [row.booking_id, Number(row.rating)]));
@@ -515,7 +565,9 @@ async function enrichBookings(bookings) {
     const teacher = userMap.get(s.teacher_id) || {};
     const student = userMap.get(b.student_id) || {};
     const { room: _room, ...safeBooking } = b;
-    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacher.phone || '', student_name: student.name || '', student_phone: student.phone || '', bio: teacher.bio || '', teacher_subjects: teacher.subject || '', student_rating: ratingMap.get(b.id) || 0 };
+    const teacherPhone = teacher.phone || parseVerification(teacher.verification).phone || '';
+    const studentPhone = student.phone || parseVerification(student.verification).phone || '';
+    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacherPhone, student_name: student.name || '', student_phone: studentPhone, bio: teacher.bio || '', teacher_subjects: teacher.subject || '', student_rating: ratingMap.get(b.id) || 0 };
   });
 }
 async function walletBalance(userId) {
@@ -664,6 +716,24 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (!user) fail(401, 'يلزم تسجيل الدخول.');
     if (portal !== user.role) fail(403, 'هذا القسم غير متاح لحسابك.');
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
+
+    if (path === 'video/ice' && !write && ['teachers', 'students'].includes(user.role)) {
+      const fallback = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] }];
+      const configuredUrls = String(process.env.VITE_TURN_URLS || process.env.TURN_URLS || '').split(',').map(value => value.trim()).filter(Boolean);
+      if (configuredUrls.length && (process.env.VITE_TURN_USERNAME || process.env.TURN_USERNAME) && (process.env.VITE_TURN_CREDENTIAL || process.env.TURN_CREDENTIAL)) return res.json({ ice_servers: [...fallback, { urls: configuredUrls, username: process.env.VITE_TURN_USERNAME || process.env.TURN_USERNAME, credential: process.env.VITE_TURN_CREDENTIAL || process.env.TURN_CREDENTIAL }] });
+      if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+        try {
+          const authorization = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+          const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Tokens.json`, { method: 'POST', headers: { Authorization: `Basic ${authorization}` } });
+          if (response.ok) {
+            const token = await response.json();
+            const twilioServers = Array.isArray(token.ice_servers) ? token.ice_servers.map(item => ({ urls: item?.urls || item?.url, ...(item?.username ? { username: item.username } : {}), ...(item?.credential ? { credential: item.credential } : {}) })).filter(item => item.urls) : [];
+            if (twilioServers.length) return res.json({ ice_servers: twilioServers });
+          }
+        } catch { /* Fall back to STUN; the client will keep retrying and report media state. */ }
+      }
+      return res.json({ ice_servers: fallback });
+    }
 
     if (await serveVerificationFile(req, res, { db, user, path })) return;
     if (await serveWalletTopup(req, res, { db, user, path, ...(topupProofBytes ? { bytes: topupProofBytes } : {}) })) return;
@@ -922,7 +992,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const teacherMap = new Map(teachers.map(item => [item.id, item.name]));
       const ratings = await teacherRatingMap(teacherIds);
       const purchases = await db.collection('package_purchases').find({ student_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(200).toArray();
-      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)), teacher_name: teacherMap.get(item.teacher_id), ...ratings.get(item.teacher_id) })).filter(item => item.subjects.length), purchases: purchases.map(item => publicPackagePurchase({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)) })) });
+      const reservations = await db.collection('package_purchases').find({ teacher_id: { $in: teacherIds }, status: { $in: ['scheduled', 'active'] }, expires_at: { $gt: Date.now() } }, { projection: { _id: 0, teacher_id: 1, selected_schedule: 1 } }).toArray();
+      const reservedByTeacher = new Map(teacherIds.map(id => [id, reservations.filter(row => row.teacher_id === id).flatMap(storedSelectedSchedule)]));
+      return res.json({ offers: packages.filter(item => teacherMap.has(item.teacher_id)).map(item => publicLessonPackage({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)), teacher_name: teacherMap.get(item.teacher_id), reserved_schedule: reservedByTeacher.get(item.teacher_id) || [], ...ratings.get(item.teacher_id) })).filter(item => item.subjects.length), purchases: purchases.map(item => publicPackagePurchase({ ...item, subjects: (item.subjects || []).filter(subject => allowedSubjects.has(subject)) })) });
     }
     if (path === 'lesson-packages' && write && user.role === 'teachers') {
       const values = lessonPackageInput(body), now = Date.now();
@@ -962,27 +1034,33 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const subjects = (purchase.subjects || []).filter(subject => allowedSubjects.has(subject));
       const subject = requestedSubject && subjects.includes(requestedSubject) ? requestedSubject : subjects.length === 1 ? subjects[0] : '';
       if (!subject) fail(400, 'اختر المادة التي تريد حجزها من مواد الباقة.');
-      const start = Number(body.start);
-      const availableDays = await packageAvailability(purchase);
-      if (!Number.isSafeInteger(start) || !availableDays.some(day => day.starts.includes(start))) fail(409, 'هذا الوقت لم يعد متاحاً. اختر وقتاً آخر من جدول الباقة.');
       const lessonDuration = Number(purchase.minutes) * 60000;
       const lessonPrice = Math.round(Number(purchase.price) / Number(purchase.lesson_count));
       const requestedCount = body.recurring === true ? Number(purchase.remaining_lessons) : 1;
       const remainingAfterSchedule = Number(purchase.remaining_lessons) - requestedCount;
       const occupied = await occupiedPackageRanges(purchase.teacher_id, purchase.student_id);
-      const starts = [];
-      for (let candidate = start; starts.length < requestedCount && candidate + lessonDuration <= Number(purchase.expires_at); candidate += 7 * 86400000) {
-        const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Amman', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(candidate));
-        const row = storedWeeklySchedule(purchase).find(item => item.weekday === civilWeekday(day));
-        if (!row) continue;
-        const window = packageWindow(day, row);
-        const end = candidate + lessonDuration;
-        if (candidate < window.start || end > window.end || occupied.some(range => candidate < range.end && end > range.start)) continue;
-        starts.push(candidate);
-        occupied.push({ id: `planned:${candidate}`, start: candidate, end });
+      const selectedSchedule = Array.isArray(body.selections) && body.selections.length ? selectedPackageSchedule(body, purchase) : [];
+      let starts = [];
+      if (selectedSchedule.length) {
+        starts = plannedPackageStarts({ ...purchase, lesson_count: 60, validity_days: Math.max(7, Math.ceil((Number(purchase.expires_at) - Date.now()) / 86400000)) }, selectedSchedule, Number(purchase.expires_at));
+        starts = starts.filter(candidate => !occupied.some(range => candidate < range.end && candidate + lessonDuration > range.start)).slice(0, requestedCount);
+      } else {
+        const start = Number(body.start);
+        const availableDays = await packageAvailability(purchase);
+        if (!Number.isSafeInteger(start) || !availableDays.some(day => day.starts.includes(start))) fail(409, 'هذا الوقت لم يعد متاحاً. اختر وقتاً آخر من جدول الباقة.');
+        for (let candidate = start; starts.length < requestedCount && candidate + lessonDuration <= Number(purchase.expires_at); candidate += 7 * 86400000) {
+          const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Amman', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(candidate));
+          const row = storedWeeklySchedule(purchase).find(item => item.weekday === civilWeekday(day));
+          if (!row) continue;
+          const window = packageWindow(day, row);
+          const end = candidate + lessonDuration;
+          if (candidate < window.start || end > window.end || occupied.some(range => candidate < range.end && end > range.start)) continue;
+          starts.push(candidate);
+          occupied.push({ id: `planned:${candidate}`, start: candidate, end });
+        }
       }
       if (starts.length < requestedCount) fail(409, `لا توجد مواعيد أسبوعية كافية لإكمال الباقة. المتاح حالياً ${starts.length} من ${requestedCount} حصص؛ اختر وقتاً آخر أو اطلب من الأستاذ توسيع أيام الباقة.`);
-      const consumed = await db.collection('package_purchases').updateOne({ id: purchase.id, student_id: user.id, status: 'active', remaining_lessons: Number(purchase.remaining_lessons) }, { $set: { remaining_lessons: remainingAfterSchedule, status: remainingAfterSchedule > 0 ? 'active' : body.recurring === true ? 'scheduled' : 'exhausted', ...(body.recurring === true ? { scheduled_starts: starts, scheduled_at: Date.now() } : {}), updated: Date.now() } });
+      const consumed = await db.collection('package_purchases').updateOne({ id: purchase.id, student_id: user.id, status: 'active', remaining_lessons: Number(purchase.remaining_lessons) }, { $set: { remaining_lessons: remainingAfterSchedule, status: remainingAfterSchedule > 0 ? 'active' : body.recurring === true ? 'scheduled' : 'exhausted', ...(body.recurring === true ? { selected_schedule: selectedSchedule, scheduled_starts: starts, scheduled_at: Date.now() } : {}), updated: Date.now() } });
       if (!consumed.modifiedCount) fail(409, 'تم جدولة هذه الباقة للتو من جهاز آخر.');
       const bookingIds = [];
       try {
@@ -992,15 +1070,15 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         await db.collection('slots').insertMany(slots);
         await db.collection('bookings').insertMany(bookings);
       } catch (error) {
-        await db.collection('package_purchases').updateOne({ id: purchase.id }, { $set: { remaining_lessons: Number(purchase.remaining_lessons), status: 'active', updated: Date.now() }, $unset: { scheduled_starts: '', scheduled_at: '' } });
+        await db.collection('package_purchases').updateOne({ id: purchase.id }, { $set: { remaining_lessons: Number(purchase.remaining_lessons), status: 'active', updated: Date.now() }, $unset: { selected_schedule: '', scheduled_starts: '', scheduled_at: '' } });
         await db.collection('bookings').deleteMany({ id: { $in: bookingIds } });
         await db.collection('slots').deleteMany({ id: { $in: bookingIds.map(id => `package:${id}`) } });
         throw error;
       }
       await ensureChat(mongoChatStore(db), purchase.teacher_id, user.id);
       io.to(`chat:${purchase.teacher_id}`).emit('chat:changed', {});
-      const teacherAccount = await db.collection('users').findOne({ id: purchase.teacher_id }, { projection: { _id: 0, phone: 1 } });
-      const bookingNotice = { id: bookingIds[0], subject, start: starts[0], minutes: Number(purchase.minutes), teacher_name: purchase.teacher_name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || '', student_phone: user.phone || '', lesson_count: starts.length };
+      const teacherAccount = await db.collection('users').findOne({ id: purchase.teacher_id }, { projection: { _id: 0, phone: 1, verification: 1 } });
+      const bookingNotice = { id: bookingIds[0], subject, start: starts[0], minutes: Number(purchase.minutes), teacher_name: purchase.teacher_name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || parseVerification(teacherAccount?.verification).phone || '', student_phone: user.phone || parseVerification(user.verification).phone || '', lesson_count: starts.length };
       io.to(`chat:${purchase.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
       io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
       void sendDevicePush(purchase.teacher_id, { title: 'تمت جدولة باقة جديدة', body: `حجز ${user.name} ${starts.length} حصص أسبوعية لمادة ${subject}`, tag: `package-${purchase.id}`, url: 'teachers' });
@@ -1015,23 +1093,49 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const allowedSubjects = await catalogSubjectSet();
       const offerSubjects = (offer.subjects || []).filter(subject => allowedSubjects.has(subject));
       if (!offerSubjects.length) fail(409, 'مواد هذه الباقة لم تعد متاحة في قائمة الإدارة.');
-      const teacher = await db.collection('users').findOne({ id: offer.teacher_id, role: 'teachers', status: 'active' }, { projection: { _id: 0, id: 1, name: 1 } });
+      const requestedSubject = typeof body.subject === 'string' ? field(body.subject, 100) : '';
+      const subject = requestedSubject && offerSubjects.includes(requestedSubject) ? requestedSubject : offerSubjects.length === 1 ? offerSubjects[0] : '';
+      if (!subject) fail(400, 'اختر المادة التي تريد دراستها ضمن الباقة.');
+      const selectedSchedule = selectedPackageSchedule(body, offer);
+      const teacher = await db.collection('users').findOne({ id: offer.teacher_id, role: 'teachers', status: 'active' }, { projection: { _id: 0, id: 1, name: 1, phone: 1, verification: 1 } });
       if (!teacher) fail(409, 'الأستاذ غير متاح حالياً.');
+      const now = Date.now();
+      const expiresAt = now + Number(offer.validity_days) * 86400000;
+      const starts = plannedPackageStarts(offer, selectedSchedule, expiresAt, now + 60000);
+      if (starts.length < Number(offer.lesson_count)) fail(409, `الأيام المختارة لا تكفي لجدولة ${offer.lesson_count} حصة خلال صلاحية الباقة. اختر أياماً إضافية.`);
+      const occupied = await occupiedPackageRanges(offer.teacher_id, user.id);
+      const lessonDuration = Number(offer.minutes) * 60000;
+      if (starts.some(start => occupied.some(range => start < range.end && start + lessonDuration > range.start))) fail(409, 'أحد الأوقات المختارة حُجز للتو. افتح تفاصيل الباقة واختر وقتاً آخر.');
       await walletAccount(user.id);
       const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: offer.price } }, { $inc: { balance: -offer.price }, $set: { updated: Date.now() } });
       if (!debit.modifiedCount) fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال شراء الباقة.');
-      const now = Date.now();
-      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: offerSubjects, lesson_count: offer.lesson_count, remaining_lessons: offer.lesson_count, minutes: offer.minutes, price: offer.price, weekly_schedule: storedWeeklySchedule(offer), status: 'active', expires_at: now + offer.validity_days * 86400000, created: now, updated: now };
+      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: [subject], lesson_count: offer.lesson_count, remaining_lessons: 0, minutes: offer.minutes, price: offer.price, weekly_schedule: storedWeeklySchedule(offer), selected_schedule: selectedSchedule, scheduled_starts: starts, scheduled_at: now, status: 'scheduled', expires_at: expiresAt, created: now, updated: now };
+      const bookingIds = starts.map(() => crypto.randomUUID());
+      const lessonPrice = Math.round(Number(offer.price) / Number(offer.lesson_count));
       try {
         await db.collection('package_purchases').insertOne(purchase);
         await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'package_purchase', amount: -offer.price, reference: `package-purchase:${purchase.id}`, created: now });
+        const slots = starts.map((start, index) => ({ id: `package:${bookingIds[index]}`, teacher_id: offer.teacher_id, start, available_until: start + lessonDuration, minutes: Number(offer.minutes), price: lessonPrice, subject, subjects: [subject], offerings: [{ minutes: Number(offer.minutes), price: lessonPrice }], status: 'booked', package_purchase_id: purchase.id, package_sequence: index + 1, created: now }));
+        const bookings = slots.map((slot, index) => ({ id: bookingIds[index], slot_id: slot.id, student_id: user.id, start: slot.start, minutes: Number(offer.minutes), price: lessonPrice, subject, status: 'confirmed', room: random(), paid: 1, payment_ref: `package:${purchase.id}`, package_purchase_id: purchase.id, package_sequence: index + 1, payout_status: 'held', payout_hold_reason: `package:${purchase.id}`, notes: '', resource: '', created: now }));
+        await db.collection('slots').insertMany(slots);
+        await db.collection('bookings').insertMany(bookings);
       } catch (error) {
         await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: offer.price }, $set: { updated: Date.now() } });
         await db.collection('package_purchases').deleteOne({ id: purchase.id });
+        await db.collection('wallet_transactions').deleteMany({ reference: `package-purchase:${purchase.id}` });
+        await db.collection('bookings').deleteMany({ id: { $in: bookingIds } });
+        await db.collection('slots').deleteMany({ id: { $in: bookingIds.map(id => `package:${id}`) } });
         throw error;
       }
       await ensureChat(mongoChatStore(db), offer.teacher_id, user.id);
       io.to(`chat:${offer.teacher_id}`).emit('chat:changed', {});
+      const teacherPhone = teacher.phone || parseVerification(teacher.verification).phone || '';
+      const studentPhone = user.phone || parseVerification(user.verification).phone || '';
+      const bookingNotice = { id: bookingIds[0], subject, start: starts[0], minutes: Number(offer.minutes), teacher_name: teacher.name || '', student_name: user.name, teacher_phone: teacherPhone, student_phone: studentPhone, lesson_count: starts.length };
+      io.to(`chat:${offer.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
+      io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
+      void sendDevicePush(offer.teacher_id, { title: 'تم حجز باقة جديدة', body: `حجز ${user.name} ${starts.length} حصة لمادة ${subject}`, tag: `package-${purchase.id}`, url: 'teachers' });
+      void sendDevicePush(user.id, { title: 'تم تثبيت باقتك', body: `تم حجز ${starts.length} حصة مع ${teacher.name}`, tag: `package-${purchase.id}`, url: 'students' });
       await audit(user.id, 'package:purchase', purchase.id);
       return res.json({ purchase: publicPackagePurchase(purchase) });
     }
@@ -1127,8 +1231,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       await ensureChat(mongoChatStore(db), slot.teacher_id, user.id);
       io.to(`chat:${slot.teacher_id}`).emit('chat:changed', {});
-      const teacherAccount = await db.collection('users').findOne({ id: slot.teacher_id }, { projection: { _id: 0, phone: 1 } });
-      const bookingNotice = { id: bookingId, subject: selectedSubject, start: selectedStart, minutes: selectedOffering.minutes, teacher_name: slot.teacher_name || teacherAccount?.name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || '', student_phone: user.phone || '' };
+      const teacherAccount = await db.collection('users').findOne({ id: slot.teacher_id }, { projection: { _id: 0, name: 1, phone: 1, verification: 1 } });
+      const bookingNotice = { id: bookingId, subject: selectedSubject, start: selectedStart, minutes: selectedOffering.minutes, teacher_name: slot.teacher_name || teacherAccount?.name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || parseVerification(teacherAccount?.verification).phone || '', student_phone: user.phone || parseVerification(user.verification).phone || '' };
       io.to(`chat:${slot.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
       io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
       void sendDevicePush(slot.teacher_id, { title: 'حجز جديد', body: `حجز ${user.name} حصة ${selectedSubject}`, tag: `booking-${bookingId}`, url: 'teachers' });

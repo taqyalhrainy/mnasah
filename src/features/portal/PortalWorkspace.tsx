@@ -1,7 +1,7 @@
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, CircleAlert, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
-import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase, type PackageAvailabilityDay, type WeeklySchedule } from '../../services/platformApi';
+import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase, type WeeklySchedule, type PackageScheduleSelection } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
 import { CatalogPanel } from './CatalogPanel';
@@ -32,6 +32,27 @@ const timeOnly = (value: number) => new Date(value).toLocaleTimeString(locale(),
 const localDayKey = (value = Date.now()) => { const date = new Date(value); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
 const packageWeekDays = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const PackageSchedule = ({ rows }: { rows: WeeklySchedule[] }) => rows.length ? <div className="package-schedule-summary"><CalendarDays size={17} /><div>{rows.map(row => <span key={row.weekday}>{t(packageWeekDays[row.weekday])} <b dir="ltr">{row.from}–{row.to}</b></span>)}</div></div> : null;
+type PackageSelectionMap = Record<number, PackageScheduleSelection>;
+const clockMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+const clockValue = (value: number) => `${String(Math.floor((value % 1440) / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+const packageTimeOptions = (row: WeeklySchedule, duration: number, reserved: PackageScheduleSelection[] = []) => {
+  const windowStart = clockMinutes(row.from);
+  let windowEnd = clockMinutes(row.to);
+  if (windowEnd <= windowStart) windowEnd += 1440;
+  const reservedRanges = reserved.filter(item => item.weekday === row.weekday).map(item => {
+    let start = clockMinutes(item.from);
+    if (start < windowStart && windowEnd > 1440) start += 1440;
+    let end = clockMinutes(item.to);
+    while (end <= start) end += 1440;
+    return { start, end };
+  });
+  const values: PackageScheduleSelection[] = [];
+  for (let start = windowStart; start + duration <= windowEnd; start += 15) {
+    const end = start + duration;
+    if (!reservedRanges.some(range => start < range.end && end > range.start)) values.push({ weekday: row.weekday, from: clockValue(start), to: clockValue(end) });
+  }
+  return values;
+};
 const normalizedSearch = (value: string) => value.normalize('NFKD').toLocaleLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ؤ/g, 'و').replace(/ئ|ى/g, 'ي').replace(/ة/g, 'ه').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const searchKeys = (value: string) => { const normalized = normalizedSearch(value).replaceAll(' ', ''); return [normalized, normalized.replace(/[اوي]/g, '')].filter(key => key.length > 1); };
 const fuzzyMatch = (left: string, right: string) => searchKeys(left).some(a => searchKeys(right).some(b => a.includes(b) || b.includes(a)));
@@ -124,14 +145,13 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [insufficientWallet, setInsufficientWallet] = useState<{ balance: number; price: number } | null>(null);
   const [lessonPackages, setLessonPackages] = useState<LessonPackage[]>([]);
   const [packageDetails, setPackageDetails] = useState<LessonPackage | null>(null);
+  const [packagePurchaseSubject, setPackagePurchaseSubject] = useState('');
+  const [packagePurchaseSelections, setPackagePurchaseSelections] = useState<PackageSelectionMap>({});
   const [packagePurchases, setPackagePurchases] = useState<PackagePurchase[]>([]);
   const [bookingPackage, setBookingPackage] = useState<PackagePurchase | null>(null);
   const [selectedPackagePurchase, setSelectedPackagePurchase] = useState('');
-  const [packageAvailabilityDays, setPackageAvailabilityDays] = useState<PackageAvailabilityDay[]>([]);
-  const [packageAvailabilityLoading, setPackageAvailabilityLoading] = useState(false);
-  const [packageBookingDay, setPackageBookingDay] = useState('');
-  const [packageBookingStart, setPackageBookingStart] = useState(0);
   const [packageBookingSubject, setPackageBookingSubject] = useState('');
+  const [packageBookingSelections, setPackageBookingSelections] = useState<PackageSelectionMap>({});
   const [room, setRoom] = useState<Room | null>(null);
   const [callCompact, setCallCompact] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -222,15 +242,12 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   }, [catalog, user.subject]);
   useEffect(() => { setCustomPackages(user.custom_packages || []); }, [user.custom_packages]);
   useEffect(() => {
+    setPackagePurchaseSubject(packageDetails?.subjects.length === 1 ? packageDetails.subjects[0] : '');
+    setPackagePurchaseSelections({});
+  }, [packageDetails?.id]);
+  useEffect(() => {
     const purchase = packagePurchases.find(item => item.id === selectedPackagePurchase);
-    setPackageAvailabilityDays([]); setPackageBookingDay(''); setPackageBookingStart(0); setPackageBookingSubject(purchase?.subjects.length === 1 ? purchase.subjects[0] : '');
-    if (!purchase?.weekly_schedule?.length) return;
-    let alive = true; setPackageAvailabilityLoading(true);
-    request<{ days: PackageAvailabilityDay[] }>(`students/package-purchases/${purchase.id}/availability`)
-      .then(result => { if (alive) setPackageAvailabilityDays(result.days || []); })
-      .catch(cause => { if (alive) setError((cause as Error).message); })
-      .finally(() => { if (alive) setPackageAvailabilityLoading(false); });
-    return () => { alive = false; };
+    setPackageBookingSelections({}); setPackageBookingSubject(purchase?.subjects.length === 1 ? purchase.subjects[0] : '');
   }, [selectedPackagePurchase, packagePurchases]);
   useEffect(() => {
     if (!selected) return;
@@ -398,14 +415,18 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const activePackagePurchases = packagePurchases.filter(item => item.status === 'active' && item.remaining_lessons > 0 && item.expires_at > Date.now());
   const slotsForPackage = (purchase: PackagePurchase) => openSlots.filter(slot => slot.teacher_id === purchase.teacher_id && slotSubjects(slot).some(subject => purchase.subjects.includes(subject)) && slotOfferings(slot).some(offering => offering.minutes === purchase.minutes && availableBookingStarts(slot, offering.minutes).some(start => start + offering.minutes * 60000 <= purchase.expires_at)));
   async function purchaseLessonPackage(item: LessonPackage) {
+    const selections = Object.values(packagePurchaseSelections).sort((left, right) => left.weekday - right.weekday);
+    if (!packagePurchaseSubject) { setError(t('اختر المادة التي تريد دراستها ضمن الباقة.')); return; }
+    if (!selections.length) { setError(t('اختر يوماً واحداً على الأقل وحدد وقت الحصة قبل شراء الباقة.')); return; }
     setBusy(true); setError(''); setSuccess('');
     try {
       const wallet = await request<WalletData>('students/wallet');
       if (wallet.balance < item.price) { setWalletRequired(item.price); setPackageDetails(null); setInsufficientWallet({ balance: wallet.balance, price: item.price }); return; }
       if (!window.confirm(t('تأكيد شراء باقة {v0} من {v1} مقابل {v2}؟', { v0: item.name, v1: item.teacher_name || '', v2: money(item.price) }))) return;
-      await request(`students/lesson-packages/${item.id}/purchase`, {});
-      setSuccess(t('تم شراء الباقة. ستجدها الآن في «باقاتي».'));
-      setSelectedPackagePurchase(''); refresh(); onView('packages');
+      await request(`students/lesson-packages/${item.id}/purchase`, { subject: packagePurchaseSubject, selections });
+      setPackageDetails(null);
+      setSuccess(t('تم شراء الباقة وتثبيت جميع حصصها في جدولك بنجاح.'));
+      setSelectedPackagePurchase(''); refresh(); onView('rooms');
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 402) { const wallet = await request<WalletData>('students/wallet').catch(() => ({ balance: 0 } as WalletData)); setWalletRequired(item.price); setPackageDetails(null); setInsufficientWallet({ balance: wallet.balance, price: item.price }); }
       else setError((cause as Error).message);
@@ -430,10 +451,11 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     } finally { setBusy(false); }
   }
   async function bookPackageTime(purchase: PackagePurchase) {
-    if (!packageBookingStart || !packageBookingSubject) { setError(t('اختر المادة واليوم والوقت المناسب.')); return; }
+    const selections = Object.values(packageBookingSelections).sort((left, right) => left.weekday - right.weekday);
+    if (!selections.length || !packageBookingSubject) { setError(t('اختر المادة ويوماً واحداً على الأقل ووقت الحصة.')); return; }
     setBusy(true); setError(''); setSuccess('');
     try {
-      await request(`students/package-purchases/${purchase.id}/book`, { start: packageBookingStart, subject: packageBookingSubject, recurring: true });
+      await request(`students/package-purchases/${purchase.id}/book`, { selections, subject: packageBookingSubject, recurring: true });
       setSuccess(t('تم تثبيت جميع حصص الباقة أسبوعياً في نفس اليوم والوقت، وستجدها في الحصص المحجوزة.'));
       setSelectedPackagePurchase(''); refresh(); onView('rooms');
     } catch (cause) { setError((cause as Error).message); }
@@ -538,9 +560,13 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {packageDetails.description && <p className="package-details-description">{packageDetails.description}</p>}
     <div className="lesson-package-tags">{packageDetails.subjects.map(subject => <span key={subject}>{catalogText(subject)}</span>)}</div>
     <section className="package-details-facts"><div><small>{t('عدد الحصص')}</small><strong>{packageDetails.lesson_count}</strong></div><div><small>{t('مدة الحصة')}</small><strong>{packageDetails.minutes} {t('دقيقة')}</strong></div><div><small>{t('صلاحية الاستخدام')}</small><strong>{packageDetails.validity_days} {t('يوماً')}</strong></div><div><small>{t('سعر الباقة')}</small><strong>{money(packageDetails.price)}</strong></div></section>
-    <section className="package-details-schedule"><h3><CalendarDays size={18} />{t('أيام وساعات الباقة')}</h3>{packageDetails.weekly_schedule?.length ? <PackageSchedule rows={packageDetails.weekly_schedule} /> : <p>{t('لم يحدد الأستاذ أياماً ثابتة لهذه الباقة بعد.')}</p>}</section>
-    <section className="booking-cancellation-policy package-policy"><strong>{t('حجز مرن من رصيد الباقة')}</strong><p>{t('بعد الشراء تختار مواعيدك من الأيام التي نشرها الأستاذ، وتظهر لك فقط الساعات المتاحة فعلياً.')}</p></section>
-    <footer><div><small>{t('الإجمالي')}</small><strong>{money(packageDetails.price)}</strong></div><button className="primary-button" type="button" disabled={busy} onClick={() => { const item = packageDetails; setPackageDetails(null); void purchaseLessonPackage(item); }}><ShoppingBag size={17} />{t('شراء الباقة')}</button></footer>
+    <section className="package-details-schedule"><h3><CalendarDays size={18} />{t('اختر جدول حصصك قبل الشراء')}</h3><p>{t('يمكنك اختيار أكثر من يوم. ستتكرر الحصص تلقائياً حسب الأيام والأوقات التي تثبتها هنا.')}</p>{packageDetails.subjects.length > 1 && <fieldset className="package-booking-subjects"><legend>{t('المادة')}</legend>{packageDetails.subjects.map(subject => <button type="button" className={packagePurchaseSubject === subject ? 'selected' : ''} onClick={() => setPackagePurchaseSubject(subject)} key={subject}>{catalogText(subject)}</button>)}</fieldset>}<div className="package-purchase-planner">{packageDetails.weekly_schedule.map(row => {
+      const options = packageTimeOptions(row, packageDetails.minutes, packageDetails.reserved_schedule || []);
+      const selected = packagePurchaseSelections[row.weekday];
+      return <article className={`${selected ? 'selected' : ''} ${options.length ? '' : 'unavailable'}`} key={row.weekday}><button type="button" className="package-day-toggle" disabled={!options.length} onClick={() => setPackagePurchaseSelections(current => { const next = { ...current }; if (next[row.weekday]) delete next[row.weekday]; else if (options[0]) next[row.weekday] = options[0]; return next; })}><span>{selected ? <Check size={17} /> : null}</span><strong>{t(packageWeekDays[row.weekday])}</strong><small dir="ltr">{row.from} – {row.to}</small></button>{options.length ? <div className="package-range-fields"><label>{t('من')}<select value={selected?.from || ''} disabled={!selected} onChange={event => { const option = options.find(item => item.from === event.target.value); if (option) setPackagePurchaseSelections(current => ({ ...current, [row.weekday]: option })); }}><option value="">--</option>{options.map(option => <option value={option.from} key={option.from}>{option.from}</option>)}</select></label><label>{t('إلى')}<select value={selected?.to || ''} disabled={!selected} onChange={event => { const option = options.find(item => item.to === event.target.value); if (option) setPackagePurchaseSelections(current => ({ ...current, [row.weekday]: option })); }}><option value="">--</option>{options.map(option => <option value={option.to} key={option.to}>{option.to}</option>)}</select></label></div> : <p>{t('جميع أوقات هذا اليوم محجوزة حالياً.')}</p>}</article>;
+    })}</div></section>
+    <section className="booking-cancellation-policy package-policy"><strong>{t('جدول ثابت وواضح')}</strong><p>{t('بعد تأكيد الشراء تُحجز جميع حصص الباقة مباشرة، وتُزال الأوقات المختارة من الخيارات المتاحة للطلاب الآخرين.')}</p></section>
+    <footer><div><small>{t('الإجمالي')}</small><strong>{money(packageDetails.price)}</strong></div><button className="primary-button" type="button" disabled={busy || !packagePurchaseSubject || !Object.keys(packagePurchaseSelections).length} onClick={() => void purchaseLessonPackage(packageDetails)}><ShoppingBag size={17} />{t('شراء الباقة وتثبيت المواعيد')}</button></footer>
   </dialog>;
   const selectedPurchase = packagePurchases.find(item => item.id === selectedPackagePurchase) || null;
   const myPackagesView = <section className="student-page my-packages-page">
@@ -557,7 +583,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         <button className="primary-button" disabled={!active} onClick={() => setSelectedPackagePurchase(selectedPackagePurchase === item.id ? '' : item.id)}><CalendarPlus size={17} />{selectedPackagePurchase === item.id ? t('إخفاء المواعيد') : active ? t('احجز من الباقة') : t('لا توجد حصص متاحة')}</button>
       </article>;
     })}</div>}
-    {selectedPurchase && <section className="package-matching-slots"><div className="section-heading"><div><span className="section-kicker">{t('جدول الباقة')}</span><h3>{t('اختر موعدك مع {v0}', { v0: selectedPurchase.teacher_name })}</h3><p>{t('اختر المادة ثم اليوم والساعة من الفترات التي خصصها الأستاذ لهذه الباقة.')}</p></div></div>{selectedPurchase.weekly_schedule?.length ? <div className="package-direct-booking"><PackageSchedule rows={selectedPurchase.weekly_schedule} />{selectedPurchase.subjects.length > 1 && <fieldset className="package-booking-subjects"><legend>{t('المادة')}</legend>{selectedPurchase.subjects.map(subject => <button type="button" className={packageBookingSubject === subject ? 'selected' : ''} onClick={() => setPackageBookingSubject(subject)} key={subject}>{catalogText(subject)}</button>)}</fieldset>}{packageAvailabilityLoading ? <div className="package-availability-loading"><RefreshCw className="spin" size={22} />{t('جارٍ تجهيز المواعيد المتاحة…')}</div> : !packageAvailabilityDays.length ? <div className="empty-state compact-empty"><CalendarDays size={30} /><p>{t('لا توجد مواعيد متاحة ضمن جدول الباقة حالياً.')}</p></div> : <><div className="package-day-picker">{packageAvailabilityDays.map(day => <button type="button" className={packageBookingDay === day.day ? 'selected' : ''} onClick={() => { setPackageBookingDay(day.day); setPackageBookingStart(0); }} key={day.day}><small>{t(packageWeekDays[day.weekday])}</small><strong>{new Date(`${day.day}T12:00:00`).toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}</strong><span>{t('{v0} موعد', { v0: day.starts.length })}</span></button>)}</div>{packageBookingDay && <div className="package-time-picker">{packageAvailabilityDays.find(day => day.day === packageBookingDay)?.starts.map(start => <button type="button" className={packageBookingStart === start ? 'selected' : ''} onClick={() => setPackageBookingStart(start)} key={start}><Clock3 size={16} />{timeOnly(start)}</button>)}</div>}<footer className="package-booking-confirm"><div><small>{t('اختيارك')}</small><strong>{packageBookingStart ? `${catalogText(packageBookingSubject)} · ${date(packageBookingStart)}` : t('اختر الموعد المناسب')}</strong></div><button type="button" className="primary-button" disabled={busy || !packageBookingStart || !packageBookingSubject} onClick={() => void bookPackageTime(selectedPurchase)}><CalendarPlus size={18} />{t('تأكيد حجز الباقة')}</button></footer></>}</div> : <TutorList slots={slotsForPackage(selectedPurchase)} busy={busy} bookSlot={slot => bookSlot(slot, selectedPurchase)} />}</section>}
+    {selectedPurchase && <section className="package-matching-slots"><div className="section-heading"><div><span className="section-kicker">{t('إكمال جدولة باقة قديمة')}</span><h3>{t('ثبّت أيامك مع {v0}', { v0: selectedPurchase.teacher_name })}</h3><p>{t('اختر أكثر من يوم عند الحاجة، وحدد فترة الحصة من وإلى قبل التأكيد.')}</p></div></div>{selectedPurchase.weekly_schedule?.length ? <div className="package-direct-booking"><PackageSchedule rows={selectedPurchase.weekly_schedule} />{selectedPurchase.subjects.length > 1 && <fieldset className="package-booking-subjects"><legend>{t('المادة')}</legend>{selectedPurchase.subjects.map(subject => <button type="button" className={packageBookingSubject === subject ? 'selected' : ''} onClick={() => setPackageBookingSubject(subject)} key={subject}>{catalogText(subject)}</button>)}</fieldset>}<div className="package-purchase-planner">{selectedPurchase.weekly_schedule.map(row => { const options = packageTimeOptions(row, selectedPurchase.minutes); const selected = packageBookingSelections[row.weekday]; return <article className={selected ? 'selected' : ''} key={row.weekday}><button type="button" className="package-day-toggle" onClick={() => setPackageBookingSelections(current => { const next = { ...current }; if (next[row.weekday]) delete next[row.weekday]; else if (options[0]) next[row.weekday] = options[0]; return next; })}><span>{selected ? <Check size={17} /> : null}</span><strong>{t(packageWeekDays[row.weekday])}</strong><small dir="ltr">{row.from} – {row.to}</small></button><div className="package-range-fields"><label>{t('من')}<select value={selected?.from || ''} disabled={!selected} onChange={event => { const option = options.find(item => item.from === event.target.value); if (option) setPackageBookingSelections(current => ({ ...current, [row.weekday]: option })); }}><option value="">--</option>{options.map(option => <option value={option.from} key={option.from}>{option.from}</option>)}</select></label><label>{t('إلى')}<select value={selected?.to || ''} disabled={!selected} onChange={event => { const option = options.find(item => item.to === event.target.value); if (option) setPackageBookingSelections(current => ({ ...current, [row.weekday]: option })); }}><option value="">--</option>{options.map(option => <option value={option.to} key={option.to}>{option.to}</option>)}</select></label></div></article>; })}</div><footer className="package-booking-confirm"><div><small>{t('اختيارك')}</small><strong>{Object.keys(packageBookingSelections).length ? t('{v0} أيام مختارة', { v0: Object.keys(packageBookingSelections).length }) : t('اختر الأيام والأوقات')}</strong></div><button type="button" className="primary-button" disabled={busy || !Object.keys(packageBookingSelections).length || !packageBookingSubject} onClick={() => void bookPackageTime(selectedPurchase)}><CalendarPlus size={18} />{t('تثبيت جميع حصص الباقة')}</button></footer></div> : <TutorList slots={slotsForPackage(selectedPurchase)} busy={busy} bookSlot={slot => bookSlot(slot, selectedPurchase)} />}</section>}
   </section>;
   const bookingDialog = bookingSlot && (() => {
     const availableSubjects = bookingPackage ? slotSubjects(bookingSlot).filter(subject => bookingPackage.subjects.includes(subject)) : slotSubjects(bookingSlot);
@@ -693,10 +719,12 @@ function RoomHub({ portal, bookings, now, filter, onFilter, busy, canJoin, onJoi
     const upcoming = booking.start > now;
     const joinable = canJoin(booking);
     const person = portal === 'students' ? booking.teacher_name : booking.student_name;
+    const counterpartPhone = portal === 'students' ? booking.teacher_phone : booking.student_phone;
+    const counterpartPhoneLabel = portal === 'students' ? t('رقم الأستاذ') : t('رقم الطالب');
     return <article className={`room-card ${counterpartLive ? 'is-live' : ''} ${past ? 'is-past' : ''}`} key={booking.id}>
       <div className="room-card-date"><span>{new Date(booking.start).toLocaleDateString(locale(), { weekday: 'long' })}</span><strong>{new Date(booking.start).toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}</strong></div>
-      <div className="room-card-main"><div className="room-card-title"><span className={`room-status ${counterpartLive ? 'live' : booking.status}`}>{counterpartLive ? <><Video size={14} />{t("LIVE الآن")}</> : statusNames[booking.status]}</span><h3>{catalogText(booking.subject)}</h3></div><p>{person} · {timeOnly(booking.start)} - {timeOnly(end)} · {booking.minutes}{t(" دقيقة")}</p>{(portal === 'students' ? booking.teacher_phone : booking.student_phone) && <a className="room-contact" href={`tel:${portal === 'students' ? booking.teacher_phone : booking.student_phone}`} dir="ltr"><Phone size={14} />{portal === 'students' ? booking.teacher_phone : booking.student_phone}</a>}<div className="room-presence"><span className={teacherLive ? 'online' : ''}>{t("الأستاذ ")}{teacherLive ? t("داخل الغرفة") : t("لم يدخل بعد")}</span><span className={studentLive ? 'online' : ''}>{t("الطالب ")}{studentLive ? t("داخل الغرفة") : t("لم يدخل بعد")}</span></div></div>
-      <div className="room-card-action">{booking.status === 'confirmed' && upcoming && <div className="room-countdown"><small>{t("تبدأ بعد")}</small><strong dir="ltr" aria-live="polite">{countdown(booking.start)}</strong></div>}{booking.status === 'confirmed' && !upcoming && !counterpartLive && now <= end && <span className="room-started">{t("بدأ موعد الحصة")}</span>}{booking.status === 'confirmed' ? <button className={counterpartLive ? 'primary-button live-button' : 'primary-button'} disabled={busy || !joinable} title={joinable ? t("دخول غرفة الحصة") : t("يفتح الدخول قبل الموعد بـ15 دقيقة")} onClick={() => void onJoin(booking)}><Video size={17} />{counterpartLive ? t("انضم الآن") : joinable ? t("دخول الغرفة") : t("تفتح قبل 15 دقيقة")}</button> : <span className="room-closed">{booking.status === 'completed' ? t("تمت الحصة") : t("أُلغيت الحصة")}</span>}<div className="room-card-secondary-actions"><button type="button" className="secondary-button" onClick={() => onDetails(booking)}>{t('التفاصيل')}</button>{booking.status === 'confirmed' && upcoming && <button type="button" className="secondary-button danger-action" disabled={busy} onClick={() => void onCancel(booking)}>{t('إلغاء الحصة')}</button>}</div></div>
+      <div className="room-card-main"><div className="room-card-title"><span className={`room-status ${counterpartLive ? 'live' : booking.status}`}>{counterpartLive ? <><Video size={14} />{t("LIVE الآن")}</> : statusNames[booking.status]}</span><h3>{catalogText(booking.subject)}</h3></div><p>{person} · {timeOnly(booking.start)} - {timeOnly(end)} · {booking.minutes}{t(" دقيقة")}</p><div className="room-presence"><span className={teacherLive ? 'online' : ''}>{t("الأستاذ ")}{teacherLive ? t("داخل الغرفة") : t("لم يدخل بعد")}</span><span className={studentLive ? 'online' : ''}>{t("الطالب ")}{studentLive ? t("داخل الغرفة") : t("لم يدخل بعد")}</span></div></div>
+      <div className="room-card-action"><div className="room-contact-card"><span><Phone size={15} />{counterpartPhoneLabel}</span>{counterpartPhone ? <a href={`tel:${counterpartPhone}`} dir="ltr">{counterpartPhone}</a> : <strong>{t('الرقم غير مضاف')}</strong>}</div>{booking.status === 'confirmed' && upcoming && <div className="room-countdown"><small>{t("تبدأ بعد")}</small><strong dir="ltr" aria-live="polite">{countdown(booking.start)}</strong></div>}{booking.status === 'confirmed' && !upcoming && !counterpartLive && now <= end && <span className="room-started">{t("بدأ موعد الحصة")}</span>}{booking.status === 'confirmed' ? <button className={counterpartLive ? 'primary-button live-button' : 'primary-button'} disabled={busy || !joinable} title={joinable ? t("دخول غرفة الحصة") : t("يفتح الدخول قبل الموعد بـ15 دقيقة")} onClick={() => void onJoin(booking)}><Video size={17} />{counterpartLive ? t("انضم الآن") : joinable ? t("دخول الغرفة") : t("تفتح قبل 15 دقيقة")}</button> : <span className="room-closed">{booking.status === 'completed' ? t("تمت الحصة") : t("أُلغيت الحصة")}</span>}<div className="room-card-secondary-actions"><button type="button" className="secondary-button" onClick={() => onDetails(booking)}>{t('التفاصيل')}</button>{booking.status === 'confirmed' && upcoming && <button type="button" className="secondary-button danger-action" disabled={busy} onClick={() => void onCancel(booking)}>{t('إلغاء الحصة')}</button>}</div></div>
     </article>;
   };
   return <section className="rooms-hub student-page">

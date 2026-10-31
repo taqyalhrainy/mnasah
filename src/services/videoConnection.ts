@@ -1,4 +1,5 @@
 import { t } from '../i18n/preferences';
+import { request } from './platformApi';
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
 
 type PeerCallbacks = {
@@ -49,6 +50,7 @@ export class VideoConnection {
   private screenTrack?: MediaStreamTrack;
   private videoSource: VideoSource = 'camera';
   private videoEnabled = false;
+  private audioEnabled = true;
   private retryTimer?: number;
   private hasRemoteStream = false;
   private closed = false;
@@ -56,6 +58,7 @@ export class VideoConnection {
   private discoveryInFlight = false;
   private callTimeouts = new WeakMap<MediaConnection, number>();
   private diagnosedCalls = new WeakSet<MediaConnection>();
+  private resolvedIceServers: RTCIceServer[] = iceServers;
 
   constructor(
     private readonly roomId: string,
@@ -88,14 +91,36 @@ export class VideoConnection {
     this.placeholderVideoTrack = this.createPlaceholderVideoTrack();
     if (this.placeholderVideoTrack) this.localStream.addTrack(this.placeholderVideoTrack);
 
+    try {
+      const result = await request<{ ice_servers?: RTCIceServer[] }>(`${this.role}s/video/ice`);
+      if (Array.isArray(result.ice_servers) && result.ice_servers.length) this.resolvedIceServers = result.ice_servers;
+    } catch { /* Static STUN/TURN configuration remains available as a fallback. */ }
+
     this.createPeer();
     return this.localStream;
   }
 
   toggleAudio(enabled: boolean) {
+    this.audioEnabled = enabled;
     this.localStream?.getAudioTracks().forEach((track) => {
       track.enabled = enabled;
     });
+    if (enabled) void this.repairAudio();
+  }
+
+  async repairAudio() {
+    if (this.closed || !this.localStream) return;
+    let track = this.localStream.getAudioTracks().find(candidate => candidate.readyState === 'live');
+    if (!track) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      track = stream.getAudioTracks()[0];
+      this.localStream.getAudioTracks().forEach(oldTrack => { this.localStream?.removeTrack(oldTrack); oldTrack.stop(); });
+      if (track) this.localStream.addTrack(track);
+    }
+    if (!track) return;
+    track.enabled = this.audioEnabled;
+    const sender = this.activeCall?.peerConnection.getSenders().find(candidate => candidate.track?.kind === 'audio' || candidate.track === null && candidate.getParameters().codecs?.some(codec => codec.mimeType.toLowerCase().startsWith('audio/')));
+    if (sender && sender.track !== track) await sender.replaceTrack(track);
   }
 
   async toggleVideo(enabled: boolean) {
@@ -300,7 +325,7 @@ export class VideoConnection {
     const peer = new Peer({
       debug: 1,
       config: {
-        iceServers,
+        iceServers: this.resolvedIceServers,
         iceCandidatePoolSize: 8,
       },
     });
@@ -321,6 +346,7 @@ export class VideoConnection {
 
   resumeAfterBackground() {
     this.reconnectSignaling();
+    void this.repairAudio().catch(() => undefined);
     try { this.activeCall?.peerConnection.restartIce?.(); } catch { /* Some mobile WebViews do not expose restartIce. */ }
 
     if (!this.hasRemoteStream) {
@@ -419,7 +445,7 @@ export class VideoConnection {
     }, 18000);
     this.callTimeouts.set(call, callTimeout);
 
-    call.on('stream', (remoteStream) => {
+    const acceptRemoteStream = (remoteStream: MediaStream) => {
       if (this.closed) {
         call.close();
         return;
@@ -434,10 +460,17 @@ export class VideoConnection {
       if (previousCall && previousCall !== call) previousCall.close();
       this.callbacks.onRemoteStream(remoteStream);
       this.callbacks.onStatus(t("الاتصال مباشر"));
+      void this.repairAudio().catch(() => undefined);
 
       remoteStream.getTracks().forEach((track) => {
         track.addEventListener('ended', () => this.handleCallEnded(call), { once: true });
       });
+    };
+
+    call.on('stream', acceptRemoteStream);
+    call.peerConnection.addEventListener('track', () => {
+      const tracks = call.peerConnection.getReceivers().map(receiver => receiver.track).filter((track): track is MediaStreamTrack => Boolean(track && track.readyState === 'live'));
+      if (tracks.length) acceptRemoteStream(new MediaStream(tracks));
     });
 
     call.on('close', () => {

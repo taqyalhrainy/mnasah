@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
-test('lesson packages expose their own weekly schedule, book matching times, and restore credit on cancellation', async t => {
+test('lesson packages choose recurring days before purchase, reserve all lessons, and restore credit on cancellation', async t => {
   const now = Date.now();
   const users = [
     { id: 'package-teacher', role: 'teachers', status: 'active', name: 'الأستاذة رنا', email: 'teacher@package.test', password: 'unused', subject: 'المناهج › رياضيات' },
@@ -30,24 +30,26 @@ test('lesson packages expose their own weekly schedule, book matching times, and
   const market = await json('students', 'lesson-packages');
   assert.equal(market.offers.length, 1); assert.equal(market.offers[0].teacher_name, 'الأستاذة رنا');
 
-  const purchase = (await json('students', `lesson-packages/${created.package.id}/purchase`, {})).purchase;
-  assert.equal(purchase.remaining_lessons, 4);
+  const selections = weekly_schedule.map(({ weekday }) => ({ weekday, from: '12:00', to: '13:00' }));
+  const purchase = (await json('students', `lesson-packages/${created.package.id}/purchase`, { subject: 'رياضيات', selections })).purchase;
+  assert.equal(purchase.remaining_lessons, 0);
+  assert.equal(purchase.status, 'scheduled');
+  assert.equal(purchase.selected_schedule.length, 7);
   assert.equal((await json('students', 'wallet')).balance, 4000);
   const listed = await json('students', 'lesson-packages');
-  assert.equal(listed.purchases[0].status, 'active');
+  assert.equal(listed.purchases[0].status, 'scheduled');
+  assert.equal(listed.offers[0].reserved_schedule.length, 7);
 
-  const availability = await json('students', `package-purchases/${purchase.id}/availability`);
-  assert.ok(availability.days.length > 0); assert.ok(availability.days[0].starts.length > 0);
-  const booking = await json('students', `package-purchases/${purchase.id}/book`, { subject: 'رياضيات', start: availability.days[0].starts[0] });
+  const packageBookings = (await json('students', 'overview')).bookings.filter(item => item.package_purchase_id === purchase.id);
+  assert.equal(packageBookings.length, 4);
+  const booking = packageBookings[0];
   assert.equal((await json('students', 'wallet')).balance, 4000, 'package booking must not debit the wallet again');
-  assert.equal((await json('students', 'lesson-packages')).purchases[0].remaining_lessons, 3);
-  const booked = (await json('students', 'overview')).bookings.find(item => item.id === booking.id);
-  assert.equal(booked.package_purchase_id, purchase.id); assert.equal(booked.payment_ref, `package:${purchase.id}`);
+  assert.equal(booking.package_purchase_id, purchase.id); assert.equal(booking.payment_ref, `package:${purchase.id}`);
 
   const quote = await json('students', `bookings/${booking.id}/cancellation`);
   assert.equal(quote.quote.packageCredit, true);
   await json('students', `bookings/${booking.id}/cancel`, {});
-  assert.equal((await json('students', 'lesson-packages')).purchases[0].remaining_lessons, 4, 'cancellation restores one package lesson');
+  assert.equal((await json('students', 'lesson-packages')).purchases[0].remaining_lessons, 1, 'cancellation restores one package lesson');
   assert.equal((await json('students', 'wallet')).balance, 4000);
 
   await json('teachers', `lesson-packages/${created.package.id}/archive`, {});

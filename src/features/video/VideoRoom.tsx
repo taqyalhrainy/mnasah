@@ -186,9 +186,33 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const stream = remoteStreamRef.current;
     if (!element || !stream) return;
     if (element.srcObject !== stream) element.srcObject = stream;
-    try { await element.play(); setRemoteAudioBlocked(false); }
+    try {
+      element.volume = 1;
+      element.muted = true;
+      await element.play();
+      element.muted = false;
+      await element.play();
+      setRemoteAudioBlocked(false);
+    }
     catch { setRemoteAudioBlocked(true); }
   }, []);
+
+  useEffect(() => {
+    if (!hasRemoteStream) return;
+    const recover = () => {
+      void connectionRef.current?.repairAudio().catch(() => undefined);
+      void resumeRemoteAudio();
+    };
+    const timer = window.setInterval(recover, 4000);
+    document.addEventListener('pointerdown', recover, { passive: true });
+    document.addEventListener('visibilitychange', recover);
+    recover();
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('pointerdown', recover);
+      document.removeEventListener('visibilitychange', recover);
+    };
+  }, [hasRemoteStream, resumeRemoteAudio]);
 
   useEffect(() => {
     const previous = messageCountRef.current;
