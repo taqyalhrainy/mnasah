@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, Eye, EyeOff, GraduationCap, KeyRound, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { request, portalNames, type Portal, type User } from '../../services/platformApi';
 import { PreferenceControls, direction, t, usePreferences } from '../../i18n/preferences';
@@ -12,12 +12,21 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [recovery, setRecovery] = useState<'request' | 'reset' | 'done' | null>(null);
+  const [recovery, setRecovery] = useState<'request' | 'reset' | 'google-reset' | 'done' | null>(null);
   const [resetId, setResetId] = useState('');
+  const [googleRecoveryCredential, setGoogleRecoveryCredential] = useState('');
   const [recoveryHint, setRecoveryHint] = useState('');
   const [debugCode, setDebugCode] = useState('');
+  const [passwordResetCodeReady, setPasswordResetCodeReady] = useState<boolean | null>(null);
   const base = import.meta.env.BASE_URL;
   const PortalIcon = portal === 'students' ? GraduationCap : portal === 'teachers' ? Users : ShieldCheck;
+  useEffect(() => {
+    let active = true;
+    void request<{ passwordResetCodeReady?: boolean }>('public/config')
+      .then(config => { if (active) setPasswordResetCodeReady(Boolean(config.passwordResetCodeReady)); })
+      .catch(() => { if (active) setPasswordResetCodeReady(false); });
+    return () => { active = false; };
+  }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     const data = Object.fromEntries(new FormData(event.currentTarget));
@@ -46,6 +55,22 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
     catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
+  const startGoogleRecovery = useCallback((credential: string) => {
+    setGoogleRecoveryCredential(credential);
+    setRecovery('google-reset');
+    setRecoveryHint('تم التحقق من بريدك عبر Google. ضع كلمة مرور جديدة لحسابك.');
+    setError('');
+  }, []);
+  async function completeGoogleReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    if (data.password !== data.confirm_password) { setError('كلمتا المرور غير متطابقتين.'); setBusy(false); return; }
+    try {
+      await request('auth/google-reset-password', { credential: googleRecoveryCredential, password: data.password, role: portal });
+      setRecovery('done'); setRecoveryHint('تم تغيير كلمة المرور. يمكنك تسجيل الدخول الآن.');
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
   const googleLogin = useCallback(async (credential: string) => {
     setBusy(true); setError('');
     try {
@@ -71,14 +96,26 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
           <div className="password-recovery-icon"><KeyRound size={24} /></div>
           <h2>{recovery === 'done' ? t('تم تغيير كلمة المرور') : t('استعادة كلمة المرور')}</h2>
           {recoveryHint && <p className={recovery === 'done' ? 'notice success' : 'auth-welcome'}>{t(recoveryHint)}</p>}
-          {recovery === 'request' && <form onSubmit={requestReset}>
-            <label>{t('البريد الإلكتروني أو رقم الهاتف')}<div className="auth-input-wrap"><Mail size={18} /><input name="identifier" dir="ltr" autoComplete="username" placeholder="you@example.com / 0790000000" maxLength={254} required /></div></label>
+          {recovery === 'request' && <>
+            <p className="auth-welcome">{t('تحقق من بريدك المرتبط بالحساب عبر Google ثم اختر كلمة مرور جديدة.')}</p>
+            <GoogleSignInButton onCredential={startGoogleRecovery} />
+            {passwordResetCodeReady && <form onSubmit={requestReset}>
+              <div className="registration-divider"><span>{t('أو')}</span></div>
+              <label>{t('البريد الإلكتروني أو رقم الهاتف')}<div className="auth-input-wrap"><Mail size={18} /><input name="identifier" dir="ltr" autoComplete="username" placeholder="you@example.com / 0790000000" maxLength={254} required /></div></label>
+              <button className="primary-button auth-submit" disabled={busy}><KeyRound size={18} />{busy ? t('جاري الإرسال…') : t('إرسال رمز التحقق')}</button>
+            </form>}
+            {passwordResetCodeReady === false && <p className="notice">{t('الاستعادة عبر Google متاحة الآن. إرسال الرمز عبر SMS أو البريد غير مفعّل حالياً.')}</p>}
             {error && <p className="notice error" role="alert">{t(error)}</p>}
-            <button className="primary-button auth-submit" disabled={busy}><KeyRound size={18} />{busy ? t('جاري الإرسال…') : t('إرسال رمز التحقق')}</button>
-          </form>}
+          </>}
           {recovery === 'reset' && <form onSubmit={completeReset}>
             {debugCode && <p className="notice success" dir="ltr">DEV CODE: <strong>{debugCode}</strong></p>}
             <label>{t('رمز التحقق')}<div className="auth-input-wrap"><KeyRound size={18} /><input name="code" inputMode="numeric" autoComplete="one-time-code" dir="ltr" pattern="[0-9]{6}" minLength={6} maxLength={6} required /></div></label>
+            <label>{t('كلمة المرور الجديدة')}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="password" type="password" dir="ltr" autoComplete="new-password" minLength={12} maxLength={128} required /></div></label>
+            <label>{t('تأكيد كلمة المرور')}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="confirm_password" type="password" dir="ltr" autoComplete="new-password" minLength={12} maxLength={128} required /></div></label>
+            {error && <p className="notice error" role="alert">{t(error)}</p>}
+            <button className="primary-button auth-submit" disabled={busy}>{busy ? t('جاري الحفظ…') : t('تغيير كلمة المرور')}</button>
+          </form>}
+          {recovery === 'google-reset' && <form onSubmit={completeGoogleReset}>
             <label>{t('كلمة المرور الجديدة')}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="password" type="password" dir="ltr" autoComplete="new-password" minLength={12} maxLength={128} required /></div></label>
             <label>{t('تأكيد كلمة المرور')}<div className="auth-input-wrap"><LockKeyhole size={18} /><input name="confirm_password" type="password" dir="ltr" autoComplete="new-password" minLength={12} maxLength={128} required /></div></label>
             {error && <p className="notice error" role="alert">{t(error)}</p>}

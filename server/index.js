@@ -37,6 +37,8 @@ const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || '';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
 const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-token';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
+const phoneVerificationReady = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+const passwordResetCodeReady = Boolean((process.env.RESEND_API_KEY && process.env.PASSWORD_RESET_FROM) || phoneVerificationReady);
 const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
 const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
 const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:support@emtidad-alelm.onrender.com').trim();
@@ -81,7 +83,12 @@ app.use((req, res, next) => {
   next();
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
-app.get('/api/public/config', (_req, res) => res.json({ googleClientId: GOOGLE_CLIENT_ID, vapidPublicKey: pushReady ? VAPID_PUBLIC_KEY : '' }));
+app.get('/api/public/config', (_req, res) => res.json({
+  googleClientId: GOOGLE_CLIENT_ID,
+  vapidPublicKey: pushReady ? VAPID_PUBLIC_KEY : '',
+  phoneVerificationReady,
+  passwordResetCodeReady,
+}));
 
 let db;
 let client;
@@ -369,7 +376,7 @@ async function deliverPasswordReset(user, code) {
     return { channel: 'email', destination: user.email.replace(/^(.{2}).*(@.*)$/, '$1***$2') };
   }
   const phone = normalizeJordanPhone(user.phone);
-  if (phone && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
+  if (phone && phoneVerificationReady) {
     const destination = `+962${phone.slice(1)}`;
     const form = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM_NUMBER, Body: `رمز استعادة كلمة المرور في امتداد العلم: ${code}. صالح لمدة 10 دقائق.` });
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, {
@@ -386,7 +393,7 @@ async function deliverPasswordReset(user, code) {
 async function deliverPhoneVerification(phone, code) {
   const normalized = normalizeJordanPhone(phone);
   if (!normalized) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
+  if (phoneVerificationReady) {
     const destination = `+962${normalized.slice(1)}`;
     const form = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM_NUMBER, Body: `رمز التحقق من رقمك في امتداد العلم: ${code}. صالح لمدة 10 دقائق.` });
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
@@ -655,6 +662,30 @@ app.all('/api/auth/:action', async (req, res, next) => {
       await audit(reset.user_id, 'user:self-password-reset', reset.user_id);
       return res.json({ ok: true });
     }
+    if (action === 'google-reset-password') {
+      const role = body.role;
+      if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
+      const google = await googleIdentity(body.credential);
+      const password = field(body.password, 128, 12);
+      const user = await db.collection('users').findOne({ email: google.email, role });
+      if (!user) fail(404, 'لا يوجد حساب في هذا القسم مرتبط ببريد Google الذي اخترته.');
+      const changedAt = Date.now();
+      await db.collection('users').updateOne({ id: user.id, role }, {
+        $set: {
+          password: passwordHash(password),
+          must_change_password: 0,
+          password_changed_at: changedAt,
+          email_verified: 1,
+          google_sub: google.sub,
+          auth_provider: 'google',
+        },
+        $unset: { temporary_password_expires: '' },
+      });
+      await db.collection('password_resets').updateMany({ user_id: user.id, used_at: 0 }, { $set: { used_at: changedAt } });
+      await db.collection('sessions').deleteMany({ user_id: user.id });
+      await audit(user.id, 'user:google-password-reset', user.id);
+      return res.json({ ok: true });
+    }
     if (!['login', 'register', 'setup', 'google'].includes(action)) fail(404, 'الطلب غير موجود.');
     const google = action === 'google' ? await googleIdentity(body.credential) : null;
     const email = google?.email || field(body.email, 254).toLowerCase();
@@ -676,8 +707,15 @@ app.all('/api/auth/:action', async (req, res, next) => {
         if (body.loginOnly === true) fail(404, 'لا يوجد حساب مرتبط بهذا البريد في هذا القسم. أنشئ حساباً جديداً أولاً.');
         if (role === 'admin') fail(403, 'تسجيل Google غير متاح للإدارة.');
         const verification = registrationProfile(body, role);
-        verification.phone = await consumePhoneVerification(field(body.phone_verification_id, 100), field(body.phone_verification_code, 6, 6), verification.phone);
-        verification.phone_verified_at = Date.now();
+        if (phoneVerificationReady) {
+          verification.phone = await consumePhoneVerification(field(body.phone_verification_id, 100), field(body.phone_verification_code, 6, 6), verification.phone);
+          verification.phone_verified_at = Date.now();
+          verification.phone_verification_status = 'verified';
+        } else {
+          verification.phone = normalizeJordanPhone(verification.phone);
+          verification.phone_verified_at = 0;
+          verification.phone_verification_status = 'pending_provider';
+        }
         user = { id: crypto.randomUUID(), email, name: [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(random()), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone, verification, auth_provider: 'google', email_verified: 1, google_sub: google.sub, created: Date.now(), must_change_password: 0 };
         try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً.'); }
       } else {
