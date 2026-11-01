@@ -24,7 +24,12 @@ services:
         value: 10
       - key: PASSWORD_RESET_SECRET
         generateValue: true
-      # Configure Resend for email recovery, or Twilio for SMS recovery.
+      # Vonage Verify is the primary SMS/OTP provider. Twilio remains an optional fallback.
+      - key: VONAGE_API_KEY
+        sync: false
+      - key: VONAGE_API_SECRET
+        sync: false
+      # Configure Resend for email recovery, or use the phone provider for SMS recovery.
       - key: RESEND_API_KEY
         sync: false
       - key: PASSWORD_RESET_FROM

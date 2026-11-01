@@ -37,7 +37,10 @@ const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || '';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
 const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-token';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
-const phoneVerificationReady = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+const vonagePhoneReady = Boolean(process.env.VONAGE_API_KEY && process.env.VONAGE_API_SECRET);
+const twilioPhoneReady = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+const phoneVerificationProvider = vonagePhoneReady ? 'vonage' : twilioPhoneReady ? 'twilio' : '';
+const phoneVerificationReady = Boolean(phoneVerificationProvider);
 const passwordResetCodeReady = Boolean((process.env.RESEND_API_KEY && process.env.PASSWORD_RESET_FROM) || phoneVerificationReady);
 const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
 const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
@@ -87,6 +90,7 @@ app.get('/api/public/config', (_req, res) => res.json({
   googleClientId: GOOGLE_CLIENT_ID,
   vapidPublicKey: pushReady ? VAPID_PUBLIC_KEY : '',
   phoneVerificationReady,
+  phoneVerificationProvider,
   passwordResetCodeReady,
 }));
 
@@ -360,6 +364,41 @@ const normalizeJordanPhone = value => {
   if (/^9627[789]\d{7}$/.test(digits)) return `0${digits.slice(3)}`;
   return '';
 };
+const maskedPhone = phone => `${phone.slice(0, 3)}****${phone.slice(-2)}`;
+const vonageAuthorization = () => `Basic ${Buffer.from(`${process.env.VONAGE_API_KEY}:${process.env.VONAGE_API_SECRET}`).toString('base64')}`;
+async function startVonageVerification(phone) {
+  const destination = `962${phone.slice(1)}`;
+  const response = await fetch('https://api.nexmo.com/v2/verify', {
+    method: 'POST',
+    headers: { Authorization: vonageAuthorization(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      brand: 'Emtidad Al-Elm',
+      code_length: 6,
+      locale: 'ar-xa',
+      channel_timeout: 120,
+      workflow: [{ channel: 'sms', to: destination }],
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.request_id) {
+    console.error('Vonage Verify start failed', response.status, result.title || result.detail || result.type || 'unknown');
+    fail(503, 'تعذر إرسال رمز التحقق إلى الهاتف. حاول مجدداً أو تواصل مع الدعم الفني.');
+  }
+  return String(result.request_id);
+}
+async function checkVonageVerification(requestId, code) {
+  const response = await fetch(`https://api.nexmo.com/v2/verify/${encodeURIComponent(requestId)}`, {
+    method: 'POST',
+    headers: { Authorization: vonageAuthorization(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.status !== 'completed') {
+    if ([400, 404, 409, 422].includes(response.status)) fail(400, 'رمز التحقق غير صحيح أو منتهي. اطلب رمزاً جديداً.');
+    console.error('Vonage Verify check failed', response.status, result.title || result.detail || result.type || 'unknown');
+    fail(503, 'تعذر التحقق من الرمز حالياً. حاول مجدداً.');
+  }
+}
 async function deliverPasswordReset(user, code) {
   if (user.email && process.env.RESEND_API_KEY && process.env.PASSWORD_RESET_FROM) {
     const response = await fetch('https://api.resend.com/emails', {
@@ -376,7 +415,11 @@ async function deliverPasswordReset(user, code) {
     return { channel: 'email', destination: user.email.replace(/^(.{2}).*(@.*)$/, '$1***$2') };
   }
   const phone = normalizeJordanPhone(user.phone);
-  if (phone && phoneVerificationReady) {
+  if (phone && vonagePhoneReady) {
+    const providerRequestId = await startVonageVerification(phone);
+    return { channel: 'phone', destination: maskedPhone(phone), provider: 'vonage', providerRequestId };
+  }
+  if (phone && twilioPhoneReady) {
     const destination = `+962${phone.slice(1)}`;
     const form = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM_NUMBER, Body: `رمز استعادة كلمة المرور في امتداد العلم: ${code}. صالح لمدة 10 دقائق.` });
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, {
@@ -385,7 +428,7 @@ async function deliverPasswordReset(user, code) {
       body: form,
     });
     if (!response.ok) throw new Error('تعذر إرسال رمز الاستعادة إلى رقم الهاتف.');
-    return { channel: 'phone', destination: `${phone.slice(0, 3)}****${phone.slice(-2)}` };
+    return { channel: 'phone', destination: maskedPhone(phone), provider: 'twilio' };
   }
   if (process.env.NODE_ENV !== 'production') return { channel: 'development', destination: 'local', debugCode: code };
   fail(503, 'خدمة استعادة كلمة المرور غير مفعلة على الخادم بعد. راجع الدعم الفني.');
@@ -393,12 +436,16 @@ async function deliverPasswordReset(user, code) {
 async function deliverPhoneVerification(phone, code) {
   const normalized = normalizeJordanPhone(phone);
   if (!normalized) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
-  if (phoneVerificationReady) {
+  if (vonagePhoneReady) {
+    const providerRequestId = await startVonageVerification(normalized);
+    return { channel: 'phone', destination: maskedPhone(normalized), provider: 'vonage', providerRequestId };
+  }
+  if (twilioPhoneReady) {
     const destination = `+962${normalized.slice(1)}`;
     const form = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM_NUMBER, Body: `رمز التحقق من رقمك في امتداد العلم: ${code}. صالح لمدة 10 دقائق.` });
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
     if (!response.ok) fail(503, 'تعذر إرسال رمز التحقق إلى الهاتف. حاول مجدداً أو تواصل مع الدعم الفني.');
-    return { channel: 'phone', destination: `${normalized.slice(0, 3)}****${normalized.slice(-2)}` };
+    return { channel: 'phone', destination: maskedPhone(normalized), provider: 'twilio' };
   }
   if (process.env.NODE_ENV !== 'production') return { channel: 'development', destination: normalized, debugCode: code };
   fail(503, 'خدمة التحقق من الهاتف غير مفعلة على الخادم. راجع الدعم الفني.');
@@ -407,6 +454,15 @@ async function consumePhoneVerification(id, code, phone) {
   const normalized = normalizeJordanPhone(phone), verification = await db.collection('phone_verifications').findOne({ id, phone: normalized, used_at: 0 });
   if (!verification || new Date(verification.expires_at).getTime() <= Date.now()) fail(400, 'رمز تحقق الهاتف منتهٍ أو غير صالح. اطلب رمزاً جديداً.');
   if (Number(verification.attempts || 0) >= 5) fail(429, 'تم تجاوز عدد محاولات التحقق. اطلب رمزاً جديداً.');
+  if (verification.provider === 'vonage') {
+    try { await checkVonageVerification(verification.provider_request_id, String(code || '')); }
+    catch (error) {
+      await db.collection('phone_verifications').updateOne({ id }, { $inc: { attempts: 1 } });
+      throw error;
+    }
+    await db.collection('phone_verifications').updateOne({ id, used_at: 0 }, { $set: { used_at: Date.now() } });
+    return normalized;
+  }
   const expected = digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`);
   if (!/^\d{6}$/.test(String(code || '')) || !equal(expected, verification.code_hash)) { await db.collection('phone_verifications').updateOne({ id }, { $inc: { attempts: 1 } }); fail(400, 'رمز تحقق الهاتف غير صحيح.'); }
   await db.collection('phone_verifications').updateOne({ id, used_at: 0 }, { $set: { used_at: Date.now() } });
@@ -624,7 +680,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
       if (recent >= 3) fail(429, 'تم إرسال عدة رموز مؤخراً. انتظر 15 دقيقة ثم حاول مجدداً.');
       const id = crypto.randomUUID(), code = String(crypto.randomInt(100000, 1000000));
       const delivery = await deliverPhoneVerification(phone, code);
-      await db.collection('phone_verifications').insertOne({ id, phone, code_hash: digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, used_at: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000) });
+      await db.collection('phone_verifications').insertOne({ id, phone, provider: delivery.provider || 'local', provider_request_id: delivery.providerRequestId || '', code_hash: delivery.provider === 'vonage' ? '' : digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, used_at: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000) });
       return res.json({ id, channel: delivery.channel, destination: delivery.destination, ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}) });
     }
     if (action === 'forgot-password') {
@@ -640,7 +696,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
       const code = String(crypto.randomInt(100000, 1000000));
       const resetId = crypto.randomUUID();
       const delivery = await deliverPasswordReset(user, code);
-      await db.collection('password_resets').insertOne({ id: resetId, user_id: user.id, role, code_hash: digest(`${resetId}:${code}:${process.env.PASSWORD_RESET_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000), used_at: 0 });
+      await db.collection('password_resets').insertOne({ id: resetId, user_id: user.id, role, provider: delivery.provider || 'local', provider_request_id: delivery.providerRequestId || '', code_hash: delivery.provider === 'vonage' ? '' : digest(`${resetId}:${code}:${process.env.PASSWORD_RESET_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000), used_at: 0 });
       return res.json({ ...generic, resetId, channel: delivery.channel, destination: delivery.destination, ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}) });
     }
     if (action === 'reset-password') {
@@ -651,10 +707,18 @@ app.all('/api/auth/:action', async (req, res, next) => {
       const reset = await db.collection('password_resets').findOne({ id: resetId, role, used_at: 0 });
       if (!reset || new Date(reset.expires_at).getTime() <= Date.now()) fail(400, 'رمز الاستعادة منتهي أو غير صالح. اطلب رمزاً جديداً.');
       if (Number(reset.attempts || 0) >= 5) fail(429, 'تم تجاوز عدد المحاولات. اطلب رمزاً جديداً.');
-      const expected = digest(`${resetId}:${code}:${process.env.PASSWORD_RESET_SECRET || OWNER_SETUP_TOKEN}`);
-      if (!equal(expected, reset.code_hash)) {
-        await db.collection('password_resets').updateOne({ id: resetId }, { $inc: { attempts: 1 } });
-        fail(400, 'رمز التحقق غير صحيح.');
+      if (reset.provider === 'vonage') {
+        try { await checkVonageVerification(reset.provider_request_id, code); }
+        catch (error) {
+          await db.collection('password_resets').updateOne({ id: resetId }, { $inc: { attempts: 1 } });
+          throw error;
+        }
+      } else {
+        const expected = digest(`${resetId}:${code}:${process.env.PASSWORD_RESET_SECRET || OWNER_SETUP_TOKEN}`);
+        if (!equal(expected, reset.code_hash)) {
+          await db.collection('password_resets').updateOne({ id: resetId }, { $inc: { attempts: 1 } });
+          fail(400, 'رمز التحقق غير صحيح.');
+        }
       }
       await db.collection('users').updateOne({ id: reset.user_id, role }, { $set: { password: passwordHash(password), must_change_password: 0, password_changed_at: Date.now() }, $unset: { temporary_password_expires: '' } });
       await db.collection('password_resets').updateOne({ id: resetId, used_at: 0 }, { $set: { used_at: Date.now() } });
