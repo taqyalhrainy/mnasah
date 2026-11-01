@@ -39,9 +39,10 @@ const OWNER_SETUP_TOKEN = process.env.OWNER_SETUP_TOKEN || 'local-testing-owner-
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
 const vonagePhoneReady = Boolean(process.env.VONAGE_API_KEY && process.env.VONAGE_API_SECRET);
 const twilioPhoneReady = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
-const phoneVerificationProvider = vonagePhoneReady ? 'vonage' : twilioPhoneReady ? 'twilio' : '';
-const phoneVerificationReady = Boolean(phoneVerificationProvider);
-const passwordResetCodeReady = Boolean((process.env.RESEND_API_KEY && process.env.PASSWORD_RESET_FROM) || phoneVerificationReady);
+const phoneVerificationProvider = vonagePhoneReady ? 'vonage' : twilioPhoneReady ? 'twilio' : 'whatsapp_manual';
+const phoneVerificationReady = true;
+const passwordResetCodeReady = Boolean((process.env.RESEND_API_KEY && process.env.PASSWORD_RESET_FROM) || vonagePhoneReady || twilioPhoneReady);
+const SUPPORT_WHATSAPP = normalizeSupportPhone(process.env.SUPPORT_WHATSAPP || '0795764229');
 const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '').trim();
 const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '').trim();
 const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:support@emtidad-alelm.onrender.com').trim();
@@ -364,6 +365,12 @@ const normalizeJordanPhone = value => {
   if (/^9627[789]\d{7}$/.test(digits)) return `0${digits.slice(3)}`;
   return '';
 };
+function normalizeSupportPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (/^07[789]\d{7}$/.test(digits)) return `962${digits.slice(1)}`;
+  if (/^9627[789]\d{7}$/.test(digits)) return digits;
+  return '962795764229';
+}
 const maskedPhone = phone => `${phone.slice(0, 3)}****${phone.slice(-2)}`;
 const vonageAuthorization = () => `Basic ${Buffer.from(`${process.env.VONAGE_API_KEY}:${process.env.VONAGE_API_SECRET}`).toString('base64')}`;
 async function startVonageVerification(phone) {
@@ -454,6 +461,13 @@ async function consumePhoneVerification(id, code, phone) {
   const normalized = normalizeJordanPhone(phone), verification = await db.collection('phone_verifications').findOne({ id, phone: normalized, used_at: 0 });
   if (!verification || new Date(verification.expires_at).getTime() <= Date.now()) fail(400, 'رمز تحقق الهاتف منتهٍ أو غير صالح. اطلب رمزاً جديداً.');
   if (Number(verification.attempts || 0) >= 5) fail(429, 'تم تجاوز عدد محاولات التحقق. اطلب رمزاً جديداً.');
+  if (verification.provider === 'whatsapp_manual') {
+    if (!verification.approved_at) fail(409, 'طلب تحقق الهاتف ما زال بانتظار موافقة الدعم الفني.');
+    const expected = digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`);
+    if (!equal(expected, verification.claim_hash)) fail(400, 'جلسة تحقق الهاتف غير صالحة. ابدأ طلباً جديداً.');
+    await db.collection('phone_verifications').updateOne({ id, used_at: 0 }, { $set: { used_at: Date.now() } });
+    return normalized;
+  }
   if (verification.provider === 'vonage') {
     try { await checkVonageVerification(verification.provider_request_id, String(code || '')); }
     catch (error) {
@@ -679,9 +693,24 @@ app.all('/api/auth/:action', async (req, res, next) => {
       const recent = await db.collection('phone_verifications').countDocuments({ phone, created: { $gt: Date.now() - 15 * 60000 } });
       if (recent >= 3) fail(429, 'تم إرسال عدة رموز مؤخراً. انتظر 15 دقيقة ثم حاول مجدداً.');
       const id = crypto.randomUUID(), code = String(crypto.randomInt(100000, 1000000));
+      if (phoneVerificationProvider === 'whatsapp_manual') {
+        const claimToken = random();
+        const reference = id.slice(0, 8).toUpperCase();
+        const message = encodeURIComponent(`طلب تحقق رقم الهاتف في امتداد العلم\nالمرجع: ${reference}\nالرقم المسجل: ${phone}\nأرسل هذه الرسالة من نفس الرقم المسجل.`);
+        await db.collection('phone_verifications').insertOne({ id, phone, provider: 'whatsapp_manual', reference, claim_hash: digest(`${id}:${claimToken}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, approved_at: 0, approved_by: '', used_at: 0, created: Date.now(), expires_at: new Date(Date.now() + 24 * 60 * 60000) });
+        return res.json({ id, channel: 'whatsapp_manual', destination: `+${SUPPORT_WHATSAPP}`, claimToken, reference, whatsappUrl: `https://wa.me/${SUPPORT_WHATSAPP}?text=${message}` });
+      }
       const delivery = await deliverPhoneVerification(phone, code);
       await db.collection('phone_verifications').insertOne({ id, phone, provider: delivery.provider || 'local', provider_request_id: delivery.providerRequestId || '', code_hash: delivery.provider === 'vonage' ? '' : digest(`${id}:${code}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, used_at: 0, created: Date.now(), expires_at: new Date(Date.now() + 10 * 60000) });
       return res.json({ id, channel: delivery.channel, destination: delivery.destination, ...(delivery.debugCode ? { debugCode: delivery.debugCode } : {}) });
+    }
+    if (action === 'phone-code-status') {
+      const id = field(body.id, 100), claimToken = field(body.claimToken, 128), phone = normalizeJordanPhone(body.phone);
+      const verification = await db.collection('phone_verifications').findOne({ id, phone, provider: 'whatsapp_manual', used_at: 0 });
+      if (!verification || new Date(verification.expires_at).getTime() <= Date.now()) fail(404, 'طلب تحقق الهاتف منتهٍ أو غير موجود.');
+      const expected = digest(`${id}:${claimToken}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`);
+      if (!equal(expected, verification.claim_hash)) fail(403, 'جلسة تحقق الهاتف غير صالحة.');
+      return res.json({ verified: Boolean(verification.approved_at), reference: verification.reference });
     }
     if (action === 'forgot-password') {
       const role = body.role;
@@ -772,7 +801,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
         if (role === 'admin') fail(403, 'تسجيل Google غير متاح للإدارة.');
         const verification = registrationProfile(body, role);
         if (phoneVerificationReady) {
-          verification.phone = await consumePhoneVerification(field(body.phone_verification_id, 100), field(body.phone_verification_code, 6, 6), verification.phone);
+          verification.phone = await consumePhoneVerification(field(body.phone_verification_id, 100), field(body.phone_verification_code, 128, 6), verification.phone);
           verification.phone_verified_at = Date.now();
           verification.phone_verification_status = 'verified';
         } else {
@@ -967,6 +996,18 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const rows = await db.collection('users').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(1000).toArray();
       const files = await db.collection('verification_files').find({ user_id: { $in: rows.map(row => row.id) } }, { projection: { _id: 0, declared_type: 0 } }).toArray();
       return res.json({ users: rows.map(row => ({ ...publicUser(row), verification_files: files.filter(file => file.user_id === row.id) })) });
+    }
+    if (path === 'phone-verifications' && user.role === 'admin' && !write) {
+      const requests = await db.collection('phone_verifications').find({ provider: 'whatsapp_manual', used_at: 0, approved_at: 0, expires_at: { $gt: new Date() } }, { projection: { _id: 0, id: 1, phone: 1, reference: 1, created: 1, expires_at: 1 } }).sort({ created: -1 }).limit(100).toArray();
+      return res.json({ requests: requests.map(item => ({ ...item, expires_at: new Date(item.expires_at).getTime() })) });
+    }
+    if (/^phone-verifications\/[^/]+\/approve$/.test(path) && user.role === 'admin' && write) {
+      const id = path.split('/')[1];
+      const request = await db.collection('phone_verifications').findOne({ id, provider: 'whatsapp_manual', used_at: 0, approved_at: 0, expires_at: { $gt: new Date() } });
+      if (!request) fail(404, 'طلب تحقق الهاتف غير موجود أو تمت معالجته.');
+      await db.collection('phone_verifications').updateOne({ id, approved_at: 0 }, { $set: { approved_at: Date.now(), approved_by: user.id } });
+      await audit(user.id, 'phone-verification:approved', id);
+      return res.json({ ok: true });
     }
     if (/^users\/[^/]+$/.test(path) && user.role === 'admin' && write) {
       const id = path.split('/')[1];

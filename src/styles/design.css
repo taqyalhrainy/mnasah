@@ -370,6 +370,14 @@ input[type=checkbox] { accent-color: var(--ink); }
 .auth-register { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; color: #655621; font-size: 13px; }
 .phone-verification-box { display: grid; grid-template-columns: auto minmax(180px, 1fr); align-items: end; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .phone-verification-box > small { grid-column: 1 / -1; color: var(--muted); }
+.phone-verification-box.verified { border-color: #2fb784; background: color-mix(in srgb, #2fb784 9%, var(--surface)); }
+.manual-phone-verification { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.manual-phone-verification strong { display: inline-flex; align-items: center; gap: 7px; margin-inline-end: auto; }
+.manual-phone-verification .primary-button, .manual-phone-verification .secondary-button { min-height: 40px; text-decoration: none; }
+.phone-verification-queue { margin: 20px 0 28px; padding: 20px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.phone-verification-queue .section-heading h2 { margin: 3px 0 0; font-size: 20px; }
+.phone-verification-request { grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; }
+.phone-verification-request p { margin: 4px 0; }
 @media (max-width: 600px) { .phone-verification-box { grid-template-columns: 1fr; } .phone-verification-box > small { grid-column: auto; } }
 .auth-google-option { display: grid; gap: 12px; margin-top: 18px; }
 .redesigned-auth .auth-register .text-button { margin: 0; color: var(--ink); font-size: 13px; text-decoration: underline; text-underline-offset: 4px; }
