@@ -20,7 +20,7 @@ export function CatalogPanel({ categories, onChanged }: { categories: Category[]
     void mutate({ action: 'reorder', ids });
   }
   return <section>
-    <div className="section-heading"><h2>{t("بطاقات التصنيفات")}</h2><div className="row-actions"><button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm(t('استبدال التصنيفات الحالية بالمنهاج الأردني الأساسي والإعدادي والتوجيهي؟'))) void mutate({ action: 'install-jordan-curriculum' }); }}><GraduationCap size={18} />{t('تطبيق المنهاج الأردني')}</button><button className="primary-button" disabled={busy} onClick={() => setEditing({ id: '', name: '', description: '', icon: '', levels: [], subjects: [] })}><Plus size={18} />{t("إضافة بطاقة")}</button></div></div>
+    <div className="section-heading"><h2>{t("بطاقات التصنيفات")}</h2><div className="row-actions"><button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm(t('استبدال التصنيفات الحالية بالمنهاجين الأردني والبريطاني الدولي؟'))) void mutate({ action: 'install-core-curricula' }); }}><GraduationCap size={18} />{t('تطبيق المناهج الأساسية')}</button><button className="primary-button" disabled={busy} onClick={() => setEditing({ id: '', name: '', description: '', icon: '', levels: [], subjects: [] })}><Plus size={18} />{t("إضافة بطاقة")}</button></div></div>
     {error && <p className="notice error" role="alert">{t(error)}</p>}
     {editing && <form className="work-form" key={editing.id} onSubmit={async event => {
       event.preventDefault(); const data = new FormData(event.currentTarget);

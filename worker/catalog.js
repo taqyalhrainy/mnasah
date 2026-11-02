@@ -1,15 +1,17 @@
 import { all, run, statement, field, fail, auditEntry } from './db.js';
-import { jordanCatalog } from '../shared/jordan-catalog.js';
+import { educationCatalog } from '../shared/jordan-catalog.js';
+
+const catalogDefinitions = new Map(educationCatalog.map(item => [item.id, item]));
 
 export async function catalog(env, user, write, body) {
   if (write) {
     if (user.role !== 'admin') fail(403, 'تعديل التصنيفات متاح للإدارة فقط.');
     const rows = await all(env, "SELECT id FROM catalog WHERE kind='category' ORDER BY position,id");
-    if (body.action === 'install-jordan-curriculum') {
+    if (['install-core-curricula', 'install-jordan-curriculum'].includes(body.action)) {
       await env.DB.batch([
         statement(env, "DELETE FROM catalog WHERE kind='category'"),
-        ...jordanCatalog.map((item, position) => statement(env, "INSERT INTO catalog (name,description,icon,levels,subjects,id,kind,position,created) VALUES (?,?,?,?,?,?,'category',?,?)", item.name, item.description, item.icon, JSON.stringify(item.levels), JSON.stringify(item.subjects), item.id, position, Date.now())),
-        auditEntry(env, user.id, 'catalog:install-jordan-curriculum', 'categories'),
+        ...educationCatalog.map((item, position) => statement(env, "INSERT INTO catalog (name,description,icon,levels,subjects,id,kind,position,created) VALUES (?,?,?,?,?,?,'category',?,?)", item.name, item.description, item.icon, JSON.stringify(item.levels), JSON.stringify(item.subjects), item.id, position, Date.now())),
+        auditEntry(env, user.id, 'catalog:install-core-curricula', 'categories'),
       ]);
     } else if (body.action === 'reorder') {
       const ids = body.ids;
@@ -30,5 +32,5 @@ export async function catalog(env, user, write, body) {
       else await run(env, "INSERT INTO catalog (name,description,icon,levels,subjects,id,kind,position,created) VALUES (?,?,?,?,?,?,'category',(SELECT COALESCE(MAX(position),-1)+1 FROM catalog),?)", ...values, id, Date.now());
     } else fail(400, 'عملية غير صحيحة.');
   }
-  return { categories: (await all(env, "SELECT id,name,description,icon,levels,subjects FROM catalog WHERE kind='category' ORDER BY position,id")).map(row => ({ ...row, levels: JSON.parse(row.levels), subjects: JSON.parse(row.subjects) })) };
+  return { categories: (await all(env, "SELECT id,name,description,icon,levels,subjects FROM catalog WHERE kind='category' ORDER BY position,id")).map(row => ({ ...row, levels: JSON.parse(row.levels), subjects: JSON.parse(row.subjects), levelSubjects: catalogDefinitions.get(row.id)?.levelSubjects })) };
 }

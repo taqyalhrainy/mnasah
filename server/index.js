@@ -19,7 +19,7 @@ import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-p
 import { parseVerification, registrationProfile } from '../shared/verification.js';
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
-import { jordanCatalog } from '../shared/jordan-catalog.js';
+import { educationCatalog } from '../shared/jordan-catalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -512,20 +512,20 @@ async function sendDevicePush(userId, payload) {
   }));
 }
 
-const starterCatalog = jordanCatalog;
-async function installJordanCatalog() {
+const starterCatalog = educationCatalog;
+async function installCoreCatalog() {
   await db.collection('catalog').deleteMany({ kind: 'category' });
   await db.collection('catalog').insertMany(starterCatalog.map((item, position) => ({ ...item, kind: 'category', position, created: Date.now() })));
 }
 async function seedCatalog() {
-  const migrationKey = 'jordan-catalog-2026';
+  const migrationKey = 'core-curricula-2026-v1';
   const migrated = await db.collection('platform_settings').findOne({ key: migrationKey });
   if (!migrated) {
-    await installJordanCatalog();
+    await installCoreCatalog();
     await db.collection('platform_settings').updateOne({ key: migrationKey }, { $set: { key: migrationKey, value: { installed_at: Date.now() } } }, { upsert: true });
     return;
   }
-  if (!await db.collection('catalog').countDocuments({ kind: 'category' })) await installJordanCatalog();
+  if (!await db.collection('catalog').countDocuments({ kind: 'category' })) await installCoreCatalog();
 }
 async function categories() {
   return db.collection('catalog').find({ kind: 'category' }, { projection: { _id: 0 } }).sort({ position: 1, id: 1 }).toArray();
@@ -534,9 +534,9 @@ async function handleCatalog(user, write, body) {
   if (write) {
     if (user.role !== 'admin') fail(403, 'تعديل التصنيفات متاح للإدارة فقط.');
     const rows = await categories();
-    if (body.action === 'install-jordan-curriculum') {
-      await installJordanCatalog();
-      await audit(user.id, 'catalog:install-jordan-curriculum', 'categories');
+    if (['install-core-curricula', 'install-jordan-curriculum'].includes(body.action)) {
+      await installCoreCatalog();
+      await audit(user.id, 'catalog:install-core-curricula', 'categories');
     } else if (body.action === 'reorder') {
       if (!Array.isArray(body.ids) || body.ids.length !== rows.length || new Set(body.ids).size !== body.ids.length) fail(409, 'تغيرت التصنيفات. حدث الصفحة وأعد المحاولة.');
       await Promise.all(body.ids.map((id, index) => db.collection('catalog').updateOne({ id, kind: 'category' }, { $set: { position: index } })));

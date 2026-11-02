@@ -342,8 +342,10 @@ test('authorization and the full reservation lifecycle', async () => {
   assert.equal((await call('owner', 'admin/users')).users.some(row => row.id === disposable.id), false, 'admin deletion must remove the account');
   await call('disposable', 'students/overview', undefined, 401);
   await call('owner', 'admin/users/platform-owner', { action: 'delete' }, 404);
-  const jordanCatalog = await call('owner', 'admin/catalog', { action: 'install-jordan-curriculum' });
-  assert.deepEqual(jordanCatalog.categories.map(row => row.name), ['المنهاج الأردني الأساسي', 'المنهاج الأردني الإعدادي', 'منهاج التوجيهي الجديد']);
-  assert.ok(jordanCatalog.categories.find(row => row.id === 'jordan-tawjihi').levels.some(level => level.includes('الحادي عشر')));
+  const coreCatalog = await call('owner', 'admin/catalog', { action: 'install-core-curricula' });
+  assert.deepEqual(coreCatalog.categories.map(row => row.id), ['jordan-basic', 'jordan-preparatory', 'jordan-tawjihi', 'cambridge-primary', 'cambridge-lower-secondary', 'cambridge-upper-secondary', 'cambridge-advanced']);
+  assert.ok(coreCatalog.categories.find(row => row.id === 'jordan-tawjihi').levels.some(level => level.includes('الحادي عشر')));
+  assert.ok(coreCatalog.categories.find(row => row.id === 'cambridge-upper-secondary').subjects.includes('الفيزياء'));
+  assert.ok(!coreCatalog.categories.find(row => row.id === 'jordan-basic').levelSubjects['الصف الأول'].includes('الفيزياء'));
   DB.db.close();
 });

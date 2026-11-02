@@ -1,6 +1,6 @@
 import { locale, t } from '../i18n/preferences';
 export type Portal = 'admin' | 'teachers' | 'students';
-export type Category = { id: string; name: string; description: string; icon: string; levels: string[]; subjects: string[] };
+export type Category = { id: string; name: string; description: string; icon: string; levels: string[]; subjects: string[]; levelSubjects?: Record<string, string[]> };
 export type CustomPackage = { id: string; name: string; description: string; levels: string[] };
 export type Verification = { first_name?: string; father_name?: string; family_name?: string; birth_date?: string; age?: number; gender?: string; phone?: string; qualifications?: string[]; other_qualification?: string; years_experience?: number; teaching_languages?: string[]; other_teaching_language?: string; professional_bio?: string; verification_status?: string; submitted_at?: number; reviewed_at?: number; rejection_reason?: string };
 export type VerificationFile = { id: string; user_id?: string; kind: 'avatar' | 'intro_video' | 'credential'; name: string; size: number; content_type: string };
