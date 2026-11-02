@@ -11,6 +11,7 @@ import { PreferenceControls, direction, usePreferences, t, locale } from '../i18
 const DirectMessages = lazy(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
 const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
+type AdminNotification = { id: string; title: string; body: string; view: string; created: number; read_at: number };
 const defaultSupportWhatsapp = '0795764229';
 const whatsappHrefNumber = (value: string) => {
   const digits = value.replace(/\D/g, '');
@@ -70,6 +71,8 @@ function PortalApp() {
   const [lessonReminders, setLessonReminders] = useState({ enabled: false, hint: '' });
   const [supportWhatsapp, setSupportWhatsapp] = useState(defaultSupportWhatsapp);
   const [bookingAlert, setBookingAlert] = useState<BookingCreatedNotice | null>(null);
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
+  const [adminUnread, setAdminUnread] = useState(0);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const toggleLessonReminders = useRef<() => void>(() => undefined);
   useEffect(() => {
@@ -102,6 +105,18 @@ function PortalApp() {
     request<{ whatsapp: string }>(`${portal}/support`).then(result => { if (alive) setSupportWhatsapp(String(result.whatsapp || defaultSupportWhatsapp).replace(/\D/g, '')); }).catch(() => { if (alive) setSupportWhatsapp(defaultSupportWhatsapp); });
     return () => { alive = false; };
   }, [portal, user]);
+  useEffect(() => {
+    if (!user || portal !== 'admin') { setAdminNotifications([]); setAdminUnread(0); return; }
+    let alive = true;
+    const load = () => request<{ notifications: AdminNotification[]; unread: number }>('admin/notifications').then(result => {
+      if (!alive) return;
+      setAdminNotifications(result.notifications);
+      setAdminUnread(result.unread);
+    }).catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, 12000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [portal, user?.id]);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [view]);
   useEffect(() => {
     const pop = () => { const next = currentPortal(); setPortal(next); setView(next === 'students' || next === 'teachers' ? 'home' : 'bookings'); setRoomLive(false); };
@@ -155,6 +170,11 @@ function PortalApp() {
       setSearchFocusKey(value => value + 1);
     } else setView(portal === 'teachers' ? 'available' : 'users');
   }
+  async function readAdminNotifications(id?: string) {
+    const result = await request<{ notifications: AdminNotification[]; unread: number }>('admin/notifications', id ? { id } : {});
+    setAdminNotifications(result.notifications);
+    setAdminUnread(result.unread);
+  }
   if (loading) return <WakeLoading slow={slowWake || wakeAttempt > 0} attempt={wakeAttempt} />;
   if (error && !user) return <main className="loading-page wake-page" dir={direction()}><div className="wake-card"><p role="alert">{t(error)}</p><button className="primary-button" onClick={() => { setWakeAttempt(0); setRetry(retry + 1); }}>{t("إعادة المحاولة")}</button></div></main>;
   if (!user) return <AuthForm key={portal} portal={portal} onLogin={setUser} />;
@@ -182,6 +202,7 @@ function PortalApp() {
     <section className="workspace">{portal === 'admin' && <header className="topbar">
       <div className="topbar-location"><img className="mobile-brand brand-monogram" src={assetUrl('images/imtidad-alelm-academy-logo-192.png')} width="36" height="36" alt="امتداد العلم أكاديمي" /><div><span className="eyebrow">{t(portalNames[portal])}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div>
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
+        <details className="admin-notification-menu"><summary className="icon-button" aria-label={t('إشعارات الإدارة')} title={t('إشعارات الإدارة')}><Bell size={19} />{adminUnread > 0 && <span className="admin-notification-count">{adminUnread > 99 ? '99+' : adminUnread}</span>}</summary><div className="admin-notification-panel"><header><strong>{t('إشعارات الإدارة')}</strong>{adminUnread > 0 && <button type="button" className="text-button" onClick={() => void readAdminNotifications()}>{t('تحديد الكل كمقروء')}</button>}</header>{adminNotifications.length ? <div className="admin-notification-list">{adminNotifications.map(item => <button type="button" className={item.read_at ? '' : 'unread'} key={item.id} onClick={() => { setView(item.view || 'bookings'); void readAdminNotifications(item.id); }}><span><strong>{t(item.title)}</strong><small>{t(item.body)}</small><time>{new Date(item.created).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}</time></span></button>)}</div> : <p>{t('لا توجد إشعارات جديدة.')}</p>}</div></details>
         <PreferenceControls />
         <button className="icon-button quick-action" onClick={openQuickAction} title={t("إدارة الحسابات")}><Users size={19} /></button>
         <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>

@@ -16,7 +16,7 @@ export function walletProofBytes(db) {
   };
 }
 
-export async function serveWalletTopup(req, res, { db, user, path, bytes = walletProofBytes(db) }) {
+export async function serveWalletTopup(req, res, { db, user, path, bytes = walletProofBytes(db), onSubmitted }) {
   const proof = /^wallet\/topups\/([^/]+)\/proof$/.exec(path);
   if (proof && req.method === 'GET') {
     const row = await db.collection('wallet_topups').findOne({ id: proof[1] }, { projection: { _id: 0 } });
@@ -40,5 +40,6 @@ export async function serveWalletTopup(req, res, { db, user, path, bytes = walle
   await bytes.write(meta.id, meta.proof_name, [data]);
   try { await db.collection('wallet_topups').insertOne(meta); }
   catch (error) { await bytes.remove(meta.id); if (/duplicate/i.test(error.message)) fail(409, 'تم استخدام صورة الحوالة هذه في طلب سابق.'); throw error; }
+  if (onSubmitted) await onSubmitted(meta);
   res.json({ topup: publicTopup(meta) }); return true;
 }

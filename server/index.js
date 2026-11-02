@@ -146,6 +146,8 @@ async function connect() {
     db.collection('package_purchases').createIndex({ teacher_id: 1, status: 1 }),
     db.collection('push_subscriptions').createIndex({ endpoint: 1 }, { unique: true }),
     db.collection('push_subscriptions').createIndex({ user_id: 1, updated: -1 }),
+    db.collection('admin_notifications').createIndex({ created: -1 }),
+    db.collection('admin_notifications').createIndex({ read_at: 1, created: -1 }),
   ]);
   await seedCatalog();
   return db;
@@ -521,7 +523,29 @@ io.on('connection', socket => {
   socket.on('disconnect', () => clearTimeout(expiry));
 });
 async function audit(actor, action, target) {
-  await db.collection('audit').insertOne({ id: crypto.randomUUID(), actor, action, target, created: Date.now() });
+  const created = Date.now();
+  await db.collection('audit').insertOne({ id: crypto.randomUUID(), actor, action, target, created });
+  const actorUser = actor ? await db.collection('users').findOne({ id: actor }, { projection: { _id: 0, name: 1, role: 1 } }) : null;
+  if (!actorUser || actorUser.role === 'admin') return;
+  const definitions = {
+    'account:created': ['حساب جديد', `أنشأ ${actorUser.name} حساباً جديداً`, 'users'],
+    'verification:submitted': ['طلب توثيق جديد', `أرسل ${actorUser.name} طلب توثيق للمراجعة`, 'users'],
+    'profile:phone-changed': ['تغيير رقم هاتف', `غيّر ${actorUser.name} رقم هاتفه بعد التحقق`, 'users'],
+    'user:self-password-reset': ['استعادة حساب', `استعاد ${actorUser.name} كلمة مرور حسابه`, 'users'],
+    'user:google-password-reset': ['استعادة حساب عبر Google', `استعاد ${actorUser.name} حسابه عبر Google`, 'users'],
+    'package:create': ['باقة جديدة', `نشر ${actorUser.name} باقة تعليمية جديدة`, 'payments'],
+    'package:purchase': ['شراء باقة', `اشترى ${actorUser.name} باقة جديدة`, 'payments'],
+    'package:schedule': ['جدولة باقة', `ثبّت ${actorUser.name} مواعيد باقته`, 'bookings'],
+    'slot:create': ['موعد جديد', `نشر ${actorUser.name} موعداً جديداً`, 'bookings'],
+    'booking:create': ['حجز جديد', `أكّد ${actorUser.name} حجز حصة جديدة`, 'bookings'],
+    'booking:cancel': ['إلغاء حجز', `ألغى ${actorUser.name} حجز حصة`, 'bookings'],
+    'booking:report': ['شكوى جديدة', `أرسل ${actorUser.name} شكوى عن حصة`, 'reports'],
+    'booking:teacher-no-show': ['غياب أستاذ', `سُجّل غياب أستاذ عن حصة`, 'reports'],
+    'wallet:topup-request': ['طلب شحن محفظة', `أرسل ${actorUser.name} طلب شحن جديداً للمراجعة`, 'topups'],
+  };
+  const details = definitions[action];
+  if (!details) return;
+  await db.collection('admin_notifications').insertOne({ id: crypto.randomUUID(), type: action, title: details[0], body: details[1], view: details[2], actor, target, read_at: 0, created });
 }
 
 async function sendDevicePush(userId, payload) {
@@ -698,6 +722,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
         const reference = id.slice(0, 8).toUpperCase();
         const message = encodeURIComponent(`طلب تحقق رقم الهاتف في امتداد العلم\nالمرجع: ${reference}\nالرقم المسجل: ${phone}\nأرسل هذه الرسالة من نفس الرقم المسجل.`);
         await db.collection('phone_verifications').insertOne({ id, phone, provider: 'whatsapp_manual', reference, claim_hash: digest(`${id}:${claimToken}:${process.env.PHONE_VERIFICATION_SECRET || OWNER_SETUP_TOKEN}`), attempts: 0, approved_at: 0, approved_by: '', used_at: 0, created: Date.now(), expires_at: new Date(Date.now() + 24 * 60 * 60000) });
+        await db.collection('admin_notifications').insertOne({ id: crypto.randomUUID(), type: 'phone-verification:requested', title: 'طلب تحقق رقم', body: `وصل طلب تحقق للرقم ${maskedPhone(phone)}`, view: 'users', actor: '', target: id, read_at: 0, created: Date.now() });
         return res.json({ id, channel: 'whatsapp_manual', destination: `+${SUPPORT_WHATSAPP}`, claimToken, reference, whatsappUrl: `https://wa.me/${SUPPORT_WHATSAPP}?text=${message}` });
       }
       const delivery = await deliverPhoneVerification(phone, code);
@@ -787,6 +812,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
     const role = body.role;
     if (!['admin', 'teachers', 'students'].includes(role)) fail(400, 'القسم غير صحيح.');
     let user;
+    let accountCreated = false;
     if (action === 'login') {
       user = await db.collection('users').findOne({ email });
       const hash = passwordHash(password, user?.password?.split(':')[0] || 'missing-account-salt');
@@ -811,6 +837,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
         }
         user = { id: crypto.randomUUID(), email, name: [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(random()), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone, verification, auth_provider: 'google', email_verified: 1, google_sub: google.sub, created: Date.now(), must_change_password: 0 };
         try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً.'); }
+        accountCreated = true;
       } else {
         await db.collection('users').updateOne({ id: user.id }, { $set: { auth_provider: 'google', email_verified: 1, google_sub: google.sub } });
         user = { ...user, auth_provider: 'google', email_verified: 1, google_sub: google.sub };
@@ -825,7 +852,9 @@ app.all('/api/auth/:action', async (req, res, next) => {
       const verification = role === 'admin' ? {} : registrationProfile(body, role);
       user = { id: role === 'admin' ? 'platform-owner' : crypto.randomUUID(), email, name: role === 'admin' ? field(body.name, 100) : [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(password), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone || '', verification, auth_provider: 'password', email_verified: 0, created: Date.now(), must_change_password: 0 };
       try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً أو حساب الإدارة موجود.'); }
+      accountCreated = true;
     }
+    if (accountCreated) await audit(user.id, 'account:created', user.id);
     const token = random();
     const expires = Date.now() + 604800000;
     await db.collection('sessions').deleteMany({ expires: { $lt: Date.now() } });
@@ -875,13 +904,14 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
 
     if (await serveVerificationFile(req, res, { db, user, path })) return;
-    if (await serveWalletTopup(req, res, { db, user, path, ...(topupProofBytes ? { bytes: topupProofBytes } : {}) })) return;
+    if (await serveWalletTopup(req, res, { db, user, path, ...(topupProofBytes ? { bytes: topupProofBytes } : {}), onSubmitted: topup => audit(user.id, 'wallet:topup-request', topup.id) })) return;
     if (path === 'verification/status' && !write && user.role === 'teachers') return res.json({ user: publicUser(user), files: await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0, declared_type: 0 } }).toArray() });
     if (path === 'verification/submit' && write && user.role === 'teachers') {
       const files = await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0 } }).toArray();
       if (!files.some(file => file.kind === 'intro_video') || !files.some(file => file.kind === 'credential')) fail(400, 'أكمل فيديو التحقق والمستند الداعم قبل إرسال الطلب.');
       const verification = { ...parseVerification(user.verification), verification_status: 'submitted', submitted_at: Date.now(), reviewed_at: 0, rejection_reason: '' };
       await db.collection('users').updateOne({ id: user.id }, { $set: { verification } });
+      await audit(user.id, 'verification:submitted', user.id);
       return res.json({ user: publicUser({ ...user, verification }) });
     }
 
@@ -889,9 +919,17 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (write) {
         const requestedPhone = body.phone === undefined ? user.phone || '' : normalizeJordanPhone(body.phone);
         if (body.phone !== undefined && !requestedPhone) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
-        const profile = { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: requestedPhone };
+        const currentPhone = normalizeJordanPhone(user.phone || '');
+        const phoneChanged = body.phone !== undefined && requestedPhone !== currentPhone;
+        let verification = parseVerification(user.verification);
+        if (phoneChanged) {
+          const verifiedPhone = await consumePhoneVerification(field(body.phone_verification_id, 100), field(body.phone_verification_code, 128, 6), requestedPhone);
+          verification = { ...verification, phone: verifiedPhone, phone_verified_at: Date.now(), phone_verification_status: 'verified' };
+        }
+        const profile = { name: field(body.name, 100), subject: field(body.subject || '', 4000, 0), bio: field(body.bio || '', 2000, 0), academic_level: field(body.academic_level || '', 100, 0), phone: requestedPhone, verification };
         if (body.custom_packages !== undefined) profile.custom_packages = serializeCustomPackages(body.custom_packages);
         await db.collection('users').updateOne({ id: user.id }, { $set: profile });
+        if (phoneChanged) await audit(user.id, 'profile:phone-changed', user.id);
       }
       const account = await db.collection('users').findOne({ id: user.id });
       const visible = publicUser(account);
@@ -1070,6 +1108,18 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       await db.collection('sessions').deleteMany({ user_id: id });
       await audit(user.id, 'user:password-reset', id);
       return res.json({ temporaryPassword, expires });
+    }
+    if (path === 'notifications' && user.role === 'admin') {
+      if (write) {
+        const id = body.id ? field(body.id, 100) : '';
+        if (id) await db.collection('admin_notifications').updateOne({ id }, { $set: { read_at: Date.now() } });
+        else {
+          const unreadRows = await db.collection('admin_notifications').find({ read_at: 0 }, { projection: { _id: 0, id: 1 } }).limit(500).toArray();
+          await Promise.all(unreadRows.map(item => db.collection('admin_notifications').updateOne({ id: item.id }, { $set: { read_at: Date.now() } })));
+        }
+      }
+      const notifications = await db.collection('admin_notifications').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(80).toArray();
+      return res.json({ notifications, unread: await db.collection('admin_notifications').countDocuments({ read_at: 0 }) });
     }
     if (path === 'audit' && user.role === 'admin' && !write) return res.json({ events: await db.collection('audit').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
     if (path === 'wallet' && user.role === 'students' && !write) {
@@ -1329,7 +1379,9 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (!Number.isSafeInteger(start) || start > now + 31536000000 || start < now - 60000 || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
       const overlaps = await db.collection('slots').findOne({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until }, $expr: { $gt: [{ $ifNull: ['$available_until', { $add: ['$start', { $multiply: ['$minutes', 60000] }] }] }, start] } });
       if (overlaps) fail(409, 'الموعد يتعارض مع موعد آخر.');
-      await db.collection('slots').insertOne({ id: crypto.randomUUID(), teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() });
+      const slotId = crypto.randomUUID();
+      await db.collection('slots').insertOne({ id: slotId, teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() });
+      await audit(user.id, 'slot:create', slotId);
       return res.json({ ok: true });
     }
     if (path.startsWith('slots/') && write) {
@@ -1396,6 +1448,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
       void sendDevicePush(slot.teacher_id, { title: 'حجز جديد', body: `حجز ${user.name} حصة ${selectedSubject}`, tag: `booking-${bookingId}`, url: 'teachers' });
       void sendDevicePush(user.id, { title: 'تم تأكيد حجزك', body: `تم حجز حصة ${selectedSubject} بنجاح`, tag: `booking-${bookingId}`, url: 'students' });
+      await audit(user.id, 'booking:create', bookingId);
       return res.json({ ok: true, id: bookingId });
     }
     const [category, id, action] = path.split('/');
