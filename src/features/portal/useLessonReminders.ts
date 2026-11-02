@@ -85,7 +85,7 @@ export function useLessonReminders(portal: Portal, userId: string, revision: num
         if ('Notification' in window && Notification.permission === 'granted' && 'serviceWorker' in navigator) {
           try {
             const registration = await navigator.serviceWorker.getRegistration();
-            if (registration && active.current) await registration.showNotification(title, { body, icon: `${import.meta.env.BASE_URL}images/imtidad-alelm-academy-logo-192.png`, tag: `imtidad-${noticeKey}`, data: { url: `${portal}?lesson=${encodeURIComponent(lesson.id)}` } });
+            if (registration && active.current) await registration.showNotification(title, { body, icon: `${import.meta.env.BASE_URL}images/emtidad-alelm-final-logo-192.png`, tag: `imtidad-${noticeKey}`, data: { url: `${portal}?lesson=${encodeURIComponent(lesson.id)}` } });
           } catch { if (active.current) setHint(t("تعذر عرض إشعار الجهاز؛ تنبيه الحصة ظاهر داخل الموقع.")); }
         }
       };

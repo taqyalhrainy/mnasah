@@ -36,7 +36,7 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
           if (current.current.active && current.current.selected === row.id && document.visibilityState === 'visible') continue;
           if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
             const voice = last.attachments?.length === 1 && last.attachments[0].preview_type.startsWith('audio/');
-            const notice = new Notification(row.peer.name, { body: last.body || (voice ? t('أرسل رسالة صوتية') : last.attachments?.length ? t(last.attachments.length === 1 ? 'أرسل ملفاً' : 'أرسل عدة ملفات') : t("أرسل صورة GIF")), tag: row.id, icon: `${import.meta.env.BASE_URL}images/imtidad-alelm-academy-logo-192.png` });
+            const notice = new Notification(row.peer.name, { body: last.body || (voice ? t('أرسل رسالة صوتية') : last.attachments?.length ? t(last.attachments.length === 1 ? 'أرسل ملفاً' : 'أرسل عدة ملفات') : t("أرسل صورة GIF")), tag: row.id, icon: `${import.meta.env.BASE_URL}images/emtidad-alelm-final-logo-192.png` });
             notice.onclick = () => { window.focus(); setSelected(row.id); current.current.onOpen(); notice.close(); };
           }
           if (preferences.sounds && navigator.userActivation?.hasBeenActive && !document.documentElement.classList.contains('call-active')) {
@@ -90,7 +90,7 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
         current.current.onBookingCreated?.(notice);
         if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
           const title = notice.audience === 'teacher' ? t('حجز جديد') : t('تم تأكيد حجزك');
-          new Notification(title, { body: notice.audience === 'teacher' ? t('حجز طالب حصة جديدة معك.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.'), tag: `booking-${notice.id}`, icon: `${import.meta.env.BASE_URL}images/imtidad-alelm-academy-logo-192.png` });
+          new Notification(title, { body: notice.audience === 'teacher' ? t('حجز طالب حصة جديدة معك.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.'), tag: `booking-${notice.id}`, icon: `${import.meta.env.BASE_URL}images/emtidad-alelm-final-logo-192.png` });
         }
       });
       socket.on('connect', () => { void refresh(); setRevision(value => value + 1); });

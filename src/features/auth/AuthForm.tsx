@@ -80,12 +80,12 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
     finally { setBusy(false); }
   }, [onLogin, portal]);
   if (register && portal !== 'admin' && !setupToken) return <main className={`auth-page redesigned-auth registration-page portal-${portal}`} dir={direction()}>
-    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/imtidad-alelm-academy-logo-192.png`} width="48" height="48" alt="شعار امتداد العلم أكاديمي" /><strong>امتداد العلم<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/emtidad-alelm-final-logo-192.png`} width="48" height="48" alt="شعار امتداد العلم أكاديمي" /><strong>امتداد العلم<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main registration-main"><RegistrationFlow portal={portal} onLogin={onLogin} onCancel={() => { setRegister(false); setError(''); }} /></div>
     <aside className="auth-visual" aria-label={t("مساحة تعلم")}><img src={`${base}images/learning-desk-v3.jpg`} alt={t("دفتر دراسة وقلم وسماعات على مكتب أصفر")} fetchPriority="high" /></aside>
   </main>;
   return <main className={`auth-page redesigned-auth portal-${portal}`} dir={direction()}>
-    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/imtidad-alelm-academy-logo-192.png`} width="48" height="48" alt="شعار امتداد العلم أكاديمي" /><strong>امتداد العلم<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/emtidad-alelm-final-logo-192.png`} width="48" height="48" alt="شعار امتداد العلم أكاديمي" /><strong>امتداد العلم<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main">
       <section className="auth-form">
         <div className="auth-portal-label">{t("منصّة تعليم خصوصي")}</div>
