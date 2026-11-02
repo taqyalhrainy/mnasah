@@ -1,5 +1,5 @@
 import { t, usePreferences } from "../../i18n/preferences";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import {
   Users,
   GraduationCap,
@@ -14,8 +14,6 @@ import {
   Image as ImageIcon,
   ExternalLink,
   Trash2,
-  PhoneCall,
-  RefreshCw,
 } from "lucide-react";
 import {
   apiUrl,
@@ -45,7 +43,6 @@ export function AccountsPanel({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<User | null>(null);
-  const [phoneRequests, setPhoneRequests] = useState<Array<{ id: string; phone: string; reference: string; created: number; expires_at: number }>>([]);
   const list = users.filter(
     (u) =>
       u.role === role &&
@@ -53,19 +50,6 @@ export function AccountsPanel({
         .toLocaleLowerCase()
         .includes(query.toLocaleLowerCase()),
   );
-  async function loadPhoneRequests() {
-    try {
-      const result = await request<{ requests: Array<{ id: string; phone: string; reference: string; created: number; expires_at: number }> }>('admin/phone-verifications');
-      setPhoneRequests(result.requests);
-    } catch (cause) { setError((cause as Error).message); }
-  }
-  useEffect(() => { void loadPhoneRequests(); const timer = window.setInterval(() => void loadPhoneRequests(), 15000); return () => window.clearInterval(timer); }, []);
-  async function approvePhone(requestId: string) {
-    setBusy(true); setError('');
-    try { await request(`admin/phone-verifications/${requestId}/approve`, {}); await loadPhoneRequests(); }
-    catch (cause) { setError((cause as Error).message); }
-    finally { setBusy(false); }
-  }
   function close() {
     if (busy) return;
     const changed = Boolean(result);
@@ -156,14 +140,6 @@ export function AccountsPanel({
           </button>
         ))}
       </div>
-      <section className="phone-verification-queue">
-        <div className="section-heading">
-          <div><span>{t('التحقق عبر واتساب')}</span><h2>{t('طلبات توثيق أرقام الهاتف')}</h2></div>
-          <button className="icon-button" type="button" disabled={busy} onClick={() => void loadPhoneRequests()} title={t('تحديث')}><RefreshCw size={18} /></button>
-        </div>
-        <p className="muted">{t('طابق رقم مرسل رسالة واتساب ومرجعها مع الطلب، ثم اعتمد الرقم.')}</p>
-        {!phoneRequests.length ? <p className="empty-state">{t('لا توجد طلبات تحقق معلقة.')}</p> : phoneRequests.map(item => <article className="user-row phone-verification-request" key={item.id}><PhoneCall size={22} /><div><strong dir="ltr">{item.phone}</strong><p>{t('المرجع')}: <b dir="ltr">{item.reference}</b></p><small>{date(item.created)}</small></div><button className="primary-button" type="button" disabled={busy} onClick={() => void approvePhone(item.id)}><Check size={17} />{t('تأكيد مطابقة الرقم')}</button></article>)}
-      </section>
       {error && !target && (
         <p className="notice error" role="alert">
           {t(error)}

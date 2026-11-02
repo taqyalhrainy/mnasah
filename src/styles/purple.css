@@ -117,7 +117,6 @@
 :root[data-theme=dark] .redesigned-shell .work-form,:root[data-theme=dark] .redesigned-shell .teaching-category-card,:root[data-theme=dark] .redesigned-shell .account-facts,:root[data-theme=dark] .redesigned-shell .account-settings,:root[data-theme=dark] .redesigned-shell .slot-detail-card,:root[data-theme=dark] .redesigned-shell .slot-item,:root[data-theme=dark] .redesigned-shell .profile-layout > aside { background: #2a1f35; border-color: var(--line); color: var(--ink); }
 :root[data-theme=dark] .redesigned-shell .work-form label { color: #d2c0e2; }
 :root[data-theme=dark] .redesigned-shell .work-form input,:root[data-theme=dark] .redesigned-shell .work-form select,:root[data-theme=dark] .redesigned-shell .work-form textarea,:root[data-theme=dark] .redesigned-shell .lesson-messages textarea,:root[data-theme=dark] .redesigned-shell .list-toolbar select { background: #241a2f; border-color: #5c476c; color: var(--ink); }
-:root[data-theme=dark] .admin-notification-panel { background: #241a2f; border-color: #5c476c; }
 :root[data-theme=dark] .redesigned-shell input:read-only { color: var(--muted); background: #281e33; }
 :root[data-theme=dark] .redesigned-shell input[type=checkbox] { accent-color: #bf9fe8; }
 :root[data-theme=dark] .teaching-category-card > summary > span,:root[data-theme=dark] .teaching-category-card:nth-child(3n) > summary > span { background: #4d325c; color: #ddbbf7; }

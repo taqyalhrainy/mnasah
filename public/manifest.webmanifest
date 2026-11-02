@@ -1,5 +1,5 @@
 {
-  "name": "امتداد العلم أكاديمي",
+  "name": "منصة امتداد العلم",
   "short_name": "امتداد العلم",
   "description": "منصة أردنية للتعليم الخصوصي عن بُعد بحصص فيديو مباشرة ولوح تفاعلي ومواعيد مرنة.",
   "start_url": ".",
@@ -19,7 +19,7 @@
       "src": "images/imtidad-alelm-academy-logo-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

@@ -11,7 +11,7 @@ import { PreferenceControls, direction, usePreferences, t, locale } from '../i18
 const DirectMessages = lazy(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
 const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
-type AdminNotification = { id: string; title: string; body: string; view: string; created: number; read_at: number };
+type AdminNotificationCounts = Record<string, number>;
 const defaultSupportWhatsapp = '0795764229';
 const whatsappHrefNumber = (value: string) => {
   const digits = value.replace(/\D/g, '');
@@ -71,8 +71,7 @@ function PortalApp() {
   const [lessonReminders, setLessonReminders] = useState({ enabled: false, hint: '' });
   const [supportWhatsapp, setSupportWhatsapp] = useState(defaultSupportWhatsapp);
   const [bookingAlert, setBookingAlert] = useState<BookingCreatedNotice | null>(null);
-  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
-  const [adminUnread, setAdminUnread] = useState(0);
+  const [adminNotificationsByView, setAdminNotificationsByView] = useState<AdminNotificationCounts>({});
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const toggleLessonReminders = useRef<() => void>(() => undefined);
   useEffect(() => {
@@ -106,12 +105,11 @@ function PortalApp() {
     return () => { alive = false; };
   }, [portal, user]);
   useEffect(() => {
-    if (!user || portal !== 'admin') { setAdminNotifications([]); setAdminUnread(0); return; }
+    if (!user || portal !== 'admin') { setAdminNotificationsByView({}); return; }
     let alive = true;
-    const load = () => request<{ notifications: AdminNotification[]; unread: number }>('admin/notifications').then(result => {
+    const load = () => request<{ unreadByView?: AdminNotificationCounts }>('admin/notifications').then(result => {
       if (!alive) return;
-      setAdminNotifications(result.notifications);
-      setAdminUnread(result.unread);
+      setAdminNotificationsByView(result.unreadByView || {});
     }).catch(() => undefined);
     void load();
     const timer = window.setInterval(load, 12000);
@@ -170,10 +168,13 @@ function PortalApp() {
       setSearchFocusKey(value => value + 1);
     } else setView(portal === 'teachers' ? 'available' : 'users');
   }
-  async function readAdminNotifications(id?: string) {
-    const result = await request<{ notifications: AdminNotification[]; unread: number }>('admin/notifications', id ? { id } : {});
-    setAdminNotifications(result.notifications);
-    setAdminUnread(result.unread);
+  async function openView(nextView: string) {
+    setView(nextView);
+    if (portal !== 'admin' || !adminNotificationsByView[nextView]) return;
+    try {
+      const result = await request<{ unreadByView?: AdminNotificationCounts }>('admin/notifications', { view: nextView });
+      setAdminNotificationsByView(result.unreadByView || {});
+    } catch { /* Opening the section must never be blocked by notification bookkeeping. */ }
   }
   if (loading) return <WakeLoading slow={slowWake || wakeAttempt > 0} attempt={wakeAttempt} />;
   if (error && !user) return <main className="loading-page wake-page" dir={direction()}><div className="wake-card"><p role="alert">{t(error)}</p><button className="primary-button" onClick={() => { setWakeAttempt(0); setRetry(retry + 1); }}>{t("إعادة المحاولة")}</button></div></main>;
@@ -195,14 +196,13 @@ function PortalApp() {
   return <main className={`app-shell business-shell redesigned-shell portal-${portal} ${portal !== 'admin' ? 'learning-shell' : ''}`} dir={direction()}>
     <a className="skip-link" href="#main-content">{t("انتقل إلى المحتوى")}</a>
     <aside className="sidebar"><button className="brand" onClick={() => setView(portal === 'admin' ? 'bookings' : 'home')} title="امتداد العلم أكاديمي"><img className="brand-monogram" src={assetUrl('images/imtidad-alelm-academy-logo-192.png')} width="44" height="44" alt="شعار امتداد العلم أكاديمي" /><div><strong>امتداد العلم<span className="brand-dot">.</span></strong><span>{t(portalNames[portal])}</span></div></button>
-      <nav className="nav-list" aria-label={t("التنقل الرئيسي")}>{nav.map(({ id, label, icon: Icon }) => <button key={id} aria-label={`${label}${id === 'rooms' && roomLive ? ' LIVE' : ''}`} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => setView(id)}><Icon size={20} strokeWidth={1.8} /><span className="nav-label-full">{t(label)}</span><span className="nav-label-short">{id === 'bookings' ? t("الحجوزات") : id === 'audit' ? t("العمليات") : id === 'catalog' ? t("المواد") : label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}{id === 'messages' && chat.unread > 0 && <span className="nav-unread" aria-label={t("{v0} رسائل غير مقروءة", { v0: chat.unread })}>{chat.unread > 99 ? '99+' : chat.unread}</span>}</button>)}</nav>
+      <nav className="nav-list" aria-label={t("التنقل الرئيسي")}>{nav.map(({ id, label, icon: Icon }) => <button key={id} aria-label={`${label}${id === 'rooms' && roomLive ? ' LIVE' : ''}`} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => void openView(id)}><Icon size={20} strokeWidth={1.8} /><span className="nav-label-full">{t(label)}</span><span className="nav-label-short">{id === 'bookings' ? t("الحجوزات") : id === 'audit' ? t("العمليات") : id === 'catalog' ? t("المواد") : label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}{id === 'messages' && chat.unread > 0 && <span className="nav-unread" aria-label={t("{v0} رسائل غير مقروءة", { v0: chat.unread })}>{chat.unread > 99 ? '99+' : chat.unread}</span>}{portal === 'admin' && Number(adminNotificationsByView[id] || 0) > 0 && <span className="nav-unread admin-section-unread" aria-label={t('{v0} إشعارات جديدة', { v0: adminNotificationsByView[id] })}>{adminNotificationsByView[id] > 99 ? '99+' : adminNotificationsByView[id]}</span>}</button>)}</nav>
       {portal !== 'admin' ? learningAccountMenu('sidebar-account') : <div className="sidebar-footer"><button type="button" onClick={() => void installAndroidApp()} className="icon-button" title={t("تثبيت تطبيق أندرويد")}><Download size={19} /></button><button className="icon-button" onClick={logout} title={t("تسجيل الخروج")}><LogOut size={19} /></button></div>}
     </aside>
     {portal !== 'admin' && learningAccountMenu('mobile-account')}
     <section className="workspace">{portal === 'admin' && <header className="topbar">
       <div className="topbar-location"><img className="mobile-brand brand-monogram" src={assetUrl('images/imtidad-alelm-academy-logo-192.png')} width="36" height="36" alt="امتداد العلم أكاديمي" /><div><span className="eyebrow">{t(portalNames[portal])}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div>
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
-        <details className="admin-notification-menu"><summary className="icon-button" aria-label={t('إشعارات الإدارة')} title={t('إشعارات الإدارة')}><Bell size={19} />{adminUnread > 0 && <span className="admin-notification-count">{adminUnread > 99 ? '99+' : adminUnread}</span>}</summary><div className="admin-notification-panel"><header><strong>{t('إشعارات الإدارة')}</strong>{adminUnread > 0 && <button type="button" className="text-button" onClick={() => void readAdminNotifications()}>{t('تحديد الكل كمقروء')}</button>}</header>{adminNotifications.length ? <div className="admin-notification-list">{adminNotifications.map(item => <button type="button" className={item.read_at ? '' : 'unread'} key={item.id} onClick={() => { setView(item.view || 'bookings'); void readAdminNotifications(item.id); }}><span><strong>{t(item.title)}</strong><small>{t(item.body)}</small><time>{new Date(item.created).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}</time></span></button>)}</div> : <p>{t('لا توجد إشعارات جديدة.')}</p>}</div></details>
         <PreferenceControls />
         <button className="icon-button quick-action" onClick={openQuickAction} title={t("إدارة الحسابات")}><Users size={19} /></button>
         <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>

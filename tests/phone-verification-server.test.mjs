@@ -4,13 +4,13 @@ import crypto from 'node:crypto';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
-test('WhatsApp fallback creates an admin-approved phone verification', async () => {
+test('phone updates save directly and notify the admin section', async () => {
   const ownerToken = 'owner-session-token';
   const studentToken = 'student-session-token';
   const db = memoryMongo({
     users: [
       { id: 'owner', name: 'Owner', email: 'owner@test.com', role: 'admin', status: 'active' },
-      { id: 'student', name: 'Student', email: 'student@test.com', role: 'students', status: 'active', phone: '0781111111', subject: '', bio: '', verification: { phone: '0781111111', phone_verification_status: 'verified' } },
+      { id: 'student', name: 'Student', email: 'student@test.com', role: 'students', status: 'active', phone: '0781111111', subject: '', bio: '', verification: { phone: '0781111111' } },
     ],
     sessions: [
       { user_id: 'owner', token: crypto.createHash('sha256').update(ownerToken).digest('hex'), expires: Date.now() + 3600000 },
@@ -25,32 +25,25 @@ test('WhatsApp fallback creates an admin-approved phone verification', async () 
   };
   try {
     const config = await (await fetch(`${base}/api/public/config`)).json();
-    assert.equal(config.phoneVerificationProvider, 'whatsapp_manual');
-    const created = await post('auth/phone-code', { phone: '0791234567' });
-    assert.equal(created.response.status, 200);
-    assert.equal(created.body.channel, 'whatsapp_manual');
-    assert.match(created.body.whatsappUrl, /^https:\/\/wa\.me\/962795764229/);
-    assert.equal((await post('auth/phone-code-status', { id: created.body.id, claimToken: created.body.claimToken, phone: '0791234567' })).body.verified, false);
+    assert.equal('phoneVerificationProvider' in config, false);
 
-    const cookie = `mansah_session_admin=${ownerToken}`;
-    const pending = await (await fetch(`${base}/api/admin/phone-verifications`, { headers: { cookie } })).json();
-    assert.equal(pending.requests[0].reference, created.body.reference);
-    const unauthorized = await post(`admin/phone-verifications/${created.body.id}/approve`, {});
-    assert.equal(unauthorized.response.status, 401);
-    const approved = await post(`admin/phone-verifications/${created.body.id}/approve`, {}, cookie);
-    assert.equal(approved.response.status, 200);
-    assert.equal((await post('auth/phone-code-status', { id: created.body.id, claimToken: created.body.claimToken, phone: '0791234567' })).body.verified, true);
-
-    const saved = await post('students/profile', { name: 'Student', subject: '', bio: '', phone: '0791234567', phone_verification_id: created.body.id, phone_verification_code: created.body.claimToken }, `mansah_session_students=${studentToken}`);
+    const saved = await post('students/profile', { name: 'Student', subject: '', bio: '', phone: '0791234567' }, `mansah_session_students=${studentToken}`);
     assert.equal(saved.response.status, 200);
     assert.equal(saved.body.user.phone, '0791234567');
-    assert.equal(saved.body.user.verification.phone_verification_status, 'verified');
+    assert.equal(saved.body.user.verification.phone, '0791234567');
 
+    const invalid = await post('students/profile', { name: 'Student', subject: '', bio: '', phone: '0712345678' }, `mansah_session_students=${studentToken}`);
+    assert.equal(invalid.response.status, 400);
+
+    const cookie = `mansah_session_admin=${ownerToken}`;
     const notifications = await (await fetch(`${base}/api/admin/notifications`, { headers: { cookie } })).json();
-    assert.equal(notifications.unread, 2);
+    assert.equal(notifications.unread, 1);
+    assert.equal(notifications.unreadByView.users, 1);
     assert.equal(notifications.notifications[0].title, 'تغيير رقم هاتف');
-    const read = await post('admin/notifications', {}, cookie);
+
+    const read = await post('admin/notifications', { view: 'users' }, cookie);
     assert.equal(read.body.unread, 0);
+    assert.equal(read.body.unreadByView.users, undefined);
   } finally {
     io.close();
     await new Promise(resolve => httpServer.close(resolve));
