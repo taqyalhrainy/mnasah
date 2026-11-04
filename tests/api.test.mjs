@@ -97,6 +97,16 @@ test('authorization and the full reservation lifecycle', async () => {
   const originalCatalogResult = await call('student', 'students/catalog');
   const originalCatalog = originalCatalogResult.categories;
   assert.ok(originalCatalogResult.groups.some(group => group.id === 'curriculum-jordan'), 'students receive the same curriculum groups configured by the owner');
+  const groupIds = originalCatalogResult.groups.map(group => group.id);
+  await call('owner', 'admin/catalog', { action: 'reorder-groups', ids: [...groupIds].reverse() });
+  assert.deepEqual((await call('teacher', 'teachers/catalog')).groups.map(group => group.id), [...groupIds].reverse());
+  await call('owner', 'admin/catalog', { action: 'reorder-groups', ids: groupIds.map((id, index) => index ? id : 'unknown-group') }, 409);
+  await call('owner', 'admin/catalog', { action: 'reorder-groups', ids: groupIds });
+  const siblingStages = originalCatalog.filter(row => row.parentId === originalCatalog[0].parentId);
+  const siblingIds = siblingStages.map(row => row.id);
+  await call('owner', 'admin/catalog', { action: 'reorder', parentId: originalCatalog[0].parentId, ids: [...siblingIds].reverse() });
+  assert.deepEqual((await call('student', 'students/catalog')).categories.filter(row => row.parentId === originalCatalog[0].parentId).map(row => row.id), [...siblingIds].reverse());
+  await call('owner', 'admin/catalog', { action: 'reorder', parentId: originalCatalog[0].parentId, ids: siblingIds });
   assert.equal(originalCatalog.length, 6);
   await call('teacher', 'teachers/catalog', { action: 'delete', id: 'jordan' }, 403);
   await call('student', 'students/catalog', { action: 'save' }, 403);

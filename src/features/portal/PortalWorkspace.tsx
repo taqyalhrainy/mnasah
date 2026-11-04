@@ -115,10 +115,14 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [liveSubjectFilter, setLiveSubjectFilter] = useState('all');
   const [selectedTutorId, setSelectedTutorId] = useState('');
   const [teachingChoices, setTeachingChoices] = useState<TeachingChoice[]>([]);
+  const [teachingDraft, setTeachingDraft] = useState<TeachingChoice[] | null>(null);
   const [customPackages, setCustomPackages] = useState<CustomPackage[]>(() => user.custom_packages || []);
   const [teacherCurriculumId, setTeacherCurriculumId] = useState('');
   const [teacherCategoryId, setTeacherCategoryId] = useState('');
   const [teacherPackageKey, setTeacherPackageKey] = useState('');
+  useEffect(() => {
+    setTeachingDraft(portal === 'teachers' && view === 'home' && teacherPackageKey ? parseTeachingChoices(user.subject, catalog) : null);
+  }, [portal, view, teacherPackageKey, user.subject, catalog]);
   const [buildingCustomPackage, setBuildingCustomPackage] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
@@ -356,13 +360,17 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   function updateTeachingSubject(category: Category, subject: string, checked: boolean) {
     const key = teachingChoiceKey(category.id, subject);
     const availableLevels = levelsForSubject(category, subject);
-    setTeachingChoices(current => checked
+    setTeachingDraft(draft => {
+      const current = draft ?? teachingChoices;
+      return checked
       ? uniqueTeachingChoices([...current, { categoryId: category.id, categoryName: category.name, subject, levels: [...availableLevels] }])
-      : current.filter(choice => teachingChoiceKey(choice.categoryId, choice.subject) !== key));
+      : current.filter(choice => teachingChoiceKey(choice.categoryId, choice.subject) !== key);
+    });
   }
   function updateTeachingLevel(category: Category, subject: string, level: string, checked: boolean) {
     const key = teachingChoiceKey(category.id, subject);
-    setTeachingChoices(current => {
+    setTeachingDraft(draft => {
+      const current = draft ?? teachingChoices;
       const existing = current.find(choice => teachingChoiceKey(choice.categoryId, choice.subject) === key);
       const levels = checked ? [...new Set([...(existing?.levels || []), level])] : (existing?.levels || []).filter(item => item !== level);
       const without = current.filter(choice => teachingChoiceKey(choice.categoryId, choice.subject) !== key);
@@ -506,10 +514,10 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     </>}
     {selectedBuiltInPackage && (() => {
       const { category, subject } = selectedBuiltInPackage;
-      const choice = teachingChoices.find(item => item.categoryId === category.id && item.subject === subject);
+      const choice = (teachingDraft ?? teachingChoices).find(item => item.categoryId === category.id && item.subject === subject);
       const availableLevels = levelsForSubject(category, subject);
       const allLevels = Boolean(choice && availableLevels.length && availableLevels.every(level => choice.levels.includes(level)));
-      return <div className="package-detail"><button type="button" className="package-back" onClick={() => { setTeacherPackageKey(''); setTeacherCategoryId(category.id); }}><ArrowRight size={18} />{t('مواد المجال')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('اختار المستويات لمادة {v0}', { v0: catalogText(subject) })}</h2><p>{t(category.description)}</p></div>{availableLevels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{availableLevels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void (async () => { if (await saveTeacherProfile()) { setTeacherPackageKey(''); setTeacherCategoryId(''); setTeacherCurriculumId(''); } })()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
+      return <div className="package-detail"><button type="button" className="package-back" onClick={() => { setTeacherPackageKey(''); setTeacherCategoryId(category.id); }}><ArrowRight size={18} />{t('مواد المجال')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('اختار المستويات لمادة {v0}', { v0: catalogText(subject) })}</h2><p>{t(category.description)}</p></div>{availableLevels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{availableLevels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void (async () => { if (await saveTeacherProfile(teachingDraft ?? teachingChoices)) { setTeacherPackageKey(''); setTeacherCategoryId(''); setTeacherCurriculumId(''); } })()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
     })()}
   </div>;
   const lessonDetails = current && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelected(null)} className="detail-dialog" aria-labelledby="lesson-title"><div className="section-heading"><h2 id="lesson-title">{catalogText(current.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelected(null)}><X size={20} /></button></div>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<p>{current.teacher_name} · {current.student_name}</p><p>{date(current.start)} · {money(current.price)}</p>{portal === 'students' && current.teacher_phone && <p className="lesson-contact"><strong>{t('رقم الأستاذ')}</strong><a href={`tel:${current.teacher_phone}`} dir="ltr"><Phone size={16} />{current.teacher_phone}</a></p>}{portal === 'teachers' && current.student_phone && <p className="lesson-contact"><strong>{t('رقم الطالب')}</strong><a href={`tel:${current.student_phone}`} dir="ltr"><Phone size={16} />{current.student_phone}</a></p>}{portal === 'admin' && <p className="lesson-contact"><span>{current.teacher_phone}</span><span>{current.student_phone}</span></p>}<span className={`badge ${current.status}`}>{t(statusNames[current.status])}</span>

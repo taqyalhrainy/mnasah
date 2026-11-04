@@ -1,5 +1,6 @@
 import { all, run, statement, field, fail, auditEntry } from './db.js';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
+import { validCatalogOrder } from '../shared/catalog-order.js';
 
 const catalogDefinitions = new Map(educationCatalog.map(item => [item.id, item]));
 const parseJson = (value, fallback) => { try { const parsed = JSON.parse(value || ''); return parsed && typeof parsed === 'object' ? parsed : fallback; } catch { return fallback; } };
@@ -46,9 +47,14 @@ export async function catalog(env, user, write, body) {
         ...educationCatalog.map((item, position) => statement(env, "INSERT INTO catalog (name,description,icon,levels,subjects,level_subjects,id,kind,parent_id,position,created) VALUES (?,?,?,?,?,?,?,'category',?,?,?)", item.name, item.description, item.icon, JSON.stringify(item.levels), JSON.stringify(item.subjects), JSON.stringify(item.levelSubjects), item.id, item.parentId, position, created)),
         auditEntry(env, user.id, 'catalog:install-core-curricula', 'categories'),
       ]);
+    } else if (body.action === 'reorder-groups') {
+      const groups = await all(env, "SELECT id FROM catalog WHERE kind='group' ORDER BY position,id");
+      if (!validCatalogOrder(body.ids, groups)) fail(409, 'تغيّرت التصنيفات. حدّث الصفحة وأعد المحاولة.');
+      await env.DB.batch([...body.ids.map((id, index) => statement(env, "UPDATE catalog SET position=? WHERE id=? AND kind='group'", index, id)), auditEntry(env, user.id, 'catalog:reorder', 'groups')]);
     } else if (body.action === 'reorder') {
       const ids = body.ids;
-      if (!Array.isArray(ids) || ids.length !== rows.length || new Set(ids).size !== ids.length || ids.some(id => !rows.some(row => row.id === id))) fail(409, 'تغيّرت التصنيفات. حدّث الصفحة وأعد المحاولة.');
+      const scope = body.parentId ? await all(env, "SELECT id FROM catalog WHERE kind='category' AND parent_id=? ORDER BY position,id", body.parentId) : rows;
+      if (!validCatalogOrder(ids, scope)) fail(409, 'تغيّرت التصنيفات. حدّث الصفحة وأعد المحاولة.');
       await env.DB.batch([...ids.map((id, index) => statement(env, 'UPDATE catalog SET position=? WHERE id=?', index, id)), auditEntry(env, user.id, 'catalog:reorder', 'categories')]);
     } else if (body.action === 'save-group') {
       const values = [field(body.name, 100), field(body.description || '', 300, 0), field(body.icon || '✨', 500, 0)];

@@ -2433,6 +2433,18 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
 .teacher-saved-subjects article > svg { color: var(--primary); flex: 0 0 auto; }
 .teacher-saved-subjects article > div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
 .teacher-saved-subjects small, .teacher-saved-subjects > p { color: var(--muted); line-height: 1.7; }
+.catalog-order-help { margin: 0; color: var(--muted); font-size: 12px; }
+.catalog-order-notice { margin: 0; color: var(--ink); font-size: 12px; }
+.catalog-preview-card.is-dragging { opacity: .5; }
+.catalog-preview-card.is-drop-target { outline: 3px solid #d4b2ff; outline-offset: 3px; }
+.catalog-order-controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; padding-top: 9px; border-top: 1px solid #afc5d033; }
+.catalog-order-controls button, .catalog-order-controls select { display: grid; place-items: center; width: 30px; min-width: 0; height: 30px; padding: 0; border: 1px solid #afc5d04d; border-radius: 8px; color: #f3f6ff; background: #152e3b; font: inherit; cursor: pointer; }
+.catalog-order-controls select { width: 46px; padding-inline: 3px; font-size: 12px; }
+.catalog-order-controls button:disabled { opacity: .35; cursor: default; }
+.catalog-order-controls .catalog-drag-handle { cursor: grab; }
+.catalog-order-controls .catalog-drag-handle:active { cursor: grabbing; }
+:root[data-theme=light] .catalog-order-controls button, :root[data-theme=light] .catalog-order-controls select { color: #30251b; border-color: #c5aa574d; background: #fff9e1; }
+:root[data-theme=light] .catalog-preview-card.is-drop-target { outline-color: #9b7108; }
 
 .clock-picker-dialog { position: relative; inset: auto; margin: auto; display: grid; gap: 16px; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid #bba0e54d; border-radius: 26px; background: #241931; color: #f7f1ff; box-shadow: 0 28px 90px #0005; }
 .clock-picker-dialog header { display: flex; justify-content: space-between; align-items: center; }

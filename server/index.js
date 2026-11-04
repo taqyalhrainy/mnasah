@@ -20,6 +20,7 @@ import { parseVerification, registrationProfile } from '../shared/verification.j
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
+import { validCatalogOrder } from '../shared/catalog-order.js';
 import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -562,8 +563,14 @@ async function handleCatalog(user, write, body) {
     if (['install-core-curricula', 'install-jordan-curriculum'].includes(body.action)) {
       await installCoreCatalog();
       await audit(user.id, 'catalog:install-core-curricula', 'categories');
+    } else if (body.action === 'reorder-groups') {
+      const groups = await catalogGroups();
+      if (!validCatalogOrder(body.ids, groups)) fail(409, 'تغيرت التصنيفات. حدث الصفحة وأعد المحاولة.');
+      await Promise.all(body.ids.map((id, position) => db.collection('catalog').updateOne({ id, kind: 'group' }, { $set: { position } })));
+      await audit(user.id, 'catalog:reorder', 'groups');
     } else if (body.action === 'reorder') {
-      if (!Array.isArray(body.ids) || body.ids.length !== rows.length || new Set(body.ids).size !== body.ids.length) fail(409, 'تغيرت التصنيفات. حدث الصفحة وأعد المحاولة.');
+      const scope = body.parentId ? rows.filter(row => row.parentId === body.parentId) : rows;
+      if (!validCatalogOrder(body.ids, scope)) fail(409, 'تغيرت التصنيفات. حدث الصفحة وأعد المحاولة.');
       await Promise.all(body.ids.map((id, index) => db.collection('catalog').updateOne({ id, kind: 'category' }, { $set: { position: index } })));
       await audit(user.id, 'catalog:reorder', 'categories');
     } else if (body.action === 'save-group') {
@@ -571,7 +578,7 @@ async function handleCatalog(user, write, body) {
       if (body.id) await db.collection('catalog').updateOne({ id: body.id, kind: 'group' }, { $set: item });
       else {
         const groups = await catalogGroups();
-        await db.collection('catalog').insertOne({ ...item, id: crypto.randomUUID(), kind: 'group', parent_id: '', position: groups.length, created: Date.now() });
+        await db.collection('catalog').insertOne({ ...item, id: crypto.randomUUID(), kind: 'group', parent_id: '', position: Math.max(-1, ...groups.map(group => Number(group.position) || 0)) + 1, created: Date.now() });
       }
       await audit(user.id, 'catalog:save-group', body.id || 'new');
     } else if (body.action === 'delete-group') {
@@ -596,7 +603,7 @@ async function handleCatalog(user, write, body) {
       if (!await db.collection('catalog').findOne({ id: parentId, kind: 'group' })) fail(400, 'اختر منهاجاً صحيحاً لهذه المرحلة.');
       const item = { parentId, parent_id: parentId, name: field(body.name, 100), description: field(body.description || '', 300, 0), icon: field(body.icon || '', 500, 0), levels, subjects, levelSubjects, level_subjects: levelSubjects };
       if (body.id) await db.collection('catalog').updateOne({ id: body.id, kind: 'category' }, { $set: item });
-      else await db.collection('catalog').insertOne({ ...item, id: crypto.randomUUID(), kind: 'category', position: rows.length, created: Date.now() });
+      else await db.collection('catalog').insertOne({ ...item, id: crypto.randomUUID(), kind: 'category', position: Math.max(-1, ...rows.map(row => Number(row.position) || 0)) + 1, created: Date.now() });
     } else fail(400, 'عملية غير صحيحة.');
   }
   return { groups: await catalogGroups(), categories: await categories() };
