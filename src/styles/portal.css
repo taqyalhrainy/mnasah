@@ -2433,3 +2433,35 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
 .teacher-saved-subjects article > svg { color: var(--primary); flex: 0 0 auto; }
 .teacher-saved-subjects article > div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
 .teacher-saved-subjects small, .teacher-saved-subjects > p { color: var(--muted); line-height: 1.7; }
+
+.clock-picker-dialog { position: relative; inset: auto; margin: auto; display: grid; gap: 16px; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid #bba0e54d; border-radius: 26px; background: #241931; color: #f7f1ff; box-shadow: 0 28px 90px #0005; }
+.clock-picker-dialog header { display: flex; justify-content: space-between; align-items: center; }
+.clock-picker-dialog header span { color: #c5b7d8; font-size: 12px; }
+.clock-picker-dialog h3 { margin: 3px 0 0; color: inherit; }
+.clock-picker-dialog .clock-close { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 12px; background: #ffffff12; color: inherit; }
+.clock-preview { display: flex; justify-content: center; align-items: center; gap: 10px; padding: 14px; border-radius: 16px; color: #f3e9ff; background: #a977e52b; font-size: 24px; }
+.clock-columns { display: grid; grid-template-columns: 1fr 22px 1fr; align-items: center; gap: 8px; }
+.clock-columns > b { padding-top: 25px; text-align: center; font-size: 28px; }
+.clock-column > span { display: block; text-align: center; margin-bottom: 8px; font-size: 12px; color: #c5b7d8; }
+.clock-wheel { position: relative; height: 220px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; scroll-snap-type: y mandatory; border-radius: 18px; background: linear-gradient(#ffffff03,#a977e518,#ffffff03); outline-offset: 3px; }
+.clock-wheel::-webkit-scrollbar { display: none; }
+.clock-wheel-options { padding-block: 88px; }
+.clock-picker-dialog .clock-wheel button { display: block; width: 100%; height: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; border-radius: 12px; color: #b7abc9; background: transparent; font: inherit; font-size: 21px; line-height: 44px; text-align: center; scroll-snap-align: center; cursor: pointer; }
+.clock-picker-dialog .clock-wheel button.selected { color: #fff; background: #714a95; font-size: 27px; font-weight: 900; }
+.clock-period { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 5px; background: #ffffff0a; border-radius: 15px; }
+.clock-picker-dialog .clock-period button { padding: 11px; border: 1px solid transparent; border-radius: 11px; color: #c5b7d8; background: transparent; font: inherit; font-weight: 700; }
+.clock-picker-dialog .clock-period button.selected { color: #fff; background: #714a95; border-color: #c4a1e8; }
+.clock-help { margin: 0; text-align: center; color: #c5b7d8; font-size: 11px; }
+.clock-picker-dialog .clock-confirm { width: 100%; padding: 14px; border: 0; border-radius: 14px; color: #241b2d; background: #d6b5f3; font: inherit; font-weight: 900; }
+:root[data-theme=light] .clock-picker-dialog { background: #fffdf7; color: #241b2d; border-color: #e9dfc8; }
+:root[data-theme=light] .clock-picker-dialog header span, :root[data-theme=light] .clock-column > span, :root[data-theme=light] .clock-help { color: #746c5b; }
+:root[data-theme=light] .clock-picker-dialog .clock-close { background: #f4eddb; }
+:root[data-theme=light] .clock-preview { color: #33280a; background: #fff0b2; }
+:root[data-theme=light] .clock-wheel { background: linear-gradient(#f8f3e63d,#f8f3e6,#f8f3e63d); }
+:root[data-theme=light] .clock-picker-dialog .clock-wheel button { color: #807867; }
+:root[data-theme=light] .clock-picker-dialog .clock-wheel button.selected { color: #241b2d; background: #ffe168; }
+:root[data-theme=light] .clock-period { background: #f2eee5; }
+:root[data-theme=light] .clock-picker-dialog .clock-period button { color: #716a5e; }
+:root[data-theme=light] .clock-picker-dialog .clock-period button.selected { color: #241b2d; background: #ffe168; border-color: #dcb134; }
+:root[data-theme=light] .clock-picker-dialog .clock-confirm { color: #241b2d; background: #ffda53; }
+@media(max-height:700px) { .clock-picker-dialog { gap: 10px; padding: 18px; } .clock-preview { padding: 9px; } }

@@ -1,4 +1,9 @@
 // Routing separation complements (and never replaces) account-role authorization.
+export const OWNER_PORTAL_ORIGIN = 'https://emtidad-alelm-owner.taqialhrainy.chatgpt.site';
+export function publicOwnerPage(pathname, hostname) {
+  return ['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(hostname.toLowerCase()) && /^\/(?:owner|admin)(?:\/|$)/i.test(decodeURIComponent(pathname));
+}
+
 export function portalRoleAllowed(role, mode = 'all') {
   return mode === 'owner' ? role === 'admin' : mode === 'public' ? role !== 'admin' : true;
 }

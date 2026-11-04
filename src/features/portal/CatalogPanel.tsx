@@ -6,6 +6,7 @@ import { type CatalogData, type CatalogGroup, type Category, request } from '../
 type Editor =
   | { kind: 'group'; item?: CatalogGroup }
   | { kind: 'stage'; item?: Category }
+  | { kind: 'direct'; value?: string }
   | { kind: 'level'; value?: string }
   | { kind: 'subject'; value?: string };
 
@@ -78,6 +79,9 @@ export function CatalogPanel({ data, onChanged }: { data: CatalogData; onChanged
     if (editor.kind === 'group') {
       const result = await mutate({ action: 'save-group', id: editor.item?.id, name, description: values.get('description'), icon: values.get('icon') });
       if (result && !editor.item) setGroupId(result.groups.at(-1)?.id || '');
+    } else if (editor.kind === 'direct') {
+      const result = await mutate({ action: 'save', parentId: groupId, name, description: '', icon: group?.icon || '📚', levels: [], subjects: [name], levelSubjects: {} });
+      if (!result) return;
     } else if (editor.kind === 'stage') {
       const item = editor.item;
       const result = await mutate({ action: 'save', id: item?.id, parentId: groupId, name, description: values.get('description'), icon: values.get('icon'), levels: item?.levels || [], subjects: item?.subjects || [], levelSubjects: item?.levelSubjects || {} });
@@ -110,6 +114,7 @@ export function CatalogPanel({ data, onChanged }: { data: CatalogData; onChanged
       <div><span><GraduationCap size={17} />{t('معاينة الأونر المباشرة')}</span><h2>{title}</h2><p>{description}</p></div>
       <div className="catalog-studio-actions">
         {screen !== 'groups' && <button type="button" className="secondary-button" onClick={back}><ArrowRight size={17} />{t('رجوع')}</button>}
+        {screen === 'stages' && <button type="button" className="primary-button" disabled={busy} onClick={() => setEditor({ kind: 'direct' })}><Plus size={17} />{t('أضف حصة')}</button>}
         <button type="button" className="primary-button" disabled={busy} onClick={() => setEditor(screen === 'groups' ? { kind: 'group' } : screen === 'stages' ? { kind: 'stage' } : screen === 'levels' ? { kind: 'level' } : { kind: 'subject' })}><Plus size={17} />{t(screen === 'groups' ? 'إضافة منهاج' : screen === 'stages' ? 'إضافة مرحلة' : screen === 'levels' ? 'إضافة صف أو صفحة' : 'إضافة مادة')}</button>
       </div>
     </header>
@@ -121,6 +126,7 @@ export function CatalogPanel({ data, onChanged }: { data: CatalogData; onChanged
         <span className="package-icon"><VisualIcon value={card.icon} /></span><strong>{t(card.title)}</strong><small>{t(card.description)}</small>{screen !== 'subjects' && <ChevronLeft size={18} />}
         <span className="catalog-card-actions"><button type="button" title={t('تعديل')} onClick={event => { stop(event); card.edit(); }}><Pencil size={15} /></button><button type="button" title={t('حذف')} onClick={event => { stop(event); card.remove(); }}><Trash2 size={15} /></button></span>
       </article>)}
+      {screen === 'stages' && <button type="button" className="catalog-empty-add" disabled={busy} onClick={() => setEditor({ kind: 'direct' })}><Plus size={26} /><strong>{t('أضف حصة مباشرة هنا')}</strong><small>{t('بدون إضافة مرحلة أو صف')}</small></button>}
       {screen === 'levels' && category && !category.levels.length && <button type="button" className="package-card catalog-direct-subjects" onClick={() => setLevel('__direct__')}><span className="package-icon"><Layers3 size={22} /></span><strong>{t('مواد مباشرة')}</strong><small>{t('استخدمها إذا لم يحتج هذا التصنيف إلى صفوف أو صفحات إضافية.')}</small><ChevronLeft size={18} /></button>}
       {!cards.length && !(screen === 'levels' && category && !category.levels.length) && <button type="button" className="catalog-empty-add" onClick={() => setEditor(screen === 'groups' ? { kind: 'group' } : screen === 'stages' ? { kind: 'stage' } : screen === 'levels' ? { kind: 'level' } : { kind: 'subject' })}><Plus size={26} /><strong>{t('ابدأ بإضافة أول بطاقة هنا')}</strong></button>}
       </div>

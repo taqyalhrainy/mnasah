@@ -1,5 +1,5 @@
+import { TimePicker as TimeWheel } from './TimePicker';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { ArrowLeft, CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, Trash2, X } from 'lucide-react';
 import { catalogText, locale, t, usePreferences } from '../../i18n/preferences';
 import { money, request, type Booking, type Slot, type SlotOffering } from '../../services/platformApi';
@@ -139,36 +139,6 @@ function ScheduleRow({ label, schedule, onChange }: { label: string; schedule: S
   return <div className="schedule-row"><div><CalendarDays size={18} /><strong>{label}</strong></div><TimeWheel label={t('من')} value={schedule.from} onChange={value => onChange('from', value)} /><TimeWheel label={t('إلى')} value={schedule.to} onChange={value => onChange('to', value)} note={crossesMidnight ? t('اليوم التالي') : ''} /></div>;
 }
 
-function TimeWheel({ label, value, onChange, note = '' }: { label: string; value: string; onChange: (value: string) => void; note?: string }) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const minutes = Math.max(0, clockMinutes(draft));
-  const hour24 = Math.floor(minutes / 60);
-  const hour12 = hour24 % 12 || 12;
-  const minute = minutes % 60;
-  const period = hour24 >= 12 ? 'PM' : 'AM';
-  const update = (nextHour = hour12, nextMinute = minute, nextPeriod = period) => {
-    const normalizedHour = (nextHour % 12) + (nextPeriod === 'PM' ? 12 : 0);
-    setDraft(`${String(normalizedHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`);
-  };
-  const openPicker = () => { setDraft(value); setOpen(true); };
-  return <div className={`time-wheel ${open ? 'open' : ''}`}>
-    <span>{label}</span>
-    <button className="time-wheel-trigger" type="button" data-value={value} aria-label={label} aria-expanded={open} onClick={openPicker}><Clock3 size={16} /><strong dir="ltr">{timeLabel(value)}</strong></button>
-    {note && <small className="next-day-note">{note}</small>}
-    {open && createPortal(<div className="time-wheel-backdrop" role="presentation" onPointerDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section className="time-wheel-popover time-grid-popover" role="dialog" aria-modal="true" aria-label={`${label} ${timeLabel(draft)}`}>
-        <header><div><small>{t('اختيار الوقت')}</small><strong>{label}</strong></div><span className="time-wheel-current" dir="ltr">{timeLabel(draft)}</span><button type="button" aria-label={t('إغلاق')} onClick={() => setOpen(false)}><X size={18} /></button></header>
-        <div className="time-grid-picker">
-          <fieldset><legend>{t('الساعة')}</legend><div className="time-grid-hours">{Array.from({ length: 12 }, (_, index) => index + 1).map(hour => <button type="button" className={hour12 === hour ? 'selected' : ''} onClick={() => update(hour)} key={hour}>{hour}</button>)}</div></fieldset>
-          <fieldset><legend>{t('الدقائق')}</legend><div className="time-grid-minutes">{[0, 15, 30, 45].map(value => <button type="button" className={minute === value ? 'selected' : ''} onClick={() => update(hour12, value)} key={value}>{String(value).padStart(2, '0')}</button>)}</div></fieldset>
-          <div className="time-grid-period" dir="ltr"><button type="button" className={period === 'AM' ? 'selected' : ''} onClick={() => update(hour12, minute, 'AM')}>AM</button><button type="button" className={period === 'PM' ? 'selected' : ''} onClick={() => update(hour12, minute, 'PM')}>PM</button></div>
-        </div>
-        <button className="time-wheel-done" type="button" onClick={() => { onChange(draft); setOpen(false); }}>{t('تأكيد الوقت')}</button>
-      </section>
-    </div>, document.body)}
-  </div>;
-}
 
 function MonthCalendar({ month, days, today, selected, slots, bookings, onMove, onDay }: { month: number; days: Array<number | null>; today: number; selected: number[]; slots: Slot[]; bookings: Booking[]; onMove: (direction: number) => void; onDay: (value: number) => void }) {
   const weekdays = Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 5 + index).toLocaleDateString(locale(), { weekday: 'short' }));

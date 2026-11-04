@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v12';
+const CACHE_NAME = 'imtidad-shell-v13';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -24,6 +24,10 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+  if (/^\/(?:owner|admin)(?:\/|$)/.test(url.pathname) && ['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(url.hostname)) {
+    event.respondWith(fetch(request));
+    return;
+  }
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) return;
 
   if (request.mode === 'navigate') {

@@ -20,7 +20,7 @@ import { parseVerification, registrationProfile } from '../shared/verification.j
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
-import { portalRequestAllowed, portalRoleAllowed } from '../shared/portal-access.js';
+import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -74,6 +74,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
   const role = req.query.portal || req.body?.role;
+  if (publicOwnerPage(req.path, String(req.headers.host || '').split(':')[0])) return res.status(404).send('Not found');
   if (!portalRequestAllowed(req.path, role, portalMode())) return res.status(404).json({ error: 'هذا الرابط غير متاح.' });
   if (portalMode() === 'owner' && req.path === '/') return res.redirect(302, '/owner');
   next();

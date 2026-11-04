@@ -4,12 +4,13 @@ import { api } from './api.js';
 import { fail } from './db.js';
 import { workerPublicAvatar } from './verification-files.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
-import { portalRequestAllowed } from '../shared/portal-access.js';
+import { portalRequestAllowed, publicOwnerPage } from '../shared/portal-access.js';
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' };
     try {
+      if (publicOwnerPage(url.pathname, url.hostname)) return new Response('Not found', { status: 404, headers });
       const mode = env.PORTAL_MODE || 'all';
       if (!portalRequestAllowed(url.pathname, url.searchParams.get('portal'), mode)) return new Response('Not found', { status: 404, headers });
       if (mode === 'owner' && url.pathname === '/') return Response.redirect(`${url.origin}/owner`, 302);
