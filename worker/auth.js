@@ -1,3 +1,4 @@
+import { portalRoleAllowed } from '../shared/portal-access.js';
 import { one, run, statement, field, fail, auditEntry } from './db.js';
 import { parseCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification, registrationProfile } from '../shared/verification.js';
@@ -27,6 +28,7 @@ export async function getUser(request, env, role) {
   const token = cookies.match(new RegExp(`(?:^|;\\s*)${name}=([a-f0-9]{64})(?:;|$)`))?.[1] || cookies.match(/(?:^|;\s*)mansah_session=([a-f0-9]{64})(?:;|$)/)?.[1];
   if (!token) return null;
   const user = await one(env, 'SELECT u.*,s.development_key FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?', await digest(token), Date.now());
+  if (!user || !portalRoleAllowed(user.role, env.PORTAL_MODE || 'all')) return null;
   if (user?.development_key) {
     if (!developmentEnabled(env) || !['teachers', 'students'].includes(user.role) || !equal(user.development_key, await digest(env.DEVELOPMENT_LOGIN_HASH))) return null;
     user.development_access = true;

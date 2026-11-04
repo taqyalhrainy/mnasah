@@ -5,8 +5,8 @@ import { date, type Booking, type Portal, type User } from '../../services/platf
 
 const greetedDuringThisVisit = new Set<string>();
 
-export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, compact = false, children }: {
-  user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; compact?: boolean; children?: ReactNode;
+export function WorkspaceOverview({ user, portal, bookings, availableCount, onView, teachingSubjects = [], compact = false, children }: {
+  user: User; portal: Portal; bookings: Booking[]; availableCount: number; onView: (view: string) => void; teachingSubjects?: { subject: string; detail: string }[]; compact?: boolean; children?: ReactNode;
 }) {
   const { language } = usePreferences();
   const [weekExpanded, setWeekExpanded] = useState(false);
@@ -54,7 +54,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
         <button type="button" className="home-skip" onClick={() => setStage('ready')}>{t('تخطي')}</button>
       </div> : <div className="home-stage-content">{children}</div>}
     </section>
-    <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{t(label)}</span><strong>{value.toLocaleString(locale())}</strong></div></div>)}</div>
+    {teacher ? <section className="teacher-saved-subjects"><h3>{t('المواد التي أدرّسها')}</h3>{teachingSubjects.length ? <div>{teachingSubjects.map((item, index) => <article key={`${item.subject}-${index}`}><BookOpen size={20} /><div><strong>{catalogText(item.subject)}</strong><small>{item.detail}</small></div></article>)}</div> : <p>{t('اختر المواد التي تدرّسها من المناهج أعلاه، ثم احفظ اختياراتك.')}</p>}</section> : <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{t(label)}</span><strong>{value.toLocaleString(locale())}</strong></div></div>)}</div>}
     <div className="overview-schedule">
       <article className={`next-lesson ${!next ? 'no-next-lesson' : ''}`}>
         <div className="next-lesson-body"><span className="next-lesson-kicker"><span />{next ? next.start <= now ? t("حصة جارية") : t("على جدولك") : t("جدولك مفتوح")}</span><h3>{next ? catalogText(next.subject) : t("لا توجد حصص قادمة")}</h3><p>{next ? `${teacher ? next.student_name : next.teacher_name} · ${date(next.start)}` : teacher ? t("مواعيد متاحة: ") + availableCount : t("أساتذة متاحون: ") + availableCount}</p></div>

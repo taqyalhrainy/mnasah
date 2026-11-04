@@ -20,6 +20,7 @@ import { parseVerification, registrationProfile } from '../shared/verification.j
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
+import { portalRequestAllowed, portalRoleAllowed } from '../shared/portal-access.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -30,6 +31,8 @@ function CLIENT_ORIGIN_ALLOWED(origin, callback) {
   callback(null, !origin || validChatOrigin(origin));
 }
 const PORT = Number(process.env.PORT || 8787);
+let portalModeOverride;
+const portalMode = () => portalModeOverride || process.env.PORTAL_MODE || 'all';
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const MONGODB_DB = process.env.MONGODB_DB || 'mansah';
 const MONGODB_USER = process.env.MONGODB_USER || '';
@@ -70,6 +73,12 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
+  const role = req.query.portal || req.body?.role;
+  if (!portalRequestAllowed(req.path, role, portalMode())) return res.status(404).json({ error: 'هذا الرابط غير متاح.' });
+  if (portalMode() === 'owner' && req.path === '/') return res.redirect(302, '/owner');
+  next();
+});
+app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && validChatOrigin(origin, req)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -85,6 +94,7 @@ app.use((req, res, next) => {
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/api/public/config', (_req, res) => res.json({
+  portalMode: portalMode(),
   googleClientId: GOOGLE_CLIENT_ID,
   vapidPublicKey: pushReady ? VAPID_PUBLIC_KEY : '',
   passwordResetCodeReady,
@@ -452,6 +462,7 @@ async function getUser(req, role) {
   const session = await database.collection('sessions').findOne({ token: digest(token), expires: { $gt: Date.now() } });
   if (!session) return null;
   const user = await database.collection('users').findOne({ id: session.user_id });
+  if (!user || !portalRoleAllowed(user.role, portalMode())) return null;
   if (user?.status === 'suspended' && Number(user.suspended_until || 0) > 0 && Number(user.suspended_until) <= Date.now()) {
     await database.collection('users').updateOne({ id: user.id, status: 'suspended', suspended_until: { $lte: Date.now() } }, { $set: { status: 'active' }, $unset: { suspended_until: '', suspension_reason: '' } });
     return { ...user, status: 'active', suspended_until: 0, suspension_reason: '' };
@@ -1551,7 +1562,8 @@ app.use((error, _req, res, _next) => {
   res.status(error.status || 500).json({ error: error.status ? error.message : 'تعذر تنفيذ الطلب الآن. حاول مجدداً.' });
 });
 
-export function startPlatformServer({ database, attachmentStore, topupProofStore, port = PORT } = {}) {
+export function startPlatformServer({ database, attachmentStore, topupProofStore, port = PORT, portalMode: mode } = {}) {
+  portalModeOverride = mode;
   if (database) db = database;
   if (attachmentStore) attachmentBytes = attachmentStore;
   if (topupProofStore) topupProofBytes = topupProofStore;

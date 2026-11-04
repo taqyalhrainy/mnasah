@@ -2,6 +2,14 @@
 
 Arabic tutoring platform with separate `/owner`, `/teachers`, and `/students` portals. React runs in the browser; a Cloudflare Worker enforces account permissions and stores shared data in D1. The public `/video` shortcut redirects into the signed-in portal; rooms are opened from reservations.
 
+## Separate administration deployment
+
+`PORTAL_MODE=owner` serves only the administration portal and its API. `PORTAL_MODE=public` rejects administration pages, administration API requests and administration sign-in, including old sessions. Role authorization remains mandatory in both deployments. The default `all` mode preserves existing deployments until the separate service is ready.
+
+Deploy `render-owner.yaml` as a Render Blueprint first. It references the existing `emtidad-alelm` service's database environment variables without copying secrets into source. Verify the new service's actual URL and owner sign-in, then set `PORTAL_MODE=public` on the existing public service and redeploy it. Do not enable public-only mode before verifying the owner service, to avoid locking out the owner. See [Render Blueprint environment references](https://render.com/docs/blueprint-spec#referencing-service-properties).
+
+Regression checks for saved teacher subjects and portal isolation: `node --import tsx --test tests/teaching-choices.test.ts tests/portal-access.test.mjs`. The light/dark desktop/mobile discovery UI check is `node tests/portal-discovery-regression-browser.mjs` against Vite on port 5192 (or `UI_BASE_URL`).
+
 ## Workflows
 
 - Students register, browse available appointments, reserve a lesson, cancel future reservations, read materials, and message their teacher.

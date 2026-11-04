@@ -1,0 +1,47 @@
+# Deploy this Blueprint first. It shares the database with the existing service,
+# but has its own hostname and host-only login cookies. No secrets in this file.
+services:
+  - type: web
+    name: emtidad-alelm-owner
+    runtime: node
+    repo: https://github.com/taqyalhrainy/mnasah
+    branch: main
+    plan: free
+    buildCommand: npm ci && npm run build:backend
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORTAL_MODE
+        value: owner
+      - key: MONGODB_URI
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: MONGODB_URI
+      - key: MONGODB_USER
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: MONGODB_USER
+      - key: MONGODB_PASSWORD
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: MONGODB_PASSWORD
+      - key: MONGODB_DB
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: MONGODB_DB
+      - key: OWNER_SETUP_TOKEN
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: OWNER_SETUP_TOKEN
+      - key: PLATFORM_COMMISSION_PERCENT
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: PLATFORM_COMMISSION_PERCENT

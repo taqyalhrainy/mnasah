@@ -1,3 +1,4 @@
+import { parseTeachingChoices, serializeTeachingChoices, teachingChoiceKey, uniqueTeachingChoices, type TeachingChoice } from './teachingChoices';
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, CircleAlert, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
@@ -32,7 +33,7 @@ const formData = (form: HTMLFormElement) => Object.fromEntries(new FormData(form
 const timeOnly = (value: number) => new Date(value).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 const localDayKey = (value = Date.now()) => { const date = new Date(value); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
 const dayStart = (value = Date.now()) => { const date = new Date(value); date.setHours(0, 0, 0, 0); return date.getTime(); };
-const weekStart = (value = Date.now()) => { const date = new Date(dayStart(value)); date.setDate(date.getDate() - date.getDay()); return date.getTime(); };
+const weekStart = (value = Date.now()) => dayStart(value);
 const addDays = (value: number, days: number) => { const date = new Date(value); date.setDate(date.getDate() + days); return date.getTime(); };
 const packageWeekDays = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const PackageSchedule = ({ rows }: { rows: WeeklySchedule[] }) => rows.length ? <div className="package-schedule-summary"><CalendarDays size={17} /><div>{rows.map(row => <span key={row.weekday}>{t(packageWeekDays[row.weekday])} <b dir="ltr">{row.from}–{row.to}</b></span>)}</div></div> : null;
@@ -82,33 +83,7 @@ const availableBookingStarts = (slot: Slot, minutes: number) => {
   return starts;
 };
 const slotBookableOnDay = (slot: Slot, value: number) => slotOfferings(slot).some(offering => availableBookingStarts(slot, offering.minutes).some(start => localDayKey(start) === localDayKey(value)));
-type TeachingChoice = { categoryId: string; categoryName: string; subject: string; levels: string[] };
-const teachingChoiceKey = (categoryId: string, subject: string) => `${categoryId}\u0000${subject}`;
-const uniqueTeachingChoices = (choices: TeachingChoice[]) => [...new Map(choices.map(choice => [teachingChoiceKey(choice.categoryId, choice.subject), choice])).values()];
-const serializeTeachingChoices = (choices: TeachingChoice[]) => choices.map(choice => [choice.categoryName, choice.subject, choice.levels.join('، ')].filter(Boolean).join(' › ')).join(' | ');
 const teachingChoiceLabel = (choice: TeachingChoice, category?: Category) => [t(choice.categoryName), catalogText(choice.subject), ...(category?.levels.length ? [choice.levels.length === category.levels.length ? t('كل المستويات') : choice.levels.map(catalogText).join('، ')] : [])].join(' › ');
-function parseTeachingChoices(value: string, catalog: Category[]) {
-  if (!value || !catalog.length) return [];
-  const choices: TeachingChoice[] = [];
-  for (const entry of value.split(' | ').map(item => item.trim()).filter(Boolean)) {
-    const parts = entry.split(' › ').map(item => item.trim());
-    if (parts.length >= 2) {
-      const category = catalog.find(item => item.name === parts[0]);
-      if (!category || !category.subjects.includes(parts[1])) continue;
-      const selected = parts[2] ? parts[2].split('،').map(item => item.trim()).filter(level => category.levels.includes(level)) : [];
-      choices.push({ categoryId: category.id, categoryName: category.name, subject: parts[1], levels: category.levels.length ? selected : [] });
-      continue;
-    }
-    for (const category of catalog) {
-      for (const subject of category.subjects) {
-        if (entry !== subject && !entry.startsWith(`${subject} - `)) continue;
-        const legacyLevel = entry.slice(subject.length + 3).trim();
-        choices.push({ categoryId: category.id, categoryName: category.name, subject, levels: category.levels.length ? (legacyLevel && category.levels.includes(legacyLevel) ? [legacyLevel] : [...category.levels]) : [] });
-      }
-    }
-  }
-  return uniqueTeachingChoices(choices);
-}
 
 export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLiveChange, onReminderControls, searchFocusKey = 0 }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void; onRoomLiveChange?: (live: boolean) => void; onReminderControls?: (enabled: boolean, hint: string, toggle: () => void) => void; searchFocusKey?: number }) {
   usePreferences();
@@ -439,7 +414,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   });
   const selectedDaySubjectSlots = subjectSlots.filter(slot => slotBookableOnDay(slot, studentScheduleDay));
   const liveFilterSubjects = [...new Set((liveCurriculumFilter === 'all' ? catalog : catalog.filter(category => (category.parentId || 'curriculum-other') === liveCurriculumFilter)).flatMap(category => category.subjects))];
-  const availableNowSlots = openSlots.filter(slot => slot.start <= Date.now() && Number(slot.available_until || slot.start + slot.minutes * 60000) > Date.now());
+  const availableNowSlots = openSlots.filter(slot => slot.start <= Date.now() + 15 * 60000 && Number(slot.available_until || slot.start + slot.minutes * 60000) > Date.now());
   const filteredAvailableNowSlots = availableNowSlots.filter(slot => {
     const values = slotSubjects(slot);
     const curriculumMatch = liveCurriculumFilter === 'all' || values.some(subject => liveFilterSubjects.some(value => fuzzyMatch(value, subject)));
@@ -522,7 +497,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const teacherPackageExplorer = <div className="package-explorer">
     {!teacherPackageKey && <>
       <div className="showcase-heading"><div><span>{t('ملفك التعليمي')}</span><h2>{t(selectedTeacherCategory?.name || activeTeacherCurriculum?.name || 'شو حاب تدرّس؟')}</h2><p>{t(selectedTeacherCategory?.description || activeTeacherCurriculum?.description || 'اختر المنهاج ثم المرحلة والمادة التي تدرّسها.')}</p></div><small>{t('{v0} مواد محفوظة', { v0: teachingChoices.length })}</small></div>
-      {!selectedTeacherCategory ? (!activeTeacherCurriculum ? <div className="package-grid student-package-grid">{curriculumGroups.map((group, index) => <button type="button" className="package-card" style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} key={group.id} onClick={() => setTeacherCurriculumId(group.id)}><span className="package-icon"><CategoryIcon value={group.icon} /></span><strong>{t(group.name)}</strong><small>{t(group.description)}</small><ChevronLeft size={18} /></button>)}</div> : <div className="student-flow showcase-flow"><button type="button" className="package-back" onClick={() => setTeacherCurriculumId('')}><ArrowRight size={18} />{t('كل المناهج')}</button><h3>{t('اختر المرحلة')}</h3><div className="package-grid student-package-grid">{activeTeacherCurriculum.categories.map((category, index) => <button type="button" className="package-card" style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} key={category.id} onClick={() => setTeacherCategoryId(category.id)}><span className="package-icon"><CategoryIcon value={category.icon} /></span><strong>{t(category.name.replace(/^.*?\|\s*/, ''))}</strong><small>{t(category.description)}</small><ChevronLeft size={18} /></button>)}</div></div>) : <div className="student-flow showcase-flow"><button type="button" className="package-back" onClick={() => setTeacherCategoryId('')}><ArrowRight size={18} />{t('مراحل المنهاج')}</button><h3>{t('اختر المادة')}</h3><div className="package-grid">{selectedTeacherCategory.subjects.map((subject, index) => {
+      {!selectedTeacherCategory ? (!activeTeacherCurriculum ? <div className="package-grid student-package-grid">{curriculumGroups.map((group, index) => <button type="button" className={`package-card ${teachingChoices.some(choice => group.categories.some(category => category.id === choice.categoryId)) ? 'chosen' : ''}`} style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} key={group.id} onClick={() => setTeacherCurriculumId(group.id)}><span className="package-icon"><CategoryIcon value={group.icon} /></span><strong>{t(group.name)}</strong><small>{t(group.description)}</small>{teachingChoices.some(choice => group.categories.some(category => category.id === choice.categoryId)) ? <Check size={16} /> : <ChevronLeft size={18} />}</button>)}</div> : <div className="student-flow showcase-flow"><button type="button" className="package-back" onClick={() => setTeacherCurriculumId('')}><ArrowRight size={18} />{t('كل المناهج')}</button><h3>{t('اختر المرحلة')}</h3><div className="package-grid student-package-grid">{activeTeacherCurriculum.categories.map((category, index) => <button type="button" className={`package-card ${teachingChoices.some(choice => choice.categoryId === category.id) ? 'chosen' : ''}`} style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} key={category.id} onClick={() => setTeacherCategoryId(category.id)}><span className="package-icon"><CategoryIcon value={category.icon} /></span><strong>{t(category.name.replace(/^.*?\|\s*/, ''))}</strong><small>{t(category.description)}</small>{teachingChoices.some(choice => choice.categoryId === category.id) ? <Check size={16} /> : <ChevronLeft size={18} />}</button>)}</div></div>) : <div className="student-flow showcase-flow"><button type="button" className="package-back" onClick={() => setTeacherCategoryId('')}><ArrowRight size={18} />{t('مراحل المنهاج')}</button><h3>{t('اختر المادة')}</h3><div className="package-grid">{selectedTeacherCategory.subjects.map((subject, index) => {
         const key = teachingChoiceKey(selectedTeacherCategory.id, subject);
         const chosen = teachingChoices.some(choice => teachingChoiceKey(choice.categoryId, choice.subject) === key);
         return <button type="button" className={`package-card ${chosen ? 'chosen' : ''}`} style={{ '--package-delay': `${Math.min(index, 12) * 45}ms` } as CSSProperties} key={key} onClick={() => setTeacherPackageKey(key)}><span className="package-icon"><CategoryIcon value={selectedTeacherCategory.icon} /></span><strong>{catalogText(subject)}</strong><small>{t(selectedTeacherCategory.name)}</small>{chosen && <Check size={16} />}</button>;
@@ -533,7 +508,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       const choice = teachingChoices.find(item => item.categoryId === category.id && item.subject === subject);
       const availableLevels = levelsForSubject(category, subject);
       const allLevels = Boolean(choice && availableLevels.length && availableLevels.every(level => choice.levels.includes(level)));
-      return <div className="package-detail"><button type="button" className="package-back" onClick={() => { setTeacherPackageKey(''); setTeacherCategoryId(category.id); }}><ArrowRight size={18} />{t('مواد المجال')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('اختار المستويات لمادة {v0}', { v0: catalogText(subject) })}</h2><p>{t(category.description)}</p></div>{availableLevels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{availableLevels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void (async () => { if (await saveTeacherProfile()) { setTeacherPackageKey(''); setTeacherCategoryId(category.id); } })()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
+      return <div className="package-detail"><button type="button" className="package-back" onClick={() => { setTeacherPackageKey(''); setTeacherCategoryId(category.id); }}><ArrowRight size={18} />{t('مواد المجال')}</button><div className="package-detail-copy"><span>{t(category.name)}</span><h2>{t('اختار المستويات لمادة {v0}', { v0: catalogText(subject) })}</h2><p>{t(category.description)}</p></div>{availableLevels.length ? <div className="package-levels"><label className="all-levels"><input type="checkbox" checked={allLevels} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('كل المستويات')}</label>{availableLevels.map(level => <label key={level}><input type="checkbox" checked={Boolean(choice?.levels.includes(level))} onChange={event => updateTeachingLevel(category, subject, level, event.currentTarget.checked)} />{t(level)}</label>)}</div> : <label className="package-single-toggle"><input type="checkbox" checked={Boolean(choice)} onChange={event => updateTeachingSubject(category, subject, event.currentTarget.checked)} />{t('أدرّس هذه المادة')}</label>}<div className="package-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void (async () => { if (await saveTeacherProfile()) { setTeacherPackageKey(''); setTeacherCategoryId(''); setTeacherCurriculumId(''); } })()}><Save size={17} />{t('حفظ اختياراتي')}</button></div></div>;
     })()}
   </div>;
   const lessonDetails = current && <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setSelected(null)} className="detail-dialog" aria-labelledby="lesson-title"><div className="section-heading"><h2 id="lesson-title">{catalogText(current.subject)}</h2><button className="icon-button" title={t("إغلاق التفاصيل")} onClick={() => setSelected(null)}><X size={20} /></button></div>{error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}<p>{current.teacher_name} · {current.student_name}</p><p>{date(current.start)} · {money(current.price)}</p>{portal === 'students' && current.teacher_phone && <p className="lesson-contact"><strong>{t('رقم الأستاذ')}</strong><a href={`tel:${current.teacher_phone}`} dir="ltr"><Phone size={16} />{current.teacher_phone}</a></p>}{portal === 'teachers' && current.student_phone && <p className="lesson-contact"><strong>{t('رقم الطالب')}</strong><a href={`tel:${current.student_phone}`} dir="ltr"><Phone size={16} />{current.student_phone}</a></p>}{portal === 'admin' && <p className="lesson-contact"><span>{current.teacher_phone}</span><span>{current.student_phone}</span></p>}<span className={`badge ${current.status}`}>{t(statusNames[current.status])}</span>
@@ -672,7 +647,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {error && <p className="notice error" role="alert">{t(error)}</p>}{success && <p className="notice success" role="status">{t(success)}</p>}
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
       {view === 'home' && <section className="tutor-home">
-        <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={openSlots.length} onView={onView}>{teacherPackageExplorer}</WorkspaceOverview>
+        <WorkspaceOverview teachingSubjects={teachingChoices.map(choice => ({ subject: choice.subject, detail: [choice.categoryName, choice.levels.join('\u060c ')].filter(Boolean).join('\u00b7 ') }))} user={user} portal={portal} bookings={bookings} availableCount={openSlots.length} onView={onView}>{teacherPackageExplorer}</WorkspaceOverview>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} onDetails={booking => setSelected(booking.id)} onCancel={cancel} />}
       {view === 'available' && <TeacherAvailabilityHub subjects={teacherSubjects} slots={slots} bookings={bookings} busy={busy} onHome={() => onView('home')} onPublish={publishAvailability} onDelete={deleteSlot} onBookingDetails={setSelected} />}
@@ -767,12 +742,18 @@ function RoomHub({ portal, bookings, now, filter, onFilter, busy, canJoin, onJoi
     {!!visible.length && <div className="room-groups"><section><header><span>{upcomingBookings.length}</span><h3>{t('الحصص القادمة')}</h3></header><div className="room-list">{upcomingBookings.length ? upcomingBookings.map(renderBooking) : <p className="room-group-empty">{t('لا توجد حصص قادمة ضمن هذه الفترة.')}</p>}</div></section><section className="archived"><header><span>{archivedBookings.length}</span><h3>{t('المنتهية أو الملغاة')}</h3></header><div className="room-list">{archivedBookings.length ? archivedBookings.map(renderBooking) : <p className="room-group-empty">{t('لا توجد حصص منتهية أو ملغاة ضمن هذه الفترة.')}</p>}</div></section></div>}
   </section>;
 }
-function StudentWeekStrip({ slots, selectedDay, week, onDay, onWeek }: { slots: Slot[]; selectedDay: number; week: number; onDay: (value: number) => void; onWeek: (value: number) => void }) {
+function StudentWeekStrip({ slots, selectedDay, onDay }: { slots: Slot[]; selectedDay: number; week: number; onDay: (value: number) => void; onWeek: (value: number) => void }) {
   usePreferences();
-  const days = Array.from({ length: 7 }, (_, index) => addDays(week, index));
-  return <section className="student-week-picker" aria-label={t('اختر يوم الحصة')}>
-    <header><button type="button" title={t('الأسبوع السابق')} onClick={() => onWeek(addDays(week, -7))}><ChevronLeft size={18} /></button><strong>{new Date(week).toLocaleDateString(locale(), { day: 'numeric', month: 'long' })} – {new Date(addDays(week, 6)).toLocaleDateString(locale(), { day: 'numeric', month: 'long', year: 'numeric' })}</strong><button type="button" title={t('الأسبوع التالي')} onClick={() => onWeek(addDays(week, 7))}><ArrowRight size={18} /></button></header>
-    <div>{days.map(day => { const available = slots.some(slot => slotBookableOnDay(slot, day)); return <button type="button" key={day} className={`${localDayKey(day) === localDayKey(selectedDay) ? 'selected' : ''} ${available ? 'has-availability' : ''}`} aria-pressed={localDayKey(day) === localDayKey(selectedDay)} onClick={() => onDay(day)}><span>{new Date(day).toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{new Date(day).getDate()}</strong>{available && <i aria-label={t('يوجد موعد متاح')} />}</button>; })}</div>
+  const strip = useRef<HTMLDivElement>(null);
+  const today = dayStart();
+  const lastSlotDay = Math.max(today, ...slots.map(slot => dayStart(Number(slot.available_until || slot.start + slot.minutes * 60000))));
+  const days = Array.from({ length: Math.max(14, Math.min(366, Math.round((lastSlotDay - today) / 86400000) + 1)) }, (_, index) => addDays(today, index));
+  return <section className="availability-date-picker student-date-picker" aria-label={t('اختر يوم الحصة')}>
+    <div className="availability-date-head"><strong>{new Date(selectedDay).toLocaleDateString(locale(), { month: 'long', year: 'numeric' })}</strong><div><button type="button" aria-label={t('تمرير الأيام للخلف')} onClick={() => strip.current?.scrollBy({ left: -260, behavior: 'smooth' })}><ChevronLeft size={17} /></button><button type="button" aria-label={t('تمرير الأيام للأمام')} onClick={() => strip.current?.scrollBy({ left: 260, behavior: 'smooth' })}><ArrowRight size={17} /></button></div></div>
+    <div className="availability-day-strip" ref={strip}>{days.map(day => {
+      const available = slots.some(slot => slotBookableOnDay(slot, day));
+      return <button type="button" key={day} className={localDayKey(day) === localDayKey(selectedDay) ? 'selected' : ''} aria-pressed={localDayKey(day) === localDayKey(selectedDay)} onClick={() => onDay(day)}><span>{new Date(day).toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{new Date(day).toLocaleDateString(locale(), { day: '2-digit' })}</strong><small>{new Date(day).toLocaleDateString(locale(), { month: 'short' })}</small><i className={available ? 'day-availability-dot available' : 'day-availability-dot'} aria-label={available ? t('يوجد موعد متاح') : undefined} /></button>;
+    })}</div>
   </section>;
 }
 

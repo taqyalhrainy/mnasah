@@ -2417,3 +2417,19 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
 .teacher-profile-rating-summary small, .teacher-profile-rating-summary em { color: #876f3d; font-size: 11px; font-style: normal; }
 .teacher-profile-rating-summary strong { font-size: 19px; }
 :root[data-theme=dark] .teacher-profile-rating-summary { color: #f8cf55; background: linear-gradient(135deg, #3d2e16, #271d19); }
+
+/* Shared teacher/student day rail, with explicit selected contrast in both themes. */
+.student-date-picker { margin: 20px 0; }
+.availability-day-strip .day-availability-dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+.availability-day-strip .day-availability-dot.available { background: #21c98b; box-shadow: 0 0 0 4px #21c98b22; }
+:root[data-theme=light] .availability-day-strip button.selected { background: #ffe165; color: #211a2c; border-color: #ac7e08; box-shadow: 0 5px 16px #c29a2225; }
+:root[data-theme=light] .availability-day-strip button.selected > span,
+:root[data-theme=light] .availability-day-strip button.selected > strong,
+:root[data-theme=light] .availability-day-strip button.selected > small { color: #211a2c; }
+.teacher-saved-subjects { margin-block: 24px; padding-block: 20px; border-block: 1px solid var(--line); }
+.teacher-saved-subjects h3 { margin: 0 0 14px; font-size: 17px; color: var(--ink); }
+.teacher-saved-subjects > div { display: flex; gap: 12px; flex-wrap: wrap; }
+.teacher-saved-subjects article { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); max-width: 100%; }
+.teacher-saved-subjects article > svg { color: var(--primary); flex: 0 0 auto; }
+.teacher-saved-subjects article > div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.teacher-saved-subjects small, .teacher-saved-subjects > p { color: var(--muted); line-height: 1.7; }
