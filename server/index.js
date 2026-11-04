@@ -21,6 +21,7 @@ import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
 import { validCatalogOrder } from '../shared/catalog-order.js';
+import { validPushSubscription, deliverDevicePush, notifyPlatformOwners } from '../shared/device-push.js';
 import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -511,18 +512,14 @@ async function audit(actor, action, target) {
   };
   const details = definitions[action];
   if (!details) return;
-  await db.collection('admin_notifications').insertOne({ id: crypto.randomUUID(), type: action, title: details[0], body: details[1], view: details[2], actor, target, read_at: 0, created });
+  const notice = { id: crypto.randomUUID(), type: action, title: details[0], body: details[1], view: details[2], actor, target, read_at: 0, created };
+  await db.collection('admin_notifications').insertOne(notice);
+  void notifyPlatformOwners(db, sendDevicePush, notice).catch(() => console.warn('Owner push delivery unavailable; notification remains in the dashboard.'));
 }
 
-async function sendDevicePush(userId, payload) {
-  if (!pushReady || !userId) return;
-  const rows = await db.collection('push_subscriptions').find({ user_id: userId }, { projection: { _id: 0 } }).limit(20).toArray();
-  await Promise.all(rows.map(async row => {
-    try { await webpush.sendNotification(row.subscription, JSON.stringify(payload), { TTL: 86400, urgency: 'high' }); }
-    catch (error) {
-      if ([404, 410].includes(Number(error?.statusCode))) await db.collection('push_subscriptions').deleteOne({ endpoint: row.endpoint, user_id: userId });
-    }
-  }));
+async function sendDevicePush(userId, payload, endpoint) {
+  if (!pushReady || !userId) return { sent: 0 };
+  return deliverDevicePush(db, (...args) => webpush.sendNotification(...args), userId, payload, endpoint);
 }
 
 const starterCatalog = educationCatalog;
@@ -916,14 +913,28 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ ok: true });
     }
     if (user.status !== 'active') fail(403, 'هذا الحساب بانتظار موافقة الإدارة.');
+    if (path.startsWith('push/') && write && (!validChatOrigin(req.headers.origin, req) || !req.is('application/json'))) fail(403, 'مصدر الطلب غير صالح.');
     if (path === 'push/subscribe' && write) {
-      if (!pushReady) fail(503, 'إشعارات الهاتف تحتاج مفاتيح VAPID على الخادم.');
+      if (!pushReady) fail(503, 'تعذر تفعيل تنبيهات الهاتف مؤقتًا. أعد المحاولة.');
+      if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
       const subscription = body.subscription;
       const endpoint = field(subscription?.endpoint || '', 2000);
       const p256dh = field(subscription?.keys?.p256dh || '', 500);
       const auth = field(subscription?.keys?.auth || '', 500);
-      if (!/^https:\/\//i.test(endpoint)) fail(400, 'اشتراك الإشعارات غير صالح.');
-      await db.collection('push_subscriptions').updateOne({ endpoint }, { $set: { endpoint, user_id: user.id, portal: user.role, subscription: { endpoint, expirationTime: subscription.expirationTime || null, keys: { p256dh, auth } }, updated: Date.now() } }, { upsert: true });
+      if (!validPushSubscription(subscription)) fail(400, 'اشتراك الإشعارات غير صالح.');
+      await db.collection('push_subscriptions').updateOne({ endpoint }, { $set: { endpoint, user_id: user.id, portal: user.role, vapid_key: VAPID_PUBLIC_KEY, subscription: { endpoint, expirationTime: subscription.expirationTime || null, keys: { p256dh, auth } }, updated: Date.now() } }, { upsert: true });
+      return res.json({ ok: true });
+    }
+    if (path === 'push/status' && write) {
+      const endpoint = field(body.endpoint || '', 2000);
+      const subscription = await db.collection('push_subscriptions').findOne({ endpoint, user_id: user.id });
+      return res.json({ enabled: pushReady && Boolean(subscription && (!subscription.vapid_key || subscription.vapid_key === VAPID_PUBLIC_KEY)) });
+    }
+    if (path === 'push/test' && write) {
+      if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
+      const endpoint = field(body.endpoint || '', 2000);
+      const result = await sendDevicePush(user.id, { title: 'التنبيهات جاهزة', body: 'تم تفعيل تنبيهات امتداد العلم على هذا الجهاز.', tag: `test-${user.id}`, url: user.role === 'admin' ? '/owner?view=bookings' : `/${user.role}` }, endpoint);
+      if (!result.sent) fail(503, 'تعذر إرسال الإشعار التجريبي. أعد تفعيل التنبيهات وحاول مجددًا.');
       return res.json({ ok: true });
     }
     if (path === 'push/unsubscribe' && write) {

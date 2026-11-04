@@ -12,6 +12,12 @@ Deploy `render-owner.yaml` as a Render Blueprint first. It references the existi
 
 Regression checks for saved teacher subjects and portal isolation: `node --import tsx --test tests/teaching-choices.test.ts tests/portal-access.test.mjs`. The light/dark desktop/mobile discovery UI check is `node tests/portal-discovery-regression-browser.mjs` against Vite on port 5192 (or `UI_BASE_URL`).
 
+## Owner phone notifications
+
+The owner account menu contains an explicit device-notification switch and a test-notification button. It requests system permission only in response to that switch. Home Screen web apps on iOS/iPadOS 16.4+ and installed Chrome web apps on Android use Web Push. Denied permission is shown honestly and must be changed in the device settings; no automatic permission prompt runs on startup.
+
+Both Render services must share the same `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`. Keep the private key in Render environment variables, never in source. Owner subscriptions are registered on the owner origin; audit events from the public service send encrypted notifications to active owners using the shared database. Clicking a notification opens its dashboard section, and explicit logout unsubscribes that device. `node --test tests/owner-push-server.test.mjs tests/owner-push-worker.test.mjs` tests delivery and background-worker behavior; `node tests/owner-push-browser.mjs` checks the permission flow with simulated iPhone/Android browser APIs.
+
 ## Workflows
 
 - Students register, browse available appointments, reserve a lesson, cancel future reservations, read materials, and message their teacher.

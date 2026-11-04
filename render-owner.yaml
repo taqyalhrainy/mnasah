@@ -45,3 +45,18 @@ services:
           type: web
           name: emtidad-alelm
           envVarKey: PLATFORM_COMMISSION_PERCENT
+      - key: VAPID_PUBLIC_KEY
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: VAPID_PUBLIC_KEY
+      - key: VAPID_PRIVATE_KEY
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: VAPID_PRIVATE_KEY
+      - key: VAPID_SUBJECT
+        fromService:
+          type: web
+          name: emtidad-alelm
+          envVarKey: VAPID_SUBJECT

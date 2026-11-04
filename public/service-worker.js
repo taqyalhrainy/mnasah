@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v13';
+const CACHE_NAME = 'imtidad-shell-v14';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -66,14 +66,15 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('push', event => {
-  const payload = event.data?.json?.() || {};
+  let payload = {};
+  try { payload = event.data?.json?.() || {}; } catch { /* Always display a visible notification, including malformed pushes. */ }
   event.waitUntil(self.registration.showNotification(payload.title || 'امتداد العلم أكاديمي', {
     body: payload.body || 'لديك تحديث جديد',
     icon: shellUrl('images/emtidad-alelm-final-logo-192.png'),
     badge: shellUrl('images/emtidad-alelm-final-logo-192.png'),
     tag: payload.tag || 'imtidad-update',
     renotify: true,
-    data: { url: payload.url || 'students' },
+    data: { url: payload.url || (self.location.hostname === 'emtidad-alelm-owner.onrender.com' ? 'owner' : 'students') },
     dir: 'rtl',
     lang: 'ar',
   }));
@@ -87,12 +88,13 @@ self.addEventListener('notificationclick', event => {
     : new URL(String(rawUrl).replace(/^\/+/, ''), self.registration.scope);
   const scopePath = new URL(self.registration.scope).pathname.replace(/\/$/, '');
   const routePath = scopePath && target.pathname.startsWith(`${scopePath}/`) ? target.pathname.slice(scopePath.length) : target.pathname;
-  if (target.origin !== self.location.origin || !/^\/(teachers|students)$/.test(routePath)) return;
+  if (target.origin !== self.location.origin || !/^\/(owner|teachers|students)$/.test(routePath)) return;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const existing = windows.find(client => new URL(client.url).pathname === target.pathname);
     if (existing) {
-      existing.postMessage({ type: 'lesson-reminder', id: target.searchParams.get('lesson') });
+      if (target.searchParams.has('lesson')) existing.postMessage({ type: 'lesson-reminder', id: target.searchParams.get('lesson') });
+      if (target.searchParams.has('view')) existing.postMessage({ type: 'platform-notification', view: target.searchParams.get('view') });
       return existing.focus();
     }
     return self.clients.openWindow(target.href);

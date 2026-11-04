@@ -2434,6 +2434,14 @@ html.call-active, html.call-active body, html.call-active #root { height: 100%; 
 .teacher-saved-subjects article > div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
 .teacher-saved-subjects small, .teacher-saved-subjects > p { color: var(--muted); line-height: 1.7; }
 .catalog-order-help { margin: 0; color: var(--muted); font-size: 12px; }
+.account-menu > .owner-account-dropdown { width: min(280px, calc(100vw - 28px)); z-index: 40; }
+.owner-account-dropdown .device-notification-toggle { min-height: 60px; gap: 10px; }
+.owner-account-dropdown .device-notification-toggle strong { font-size: 13px; font-weight: 800; }
+.owner-account-dropdown .device-notification-toggle small { font-size: 10px; line-height: 1.5; }
+.owner-account-dropdown .account-reminder-hint { font-size: 11px; }
+@media (max-width: 700px) {
+  .topbar-actions .account-menu > .owner-account-dropdown { position: fixed; top: 126px; left: 14px; right: 14px; width: auto; max-height: calc(100dvh - 150px); overflow-y: auto; }
+}
 .catalog-order-notice { margin: 0; color: var(--ink); font-size: 12px; }
 .catalog-preview-card.is-dragging { opacity: .5; }
 .catalog-preview-card.is-drop-target { outline: 3px solid #d4b2ff; outline-offset: 3px; }

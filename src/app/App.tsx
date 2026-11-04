@@ -7,11 +7,19 @@ import { PortalWorkspace } from '../features/portal/PortalWorkspace';
 import { apiMediaUrl, request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
 import { useDirectChat, type BookingCreatedNotice } from '../features/chat/useDirectChat';
+import { useDeviceNotifications } from '../services/useDeviceNotifications';
+import { removeDevicePush } from '../services/pushNotifications';
 import { PreferenceControls, direction, usePreferences, t, locale } from '../i18n/preferences';
 const DirectMessages = lazy(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
 const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 type AdminNotificationCounts = Record<string, number>;
+const portalNotificationViews: Record<Portal, string[]> = { admin: ['bookings', 'reports', 'users', 'topups', 'audit', 'payments', 'catalog', 'profile'], teachers: ['home', 'rooms', 'messages', 'available', 'earnings', 'profile'], students: ['home', 'rooms', 'messages', 'tutors', 'wallet', 'history', 'profile'] };
+function notificationView(portal: Portal) {
+  const query = new URLSearchParams(location.search);
+  const view = query.get('view') || (query.has('lesson') ? (portal === 'admin' ? 'bookings' : 'rooms') : '');
+  return portalNotificationViews[portal].includes(view) ? view : portal === 'admin' ? 'bookings' : 'home';
+}
 const defaultSupportWhatsapp = '0795764229';
 const whatsappHrefNumber = (value: string) => {
   const digits = value.replace(/\D/g, '');
@@ -66,7 +74,7 @@ function PortalApp() {
   const [slowWake, setSlowWake] = useState(false);
   const [wakeAttempt, setWakeAttempt] = useState(0);
   const [error, setError] = useState('');
-  const [view, setView] = useState(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings');
+  const [view, setView] = useState(() => notificationView(portal));
   const [roomLive, setRoomLive] = useState(false);
   const [retry, setRetry] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
@@ -75,6 +83,15 @@ function PortalApp() {
   const [bookingAlert, setBookingAlert] = useState<BookingCreatedNotice | null>(null);
   const [adminNotificationsByView, setAdminNotificationsByView] = useState<AdminNotificationCounts>({});
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const deviceNotifications = useDeviceNotifications(portal, user?.role === 'admin' ? user.id : undefined);
+  useEffect(() => {
+    const openNotification = (event: MessageEvent) => {
+      if (event.data?.type !== 'platform-notification' || !portalNotificationViews[portal].includes(event.data.view)) return;
+      void openView(event.data.view);
+    };
+    navigator.serviceWorker?.addEventListener('message', openNotification);
+    return () => navigator.serviceWorker?.removeEventListener('message', openNotification);
+  }, [portal, user?.id]);
   const toggleLessonReminders = useRef<() => void>(() => undefined);
   useEffect(() => {
     const capture = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
@@ -153,6 +170,7 @@ function PortalApp() {
     };
   }, [retry, portal, wakeAttempt]);
   async function logout() {
+    if (portal === 'admin') await removeDevicePush(portal).catch(() => undefined);
     try { await request(`auth/logout?portal=${portal}`, { role: portal }); setUser(null); setRoomLive(false); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
   async function installAndroidApp() {
@@ -207,7 +225,7 @@ function PortalApp() {
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
         <PreferenceControls />
         <button className="icon-button quick-action" onClick={openQuickAction} title={t("إدارة الحسابات")}><Users size={19} /></button>
-        <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>
+        <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown owner-account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button className="account-reminders device-notification-toggle" type="button" disabled={deviceNotifications.busy} aria-pressed={deviceNotifications.enabled} onClick={() => void deviceNotifications.toggle()}>{deviceNotifications.enabled ? <Bell size={17} /> : <BellOff size={17} />}<span><strong>{t(deviceNotifications.busy ? 'جارٍ تجهيز التنبيهات…' : deviceNotifications.enabled ? 'إيقاف التنبيهات' : 'تفعيل التنبيهات')}</strong><small>{t(deviceNotifications.enabled ? 'مفعّلة على هذا الجهاز' : 'تنبيهات الهاتف حتى عند إغلاق التطبيق')}</small></span></button>{deviceNotifications.enabled && <button type="button" disabled={deviceNotifications.busy} onClick={() => void deviceNotifications.test()}><Bell size={16} />{t('\u0625\u0631\u0633\u0627\u0644 \u0625\u0634\u0639\u0627\u0631 \u062a\u062c\u0631\u064a\u0628\u064a')}</button>}{deviceNotifications.hint && <small className="account-reminder-hint" role="status">{t(deviceNotifications.hint)}</small>}<button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>
       </div>}</header>}
       <div className={`workspace-content ${portal !== 'admin' && view === 'home' ? 'home-workspace-content' : ''}`} id="main-content" tabIndex={-1}>
       {portal === 'teachers' && view === 'profile' && <div className="teacher-profile-rating-summary"><Star fill="currentColor" /><span><small>{t('تقييمك على المنصة')}</small><strong>{user.teacher_rating_count && user.teacher_rating !== null && user.teacher_rating !== undefined ? `${user.teacher_rating.toFixed(1)} / 5` : t('لم تُقيّم بعد')}</strong>{Boolean(user.teacher_rating_count) && <em>{t('{v0} تقييم', { v0: user.teacher_rating_count || 0 })}</em>}</span></div>}
