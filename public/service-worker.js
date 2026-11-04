@@ -32,6 +32,7 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     const network = fetch(request).then(async response => {
+      if (!response.ok) throw new Error('Navigation unavailable');
       if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
         await cache.put(INDEX_URL, response.clone());
