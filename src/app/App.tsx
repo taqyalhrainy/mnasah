@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, PackageCheck, ShieldAlert, Star } from 'lucide-react';
+import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, ShieldAlert, Star } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { RegistrationFlow } from '../features/auth/RegistrationFlow';
@@ -23,12 +23,13 @@ function WhatsAppIcon() {
 
 function currentPortal(): Portal {
   const part = routePath().split('/')[1];
-  return part === 'admin' || part === 'teachers' ? part : 'students';
+  return part === 'owner' ? 'admin' : part === 'teachers' ? 'teachers' : 'students';
 }
 const baseUrl = import.meta.env.BASE_URL;
 const basePath = baseUrl.replace(/\/$/, '');
 const assetUrl = (path: string) => `${baseUrl}${path.replace(/^\//, '')}`;
-const appUrl = (path: string) => `${basePath}${path.startsWith('/') ? path : `/${path}`}` || '/';
+const portalPath = (portal: Portal) => portal === 'admin' ? 'owner' : portal;
+const appUrl = (portal: Portal) => `${basePath}/${portalPath(portal)}` || '/';
 function routePath() {
   const path = location.pathname;
   return basePath && path.startsWith(`${basePath}/`) ? path.slice(basePath.length) : path;
@@ -36,6 +37,7 @@ function routePath() {
 export function App() {
   usePreferences();
   if (routePath() === '/video-test') return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><VideoTestPage /></Suspense>;
+  if (routePath() === '/admin') return <main className="loading-page" dir={direction()}><div className="wake-card"><ShieldAlert size={38} /><h1>{t('هذا الرابط غير متاح')}</h1><p>{t('بوابة الإدارة منفصلة ولا يمكن فتحها من رابط بوابات الطلاب والأساتذة.')}</p></div></main>;
   return <PortalApp />;
 }
 
@@ -182,9 +184,9 @@ function PortalApp() {
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir={direction()}><h1>{t("هذا القسم غير متاح لحسابك")}</h1><a className="primary-button" href={appUrl(user.role)}>{t("العودة إلى قسمك")}</a><button className="text-button" onClick={logout}>{t("تسجيل الخروج")}</button></main>;
   const nav = portal === 'students'
-    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'packages', label: t("باقاتي"), icon: PackageCheck }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }, { id: 'history', label: t("السجل"), icon: History }]
+    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }, { id: 'history', label: t("السجل"), icon: History }]
     : portal === 'teachers'
-    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'packages', label: t("الباقات"), icon: PackageCheck }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
+    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
     : [{ id: 'bookings', label: t("الحصص والحجوزات"), icon: CalendarDays },
       { id: 'reports', label: t('شكاوى الحصص'), icon: ShieldAlert },
       ...(portal === 'admin' ? [{ id: 'users', label: t("الحسابات"), icon: Users }, { id: 'topups', label: t("شحن المحافظ"), icon: WalletCards }, { id: 'audit', label: t("سجل العمليات"), icon: ClipboardList }] : [{ id: 'slots', label: t("مواعيدي المتاحة"), icon: Search }]),

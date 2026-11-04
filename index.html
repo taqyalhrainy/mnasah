@@ -36,7 +36,16 @@
         document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
       } catch (_) { document.documentElement.dataset.theme = 'light'; }
     </script>
-    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <script>
+      (function () {
+        var firstPath = location.pathname.split('/').filter(Boolean)[0] || 'students';
+        var manifestName = firstPath === 'owner' ? 'owner-manifest.webmanifest' : firstPath === 'teachers' ? 'teacher-manifest.webmanifest' : 'student-manifest.webmanifest';
+        var manifest = document.createElement('link');
+        manifest.rel = 'manifest';
+        manifest.href = '%BASE_URL%' + manifestName;
+        document.head.appendChild(manifest);
+      })();
+    </script>
     <link rel="shortcut icon" href="%BASE_URL%favicon.ico" />
     <link rel="icon" href="%BASE_URL%images/emtidad-alelm-final-logo-48.png" type="image/png" sizes="48x48" />
     <link rel="icon" href="%BASE_URL%images/emtidad-alelm-final-logo-192.png" type="image/png" sizes="192x192" />

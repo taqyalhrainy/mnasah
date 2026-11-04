@@ -1,0 +1,16 @@
+{
+  "id": "/students",
+  "name": "امتداد العلم - بوابة الطلاب",
+  "short_name": "امتداد الطلاب",
+  "description": "بوابة الطلاب في منصة امتداد العلم.",
+  "start_url": "/students",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "any",
+  "icons": [
+    { "src": "images/emtidad-alelm-final-logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "images/emtidad-alelm-final-logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

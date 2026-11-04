@@ -1,6 +1,6 @@
 # امتداد
 
-Arabic tutoring platform with separate `/admin`, `/teachers`, and `/students` portals. React runs in the browser; a Cloudflare Worker enforces account permissions and stores shared data in D1. The public `/video` shortcut redirects into the signed-in portal; rooms are opened from reservations.
+Arabic tutoring platform with separate `/owner`, `/teachers`, and `/students` portals. React runs in the browser; a Cloudflare Worker enforces account permissions and stores shared data in D1. The public `/video` shortcut redirects into the signed-in portal; rooms are opened from reservations.
 
 ## Workflows
 
@@ -22,7 +22,7 @@ npm run db:local
 npm run dev
 ```
 
-Open `http://127.0.0.1:8787/students`, `/teachers`, or `/admin`. Configure a local-only `OWNER_SETUP_TOKEN` in ignored `.dev.vars`. Open `/admin#setup=YOUR_LOCAL_TOKEN` to create the owner once. Never commit this token or use the local testing value in production.
+Open `http://127.0.0.1:8787/students`, `/teachers`, or `/owner`. Configure a local-only `OWNER_SETUP_TOKEN` in ignored `.dev.vars`. Open `/owner#setup=YOUR_LOCAL_TOKEN` to create the owner once. Never commit this token or use the local testing value in production.
 
 For frontend hot reload, keep `npm run dev:worker` on 8787 and run `npm run dev:client` on 5173.
 

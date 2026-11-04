@@ -1,49 +1,140 @@
-import { t, direction, usePreferences } from '../../i18n/preferences';
-import { useState } from 'react';
-import { ArrowUp, ArrowDown, GraduationCap, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
-import { type Category, request } from '../../services/platformApi';
+import { useMemo, useState, type CSSProperties, type FormEvent, type MouseEvent } from 'react';
+import { ArrowRight, ChevronLeft, GraduationCap, Image, Layers3, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { t, usePreferences } from '../../i18n/preferences';
+import { type CatalogData, type CatalogGroup, type Category, request } from '../../services/platformApi';
 
-export function CatalogPanel({ categories, onChanged }: { categories: Category[]; onChanged: (categories: Category[]) => void }) {
+type Editor =
+  | { kind: 'group'; item?: CatalogGroup }
+  | { kind: 'stage'; item?: Category }
+  | { kind: 'level'; value?: string }
+  | { kind: 'subject'; value?: string };
+
+const emptyCatalog: CatalogData = { groups: [], categories: [] };
+const isImage = (value: string) => /^(?:https?:\/\/|data:image\/|\/)/i.test(value);
+
+function VisualIcon({ value, fallback = '✨' }: { value?: string; fallback?: string }) {
+  const icon = value?.trim() || fallback;
+  return isImage(icon) ? <img src={icon} alt="" /> : <span>{icon}</span>;
+}
+
+export function CatalogPanel({ data, onChanged }: { data: CatalogData; onChanged: (data: CatalogData) => void }) {
   usePreferences();
-  const [editing, setEditing] = useState<Category | null>(null);
+  const [groupId, setGroupId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [level, setLevel] = useState('');
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const groups = data.groups || [];
+  const categories = data.categories || [];
+  const group = groups.find(item => item.id === groupId);
+  const stages = categories.filter(item => (item.parentId || 'curriculum-other') === groupId);
+  const category = categories.find(item => item.id === categoryId);
+  const subjects = category ? (level === '__direct__' ? category.subjects : category.levelSubjects?.[level] || category.subjects) : [];
+  const screen = !group ? 'groups' : !category ? 'stages' : !level ? 'levels' : 'subjects';
+  const title = screen === 'groups' ? t('المناهج والتصنيفات') : screen === 'stages' ? t(group?.name || '') : screen === 'levels' ? t(category?.name.replace(/^.*?\|\s*/, '') || '') : t(level === '__direct__' ? category?.name || '' : level);
+  const description = screen === 'groups' ? t('هذه هي الشاشة نفسها التي تظهر للطالب والأستاذ. عدّلها هنا وشاهد النتيجة مباشرة.') : screen === 'stages' ? t(group?.description || '') : screen === 'levels' ? t(category?.description || '') : t('المواد التي ستظهر في هذه الصفحة.');
+
   async function mutate(body: unknown) {
     setBusy(true); setError('');
-    try { const result = await request<{ categories: Category[] }>('admin/catalog', body); onChanged(result.categories); return true; }
-    catch (e) { setError((e as Error).message); return false; }
+    try {
+      const result = await request<CatalogData>('admin/catalog', body);
+      onChanged({ groups: result.groups || [], categories: result.categories || [] });
+      return result;
+    } catch (reason) { setError((reason as Error).message); return null; }
     finally { setBusy(false); }
   }
-  function move(index: number, direction: number) {
-    const ids = categories.map(category => category.id);
-    [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
-    void mutate({ action: 'reorder', ids });
-  }
-  return <section>
-    <div className="section-heading"><h2>{t("بطاقات التصنيفات")}</h2><div className="row-actions"><button className="secondary-button" disabled={busy} onClick={() => { if (window.confirm(t('استبدال التصنيفات الحالية بالمنهاجين الأردني والبريطاني الدولي؟'))) void mutate({ action: 'install-core-curricula' }); }}><GraduationCap size={18} />{t('تطبيق المناهج الأساسية')}</button><button className="primary-button" disabled={busy} onClick={() => setEditing({ id: '', name: '', description: '', icon: '', levels: [], subjects: [] })}><Plus size={18} />{t("إضافة بطاقة")}</button></div></div>
-    {error && <p className="notice error" role="alert">{t(error)}</p>}
-    {editing && <form className="work-form" key={editing.id} onSubmit={async event => {
-      event.preventDefault(); const data = new FormData(event.currentTarget);
-      const lines = (key: string) => String(data.get(key) || '').split('\n').map(value => value.trim()).filter(Boolean);
-      if (await mutate({ action: 'save', id: editing.id, name: data.get('name'), description: data.get('description'), icon: data.get('icon'), levels: lines('levels'), subjects: lines('subjects') })) setEditing(null);
-    }}>
-      <h3>{editing.id ? t("تعديل البطاقة") : t("بطاقة جديدة")}</h3>
-      <label>{t("الاسم")}<input name="name" defaultValue={editing.name} maxLength={100} required /></label>
-      <label>{t("الوصف")}<input name="description" defaultValue={editing.description} maxLength={300} /></label>
-      <label>{t("الرمز")}<input name="icon" defaultValue={editing.icon} maxLength={20} /></label>
-      <label>{t("المستويات (كل مستوى بسطر)")}<textarea name="levels" defaultValue={editing.levels.join('\n')} rows={4} /></label>
-      <label>{t("المواد (كل مادة بسطر)")}<textarea name="subjects" defaultValue={editing.subjects.join('\n')} rows={4} /></label>
-      <div className="row-actions"><button className="primary-button" disabled={busy}><Save size={18} />{t("حفظ")}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(null)}><X size={18} />{t("إلغاء")}</button></div>
-    </form>}
-    {!categories.length && <p>{t("لا توجد تصنيفات. أضف بطاقة للبدء.")}</p>}
-    <div className="booking-list">{categories.map((category, index) => <article className="booking-row" key={category.id}>
-      <div><h3>{category.icon} {t(category.name)}</h3><p>{t(category.description)}</p></div>
-      <div className="row-actions">
-        <button className="icon-button" title={t("تحريك لأعلى")} disabled={busy || index === 0} onClick={() => move(index, -1)}><ArrowUp size={18} /></button>
-        <button className="icon-button" title={t("تحريك لأسفل")} disabled={busy || index === categories.length - 1} onClick={() => move(index, 1)}><ArrowDown size={18} /></button>
-        <button className="icon-button" title={t("تعديل البطاقة")} disabled={busy} onClick={() => setEditing(category)}><Pencil size={18} /></button>
-        <button className="icon-button" title={t("حذف البطاقة")} disabled={busy} onClick={async () => { if (window.confirm(t("حذف بطاقة {v0}؟ لن تتأثر الحجوزات السابقة.", { v0: t(category.name) })) && await mutate({ action: 'delete', id: category.id })) setEditing(null); }}><Trash2 size={18} /></button>
+  const saveCategory = (item: Category, patch: Partial<Category>) => mutate({ action: 'save', ...item, ...patch, parentId: patch.parentId || item.parentId || groupId, levelSubjects: patch.levelSubjects || item.levelSubjects || {} });
+  const stop = (event: MouseEvent) => event.stopPropagation();
+  const back = () => {
+    if (screen === 'subjects') setLevel('');
+    else if (screen === 'levels') { setCategoryId(''); setLevel(''); }
+    else if (screen === 'stages') setGroupId('');
+  };
+  const removeGroup = async (item: CatalogGroup) => {
+    if (!window.confirm(t('حذف المنهاج {v0} وكل المراحل والصفوف والمواد داخله؟', { v0: item.name }))) return;
+    if (await mutate({ action: 'delete-group', id: item.id })) { setGroupId(''); setCategoryId(''); setLevel(''); }
+  };
+  const removeStage = async (item: Category) => {
+    if (!window.confirm(t('حذف المرحلة {v0} وكل الصفوف والمواد داخلها؟', { v0: item.name.replace(/^.*?\|\s*/, '') }))) return;
+    if (await mutate({ action: 'delete', id: item.id })) { setCategoryId(''); setLevel(''); }
+  };
+  const removeLevel = async (value: string) => {
+    if (!category || !window.confirm(t('حذف الصفحة {v0} والمواد المرتبطة بها؟', { v0: value }))) return;
+    const nextMap = { ...(category.levelSubjects || {}) }; delete nextMap[value];
+    await saveCategory(category, { levels: category.levels.filter(item => item !== value), levelSubjects: nextMap });
+  };
+  const removeSubject = async (value: string) => {
+    if (!category || !window.confirm(t('حذف مادة {v0} من هذه الصفحة؟', { v0: value }))) return;
+    if (level === '__direct__') await saveCategory(category, { subjects: category.subjects.filter(item => item !== value), levelSubjects: {} });
+    else await saveCategory(category, { levelSubjects: { ...(category.levelSubjects || {}), [level]: subjects.filter(item => item !== value) } });
+  };
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editor) return;
+    const values = new FormData(event.currentTarget);
+    const name = String(values.get('name') || '').trim();
+    if (!name) return;
+    if (editor.kind === 'group') {
+      const result = await mutate({ action: 'save-group', id: editor.item?.id, name, description: values.get('description'), icon: values.get('icon') });
+      if (result && !editor.item) setGroupId(result.groups.at(-1)?.id || '');
+    } else if (editor.kind === 'stage') {
+      const item = editor.item;
+      const result = await mutate({ action: 'save', id: item?.id, parentId: groupId, name, description: values.get('description'), icon: values.get('icon'), levels: item?.levels || [], subjects: item?.subjects || [], levelSubjects: item?.levelSubjects || {} });
+      if (result && !item) setCategoryId(result.categories.filter(row => row.parentId === groupId).at(-1)?.id || '');
+    } else if (editor.kind === 'level' && category) {
+      const old = editor.value;
+      const nextLevels = old ? category.levels.map(item => item === old ? name : item) : [...category.levels, name];
+      const nextMap = { ...(category.levelSubjects || {}) };
+      if (old && old !== name) { nextMap[name] = nextMap[old] || []; delete nextMap[old]; }
+      else if (!old) nextMap[name] = [];
+      if (await saveCategory(category, { levels: [...new Set(nextLevels)], levelSubjects: nextMap })) setLevel(name);
+    } else if (editor.kind === 'subject' && category) {
+      const old = editor.value;
+      const next = [...new Set(old ? subjects.map(item => item === old ? name : item) : [...subjects, name])];
+      if (level === '__direct__') await saveCategory(category, { subjects: next, levelSubjects: {} });
+      else await saveCategory(category, { levelSubjects: { ...(category.levelSubjects || {}), [level]: next } });
+    }
+    setEditor(null);
+  };
+
+  const cards = useMemo(() => {
+    if (screen === 'groups') return groups.map(item => ({ id: item.id, title: item.name, description: item.description, icon: item.icon, open: () => setGroupId(item.id), edit: () => setEditor({ kind: 'group', item }), remove: () => void removeGroup(item) }));
+    if (screen === 'stages') return stages.map(item => ({ id: item.id, title: item.name.replace(/^.*?\|\s*/, ''), description: item.description, icon: item.icon, open: () => setCategoryId(item.id), edit: () => setEditor({ kind: 'stage', item }), remove: () => void removeStage(item) }));
+    if (screen === 'levels') return (category?.levels || []).map(item => ({ id: item, title: item, description: t('{v0} مواد', { v0: category?.levelSubjects?.[item]?.length || 0 }), icon: '📖', open: () => setLevel(item), edit: () => setEditor({ kind: 'level', value: item }), remove: () => void removeLevel(item) }));
+    return subjects.map(item => ({ id: item, title: item, description: t('مادة تعليمية'), icon: category?.icon || '📚', open: () => undefined, edit: () => setEditor({ kind: 'subject', value: item }), remove: () => void removeSubject(item) }));
+  }, [screen, groups, stages, category, subjects]);
+
+  return <section className="catalog-studio">
+    <header className="catalog-studio-head">
+      <div><span><GraduationCap size={17} />{t('معاينة الأونر المباشرة')}</span><h2>{title}</h2><p>{description}</p></div>
+      <div className="catalog-studio-actions">
+        {screen !== 'groups' && <button type="button" className="secondary-button" onClick={back}><ArrowRight size={17} />{t('رجوع')}</button>}
+        <button type="button" className="primary-button" disabled={busy} onClick={() => setEditor(screen === 'groups' ? { kind: 'group' } : screen === 'stages' ? { kind: 'stage' } : screen === 'levels' ? { kind: 'level' } : { kind: 'subject' })}><Plus size={17} />{t(screen === 'groups' ? 'إضافة منهاج' : screen === 'stages' ? 'إضافة مرحلة' : screen === 'levels' ? 'إضافة صف أو صفحة' : 'إضافة مادة')}</button>
       </div>
-    </article>)}</div>
+    </header>
+    <div className="catalog-breadcrumbs"><button type="button" onClick={() => { setGroupId(''); setCategoryId(''); setLevel(''); }}>{t('المناهج')}</button>{group && <><ChevronLeft size={14} /><button type="button" onClick={() => { setCategoryId(''); setLevel(''); }}>{t(group.name)}</button></>}{category && <><ChevronLeft size={14} /><button type="button" onClick={() => setLevel('')}>{t(category.name.replace(/^.*?\|\s*/, ''))}</button></>}{level && <><ChevronLeft size={14} /><strong>{t(level === '__direct__' ? 'المواد' : level)}</strong></>}</div>
+    {error && <p className="notice error" role="alert">{t(error)}</p>}
+    <div className="catalog-preview-stage">
+      <div className="showcase-heading"><div><span>{t('كما ستظهر للمستخدم')}</span><h3>{title}</h3><p>{description}</p></div><small>{cards.length} {t('بطاقات')}</small></div>
+      <div className="package-grid student-package-grid catalog-preview-grid">{cards.map((card, index) => <article className="package-card catalog-preview-card" style={{ '--package-delay': `${Math.min(index, 12) * 45}ms` } as CSSProperties} key={card.id} onClick={card.open}>
+        <span className="package-icon"><VisualIcon value={card.icon} /></span><strong>{t(card.title)}</strong><small>{t(card.description)}</small>{screen !== 'subjects' && <ChevronLeft size={18} />}
+        <span className="catalog-card-actions"><button type="button" title={t('تعديل')} onClick={event => { stop(event); card.edit(); }}><Pencil size={15} /></button><button type="button" title={t('حذف')} onClick={event => { stop(event); card.remove(); }}><Trash2 size={15} /></button></span>
+      </article>)}
+      {screen === 'levels' && category && !category.levels.length && <button type="button" className="package-card catalog-direct-subjects" onClick={() => setLevel('__direct__')}><span className="package-icon"><Layers3 size={22} /></span><strong>{t('مواد مباشرة')}</strong><small>{t('استخدمها إذا لم يحتج هذا التصنيف إلى صفوف أو صفحات إضافية.')}</small><ChevronLeft size={18} /></button>}
+      {!cards.length && !(screen === 'levels' && category && !category.levels.length) && <button type="button" className="catalog-empty-add" onClick={() => setEditor(screen === 'groups' ? { kind: 'group' } : screen === 'stages' ? { kind: 'stage' } : screen === 'levels' ? { kind: 'level' } : { kind: 'subject' })}><Plus size={26} /><strong>{t('ابدأ بإضافة أول بطاقة هنا')}</strong></button>}
+      </div>
+    </div>
+    {screen === 'groups' && <button className="catalog-reset" type="button" disabled={busy} onClick={() => { if (window.confirm(t('استبدال التصنيفات الحالية بالمناهج الأساسية؟'))) void mutate({ action: 'install-core-curricula' }); }}><GraduationCap size={17} />{t('استعادة المناهج الأساسية')}</button>}
+    {editor && <dialog className="detail-dialog catalog-editor-dialog" ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => setEditor(null)}>
+      <header><div><span>{t('تعديل مباشر')}</span><h2>{t(editor.kind === 'group' ? (editor.item ? 'تعديل المنهاج' : 'منهاج جديد') : editor.kind === 'stage' ? (editor.item ? 'تعديل المرحلة' : 'مرحلة جديدة') : editor.kind === 'level' ? (editor.value ? 'تعديل الصف أو الصفحة' : 'صف أو صفحة جديدة') : (editor.value ? 'تعديل المادة' : 'مادة جديدة'))}</h2></div><button type="button" className="icon-button" onClick={() => setEditor(null)}><X size={19} /></button></header>
+      <form className="work-form" onSubmit={submit}>
+        <label>{t('الاسم')}<input name="name" defaultValue={editor.kind === 'group' || editor.kind === 'stage' ? editor.item?.name.replace(/^.*?\|\s*/, '') : editor.value || ''} maxLength={100} autoFocus required /></label>
+        {(editor.kind === 'group' || editor.kind === 'stage') && <><label>{t('الوصف')}<textarea name="description" defaultValue={editor.item?.description || ''} maxLength={300} rows={3} /></label><label>{t('الأيقونة أو رابط الصورة')}<span className="catalog-icon-field"><Image size={18} /><input name="icon" defaultValue={editor.item?.icon || ''} maxLength={500} placeholder="📚 أو https://..." /></span><small>{t('يمكنك استخدام رمز تعبيري أو رابط صورة آمن.')}</small></label></>}
+        <div className="row-actions"><button className="primary-button" disabled={busy}><Save size={17} />{t('حفظ')}</button><button type="button" className="secondary-button" onClick={() => setEditor(null)}><X size={17} />{t('إلغاء')}</button></div>
+      </form>
+    </dialog>}
   </section>;
 }
+
+export const emptyCatalogData = emptyCatalog;

@@ -36,10 +36,6 @@ const availabilityRangeLabel = (start: number, end: number) => sameDay(start, en
   ? `${new Date(start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })} – ${new Date(end).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`
   : `${new Date(start).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(start).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })} → ${new Date(end).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(end).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`;
 const durationOptions = [30, 45, 60, 90, 120] as const;
-const timeOptions = Array.from({ length: 24 * 4 }, (_, index) => {
-  const minutes = index * 15;
-  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-});
 const timeLabel = (value: string) => {
   const minutes = clockMinutes(value);
   const date = new Date(2026, 0, 1, Math.floor(minutes / 60), minutes % 60);
@@ -145,23 +141,30 @@ function ScheduleRow({ label, schedule, onChange }: { label: string; schedule: S
 
 function TimeWheel({ label, value, onChange, note = '' }: { label: string; value: string; onChange: (value: string) => void; note?: string }) {
   const [open, setOpen] = useState(false);
-  const drag = useRef<{ y: number; index: number; moved: boolean } | null>(null);
-  const currentIndex = Math.max(0, timeOptions.indexOf(value));
-  const selectIndex = (index: number) => onChange(timeOptions[(index + timeOptions.length) % timeOptions.length]);
-  const surrounding = Array.from({ length: 7 }, (_, index) => {
-    const offset = index - 3;
-    const optionIndex = (currentIndex + offset + timeOptions.length) % timeOptions.length;
-    return { offset, value: timeOptions[optionIndex] };
-  });
+  const [draft, setDraft] = useState(value);
+  const minutes = Math.max(0, clockMinutes(draft));
+  const hour24 = Math.floor(minutes / 60);
+  const hour12 = hour24 % 12 || 12;
+  const minute = minutes % 60;
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const update = (nextHour = hour12, nextMinute = minute, nextPeriod = period) => {
+    const normalizedHour = (nextHour % 12) + (nextPeriod === 'PM' ? 12 : 0);
+    setDraft(`${String(normalizedHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`);
+  };
+  const openPicker = () => { setDraft(value); setOpen(true); };
   return <div className={`time-wheel ${open ? 'open' : ''}`}>
     <span>{label}</span>
-    <button className="time-wheel-trigger" type="button" role="spinbutton" data-value={value} aria-label={label} aria-valuetext={timeLabel(value)} aria-expanded={open} onClick={() => setOpen(true)}><Clock3 size={16} /><strong dir="ltr">{timeLabel(value)}</strong></button>
+    <button className="time-wheel-trigger" type="button" data-value={value} aria-label={label} aria-expanded={open} onClick={openPicker}><Clock3 size={16} /><strong dir="ltr">{timeLabel(value)}</strong></button>
     {note && <small className="next-day-note">{note}</small>}
     {open && createPortal(<div className="time-wheel-backdrop" role="presentation" onPointerDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section className="time-wheel-popover" role="dialog" aria-modal="true" aria-label={`${label} ${timeLabel(value)}`} onWheel={event => { event.preventDefault(); selectIndex(currentIndex + (event.deltaY > 0 ? 1 : -1)); }} onPointerDown={event => { drag.current = { y: event.clientY, index: currentIndex, moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (!drag.current) return; const steps = Math.round((drag.current.y - event.clientY) / 42); if (steps) drag.current.moved = true; selectIndex(drag.current.index + steps); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); window.setTimeout(() => { drag.current = null; }, 0); }} onPointerCancel={() => { drag.current = null; }}>
-        <header><div><small>{t('اختيار الوقت')}</small><strong>{label}</strong></div><span className="time-wheel-current" dir="ltr">{timeLabel(value)}</span><button type="button" aria-label={t('إغلاق')} onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}><X size={18} /></button></header>
-        <div className="time-wheel-options" aria-live="polite">{surrounding.map(option => <button type="button" className={option.offset === 0 ? 'selected' : ''} data-distance={Math.abs(option.offset)} key={`${option.offset}-${option.value}`} onClick={() => { if (drag.current?.moved) return; onChange(option.value); if (option.offset === 0) setOpen(false); }}><span dir="ltr">{timeLabel(option.value)}</span></button>)}</div>
-        <button className="time-wheel-done" type="button" onPointerDown={event => event.stopPropagation()} onClick={() => setOpen(false)}>{t('تم')}</button>
+      <section className="time-wheel-popover time-grid-popover" role="dialog" aria-modal="true" aria-label={`${label} ${timeLabel(draft)}`}>
+        <header><div><small>{t('اختيار الوقت')}</small><strong>{label}</strong></div><span className="time-wheel-current" dir="ltr">{timeLabel(draft)}</span><button type="button" aria-label={t('إغلاق')} onClick={() => setOpen(false)}><X size={18} /></button></header>
+        <div className="time-grid-picker">
+          <fieldset><legend>{t('الساعة')}</legend><div className="time-grid-hours">{Array.from({ length: 12 }, (_, index) => index + 1).map(hour => <button type="button" className={hour12 === hour ? 'selected' : ''} onClick={() => update(hour)} key={hour}>{hour}</button>)}</div></fieldset>
+          <fieldset><legend>{t('الدقائق')}</legend><div className="time-grid-minutes">{[0, 15, 30, 45].map(value => <button type="button" className={minute === value ? 'selected' : ''} onClick={() => update(hour12, value)} key={value}>{String(value).padStart(2, '0')}</button>)}</div></fieldset>
+          <div className="time-grid-period" dir="ltr"><button type="button" className={period === 'AM' ? 'selected' : ''} onClick={() => update(hour12, minute, 'AM')}>AM</button><button type="button" className={period === 'PM' ? 'selected' : ''} onClick={() => update(hour12, minute, 'PM')}>PM</button></div>
+        </div>
+        <button className="time-wheel-done" type="button" onClick={() => { onChange(draft); setOpen(false); }}>{t('تأكيد الوقت')}</button>
       </section>
     </div>, document.body)}
   </div>;

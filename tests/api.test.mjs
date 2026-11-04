@@ -94,11 +94,16 @@ test('authorization and the full reservation lifecycle', async () => {
   await call('student', 'teachers/slots', undefined, 401);
   await call('owner', `admin/users/${teacher.id}`, { status: 'active' });
   await call('teacher', 'auth/login', credentials('teacher@test.com', 'teachers'));
-  const originalCatalog = (await call('student', 'students/catalog')).categories;
+  const originalCatalogResult = await call('student', 'students/catalog');
+  const originalCatalog = originalCatalogResult.categories;
+  assert.ok(originalCatalogResult.groups.some(group => group.id === 'curriculum-jordan'), 'students receive the same curriculum groups configured by the owner');
   assert.equal(originalCatalog.length, 6);
   await call('teacher', 'teachers/catalog', { action: 'delete', id: 'jordan' }, 403);
   await call('student', 'students/catalog', { action: 'save' }, 403);
-  const draft = { name: 'تصنيف جديد', description: 'وصف عربي', icon: 'EN', levels: ['مبتدئ'], subjects: ['مادة جديدة'] };
+  const groupResult = await call('owner', 'admin/catalog', { action: 'save-group', name: 'منهاج اختباري', description: 'يظهر في نفس واجهة الطالب', icon: '🧪' });
+  const customGroup = groupResult.groups.find(group => group.name === 'منهاج اختباري');
+  assert.ok(customGroup);
+  const draft = { parentId: customGroup.id, name: 'تصنيف جديد', description: 'وصف عربي', icon: 'EN', levels: ['مبتدئ'], subjects: ['مادة جديدة'], levelSubjects: { مبتدئ: ['مادة جديدة'] } };
   const added = (await call('owner', 'admin/catalog', { action: 'save', ...draft })).categories;
   const card = added.find(row => row.name === draft.name);
   assert.ok(card);
@@ -111,6 +116,8 @@ test('authorization and the full reservation lifecycle', async () => {
   assert.deepEqual((await call('teacher', 'teachers/catalog')).categories[0].subjects, draft.subjects);
   await call('owner', 'admin/catalog', { action: 'delete', id: card.id });
   assert.equal((await call('student', 'students/catalog')).categories.length, 6);
+  await call('owner', 'admin/catalog', { action: 'delete-group', id: customGroup.id });
+  assert.equal((await call('student', 'students/catalog')).groups.some(group => group.id === customGroup.id), false);
   await call('owner', 'admin/catalog', { action: 'reorder', ids: originalCatalog.map(row => row.id) });
   await call('teacher', 'teachers/home');
   await call('teacher', 'teachers/available');

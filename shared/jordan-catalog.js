@@ -1,5 +1,12 @@
-const buildCategory = ({ id, name, description, icon, levelSubjects }) => ({
+export const educationGroups = [
+  { id: 'curriculum-jordan', name: 'المنهاج الأردني', description: 'الأساسي والإعدادي والثانوي وفق النظام الجديد', icon: '🇯🇴' },
+  { id: 'curriculum-international', name: 'المنهاج البريطاني والدولي', description: 'Cambridge Primary وIGCSE وAS & A Level', icon: '🌍' },
+  { id: 'curriculum-other', name: 'مجالات تعليمية أخرى', description: 'التصنيفات الإضافية التي أعدّتها الإدارة', icon: '✨' },
+];
+
+const buildCategory = ({ id, parentId, name, description, icon, levelSubjects }) => ({
   id,
+  parentId,
   name,
   description,
   icon,
@@ -22,6 +29,7 @@ const advancedSubjects = ['الرياضيات', 'الرياضيات المتقد
 export const educationCatalog = [
   buildCategory({
     id: 'jordan-basic',
+    parentId: 'curriculum-jordan',
     name: 'المنهاج الأردني | الأساسي',
     description: 'الصفوف من الأول حتى السادس وفق المنهاج الأردني',
     icon: '🇯🇴',
@@ -32,6 +40,7 @@ export const educationCatalog = [
   }),
   buildCategory({
     id: 'jordan-preparatory',
+    parentId: 'curriculum-jordan',
     name: 'المنهاج الأردني | الإعدادي',
     description: 'الصفوف من السابع حتى العاشر وفق المنهاج الأردني',
     icon: '📗',
@@ -42,6 +51,7 @@ export const educationCatalog = [
   }),
   buildCategory({
     id: 'jordan-tawjihi',
+    parentId: 'curriculum-jordan',
     name: 'المنهاج الأردني | الثانوي الجديد',
     description: 'الصفان الحادي عشر والثاني عشر والحقول الأكاديمية الجديدة',
     icon: '🎓',
@@ -57,6 +67,7 @@ export const educationCatalog = [
   }),
   buildCategory({
     id: 'cambridge-primary',
+    parentId: 'curriculum-international',
     name: 'البريطاني والدولي | Cambridge Primary',
     description: 'المرحلة الابتدائية الدولية من Year 1 إلى Year 6',
     icon: '🌍',
@@ -64,6 +75,7 @@ export const educationCatalog = [
   }),
   buildCategory({
     id: 'cambridge-lower-secondary',
+    parentId: 'curriculum-international',
     name: 'البريطاني والدولي | Lower Secondary',
     description: 'المرحلة المتوسطة الدولية من Year 7 إلى Year 9',
     icon: '📘',
@@ -71,6 +83,7 @@ export const educationCatalog = [
   }),
   buildCategory({
     id: 'cambridge-upper-secondary',
+    parentId: 'curriculum-international',
     name: 'البريطاني والدولي | IGCSE / O Level',
     description: 'Cambridge Upper Secondary للصفين Year 10 وYear 11',
     icon: '📚',
@@ -78,6 +91,7 @@ export const educationCatalog = [
   }),
   buildCategory({
     id: 'cambridge-advanced',
+    parentId: 'curriculum-international',
     name: 'البريطاني والدولي | AS & A Level',
     description: 'Cambridge Advanced للصفين Year 12 وYear 13',
     icon: '⭐',

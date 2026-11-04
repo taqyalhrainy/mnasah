@@ -1,0 +1,16 @@
+{
+  "id": "/owner",
+  "name": "امتداد العلم - بوابة الإدارة",
+  "short_name": "إدارة امتداد",
+  "description": "بوابة الإدارة المستقلة لمنصة امتداد العلم.",
+  "start_url": "/owner",
+  "scope": "/owner",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "any",
+  "icons": [
+    { "src": "images/emtidad-alelm-final-logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "images/emtidad-alelm-final-logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

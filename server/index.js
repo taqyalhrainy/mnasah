@@ -19,7 +19,7 @@ import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-p
 import { parseVerification, registrationProfile } from '../shared/verification.js';
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
-import { educationCatalog } from '../shared/jordan-catalog.js';
+import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -514,21 +514,34 @@ async function sendDevicePush(userId, payload) {
 
 const starterCatalog = educationCatalog;
 async function installCoreCatalog() {
-  await db.collection('catalog').deleteMany({ kind: 'category' });
-  await db.collection('catalog').insertMany(starterCatalog.map((item, position) => ({ ...item, kind: 'category', position, created: Date.now() })));
+  await db.collection('catalog').deleteMany({ kind: { $in: ['group', 'category'] } });
+  const created = Date.now();
+  await db.collection('catalog').insertMany([
+    ...educationGroups.map((item, position) => ({ ...item, kind: 'group', parent_id: '', position, created })),
+    ...starterCatalog.map((item, position) => ({ ...item, parent_id: item.parentId, level_subjects: item.levelSubjects, kind: 'category', position, created })),
+  ]);
 }
 async function seedCatalog() {
-  const migrationKey = 'core-curricula-2026-v1';
+  const migrationKey = 'structured-curricula-2026-v2';
   const migrated = await db.collection('platform_settings').findOne({ key: migrationKey });
   if (!migrated) {
-    await installCoreCatalog();
+    if (!await db.collection('catalog').countDocuments({ kind: 'category' })) await installCoreCatalog();
+    else {
+      for (const [position, group] of educationGroups.entries()) await db.collection('catalog').updateOne({ id: group.id, kind: 'group' }, { $setOnInsert: { ...group, kind: 'group', parent_id: '', position, created: Date.now() } }, { upsert: true });
+      for (const item of starterCatalog) await db.collection('catalog').updateOne({ id: item.id, kind: 'category' }, { $set: { parent_id: item.parentId }, $setOnInsert: { level_subjects: item.levelSubjects } });
+      await db.collection('catalog').updateMany({ kind: 'category', $or: [{ parent_id: { $exists: false } }, { parent_id: '' }] }, { $set: { parent_id: 'curriculum-other' } });
+    }
     await db.collection('platform_settings').updateOne({ key: migrationKey }, { $set: { key: migrationKey, value: { installed_at: Date.now() } } }, { upsert: true });
     return;
   }
   if (!await db.collection('catalog').countDocuments({ kind: 'category' })) await installCoreCatalog();
 }
 async function categories() {
-  return db.collection('catalog').find({ kind: 'category' }, { projection: { _id: 0 } }).sort({ position: 1, id: 1 }).toArray();
+  const rows = await db.collection('catalog').find({ kind: 'category' }, { projection: { _id: 0 } }).sort({ position: 1, id: 1 }).toArray();
+  return rows.map(row => ({ ...row, parentId: row.parentId || row.parent_id || 'curriculum-other', levelSubjects: row.levelSubjects || row.level_subjects || Object.fromEntries((row.levels || []).map(level => [level, row.subjects || []])) }));
+}
+async function catalogGroups() {
+  return db.collection('catalog').find({ kind: 'group' }, { projection: { _id: 0, parent_id: 0, kind: 0 } }).sort({ position: 1, id: 1 }).toArray();
 }
 async function handleCatalog(user, write, body) {
   if (write) {
@@ -541,6 +554,18 @@ async function handleCatalog(user, write, body) {
       if (!Array.isArray(body.ids) || body.ids.length !== rows.length || new Set(body.ids).size !== body.ids.length) fail(409, 'تغيرت التصنيفات. حدث الصفحة وأعد المحاولة.');
       await Promise.all(body.ids.map((id, index) => db.collection('catalog').updateOne({ id, kind: 'category' }, { $set: { position: index } })));
       await audit(user.id, 'catalog:reorder', 'categories');
+    } else if (body.action === 'save-group') {
+      const item = { name: field(body.name, 100), description: field(body.description || '', 300, 0), icon: field(body.icon || '✨', 500, 0) };
+      if (body.id) await db.collection('catalog').updateOne({ id: body.id, kind: 'group' }, { $set: item });
+      else {
+        const groups = await catalogGroups();
+        await db.collection('catalog').insertOne({ ...item, id: crypto.randomUUID(), kind: 'group', parent_id: '', position: groups.length, created: Date.now() });
+      }
+      await audit(user.id, 'catalog:save-group', body.id || 'new');
+    } else if (body.action === 'delete-group') {
+      const id = field(body.id, 100);
+      await db.collection('catalog').deleteMany({ $or: [{ id, kind: 'group' }, { parent_id: id, kind: 'category' }] });
+      await audit(user.id, 'catalog:delete-group', id);
     } else if (body.action === 'delete') {
       await db.collection('catalog').deleteOne({ id: body.id, kind: 'category' });
       await audit(user.id, 'catalog:delete', body.id);
@@ -549,12 +574,20 @@ async function handleCatalog(user, write, body) {
         if (!Array.isArray(value) || value.length > 100) fail(400, 'تحقق من المستويات والمواد.');
         return [...new Set(value.map(item => field(item, 100)))];
       };
-      const item = { name: field(body.name, 100), description: field(body.description || '', 300, 0), icon: field(body.icon || '', 20, 0), levels: list(body.levels), subjects: list(body.subjects) };
+      const levels = list(body.levels);
+      const directSubjects = list(body.subjects);
+      const rawLevelSubjects = body.levelSubjects && typeof body.levelSubjects === 'object' && !Array.isArray(body.levelSubjects) ? body.levelSubjects : {};
+      const levelSubjects = Object.fromEntries(levels.map(level => [level, list(rawLevelSubjects[level] || directSubjects)]));
+      const subjects = levels.length ? [...new Set(Object.values(levelSubjects).flat())] : directSubjects;
+      const fallbackGroup = (await catalogGroups())[0]?.id || 'curriculum-other';
+      const parentId = field(body.parentId || fallbackGroup, 100);
+      if (!await db.collection('catalog').findOne({ id: parentId, kind: 'group' })) fail(400, 'اختر منهاجاً صحيحاً لهذه المرحلة.');
+      const item = { parentId, parent_id: parentId, name: field(body.name, 100), description: field(body.description || '', 300, 0), icon: field(body.icon || '', 500, 0), levels, subjects, levelSubjects, level_subjects: levelSubjects };
       if (body.id) await db.collection('catalog').updateOne({ id: body.id, kind: 'category' }, { $set: item });
       else await db.collection('catalog').insertOne({ ...item, id: crypto.randomUUID(), kind: 'category', position: rows.length, created: Date.now() });
     } else fail(400, 'عملية غير صحيحة.');
   }
-  return { categories: await categories() };
+  return { groups: await catalogGroups(), categories: await categories() };
 }
 
 async function bookingRows(filter = {}, limit = 500) {
