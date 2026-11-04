@@ -8,7 +8,7 @@ import { publicOwnerPage } from '../shared/portal-access.js';
 test('owner UI is unavailable on the public platform hostname', () => {
   for (const path of ['/owner', '/owner/', '/admin', '/%6fwner']) assert.equal(publicOwnerPage(path, 'emtidad-alelm.onrender.com'), true);
   assert.equal(publicOwnerPage('/students', 'emtidad-alelm.onrender.com'), false);
-  assert.equal(publicOwnerPage('/owner', 'emtidad-alelm-owner.taqialhrainy.chatgpt.site'), false);
+  assert.equal(publicOwnerPage('/owner', 'emtidad-alelm-owner.onrender.com'), false);
 });
 
 test('public and owner deployments isolate routes, login and existing sessions', async t => {

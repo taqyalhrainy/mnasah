@@ -4,9 +4,7 @@ Arabic tutoring platform with separate `/owner`, `/teachers`, and `/students` po
 
 ## Separate administration deployment
 
-The live owner gateway is `https://emtidad-alelm-owner.taqialhrainy.chatgpt.site/owner`, published privately with Sites for the platform owner. It uses the existing authenticated Render administration API and the existing MongoDB accounts/data; it does not create a second database or accept student/teacher sessions. Sites identity cookies stay inside the gateway. `/owner` and `/admin` on the public Render hostname return 404, including service-worker navigation. The gateway's separately versioned source is in the local ignored `.private/emtidad-owner-gateway` checkout and its own Sites source repository.
-
-The following optional Render-only alternative is not used by the live gateway. Do not set `PORTAL_MODE=public` on the shared Render backend while the gateway uses that API, because that mode intentionally disables its administration API.
+The owner portal is a separate Render web service at `https://emtidad-alelm-owner.onrender.com/owner`. It uses the existing MongoDB accounts and data with host-only administration cookies. It does not require ChatGPT sign-in or use the earlier Sites gateway. The public service runs with `PORTAL_MODE=public`; the owner service runs with `PORTAL_MODE=owner`. Both are free-plan services and deploy from the same `main` branch.
 
 `PORTAL_MODE=owner` serves only the administration portal and its API. `PORTAL_MODE=public` rejects administration pages, administration API requests and administration sign-in, including old sessions. Role authorization remains mandatory in both deployments. The default `all` mode preserves existing deployments until the separate service is ready.
 
