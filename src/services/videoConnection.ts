@@ -89,14 +89,16 @@ export class VideoConnection {
       }
       throw new Error(t('تعذر تشغيل المايك على هذا الجهاز. أغلق أي تطبيق يستخدمه ثم حاول مجدداً.'));
     }
+    if (this.closed) { this.localStream?.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
     this.placeholderVideoTrack = this.createPlaceholderVideoTrack();
     if (this.placeholderVideoTrack) this.localStream.addTrack(this.placeholderVideoTrack);
 
     try {
-      const result = await request<{ ice_servers?: RTCIceServer[] }>(`${this.role}s/video/ice`);
+      const result = await request<{ ice_servers?: RTCIceServer[] }>(`${this.role}s/video/ice`, undefined, undefined, 5000);
       if (Array.isArray(result.ice_servers) && result.ice_servers.length) this.resolvedIceServers = result.ice_servers;
     } catch { /* Static STUN/TURN configuration remains available as a fallback. */ }
 
+    if (this.closed) { this.localStream?.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
     this.createPeer();
     return this.localStream;
   }

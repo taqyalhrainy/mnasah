@@ -24,7 +24,10 @@ type WhiteboardItem = WhiteboardTextItem | WhiteboardImageItem;
 type SharedDocument = { name: string; page: number; pages: number; src: string; format: 'pdf' | 'presentation' | 'image' | 'text' };
 type DocumentPoint = { x: number; y: number };
 type DocumentAnnotation = { id: string; page: number; kind: 'pen' | 'highlight'; color: string; size: number; points: DocumentPoint[] } | { id: string; page: number; kind: 'text'; color: string; x: number; y: number; text: string };
+type SharedPointer = { x: number; y: number; space: 'whiteboard' | 'document'; page?: number };
 type WhiteboardMessage =
+  | { kind: 'sync-request' }
+  | { kind: 'pointer'; pointer: SharedPointer | null }
   | { kind: 'stroke-start'; stroke: WhiteboardStroke }
   | { kind: 'stroke-points'; id: string; points: WhiteboardPoint[] }
   | { kind: 'stroke'; stroke: WhiteboardStroke }
@@ -111,9 +114,25 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardDocument, setWhiteboardDocument] = useState<WhiteboardDocument | null>(null);
   const [whiteboardDocumentBusy, setWhiteboardDocumentBusy] = useState(false);
   const [sharedDocument, setSharedDocument] = useState<SharedDocument | null>(null);
-  const [documentTool, setDocumentTool] = useState<'pen' | 'highlight' | 'text'>('pen');
+  const [documentTool, setDocumentTool] = useState<'pen' | 'highlight'>('pen');
   const [documentColor, setDocumentColor] = useState('#facc15');
   const [documentAnnotations, setDocumentAnnotations] = useState<DocumentAnnotation[]>([]);
+  const [localPointer, setLocalPointer] = useState<SharedPointer | null>(null);
+  const [remotePointer, setRemotePointer] = useState<SharedPointer | null>(null);
+  const pointerSentRef = useRef(0);
+  const pointerTimerRef = useRef<number | null>(null);
+  const documentPageRef = useRef<HTMLDivElement>(null);
+  const [documentSize, setDocumentSize] = useState({ width: 1, height: 1 });
+  const [documentRatio, setDocumentRatio] = useState(1);
+  const longPressRef = useRef<{ timer: number; x: number; y: number; item: WhiteboardItem } | null>(null);
+  useEffect(() => {
+    const page = documentPageRef.current;
+    if (!page) return;
+    const resize = () => { const width = Math.max(1, page.clientWidth - 28); const height = Math.max(1, page.clientHeight - 28); setDocumentSize({ width: Math.min(width, height * documentRatio), height: Math.min(height, width / documentRatio) }); };
+    const observer = new ResizeObserver(resize); observer.observe(page); resize();
+    return () => observer.disconnect();
+  }, [stageMode, sharedDocument?.src, documentRatio]);
+  useEffect(() => () => { if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current); if (longPressRef.current) clearTimeout(longPressRef.current.timer); }, []);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
@@ -125,7 +144,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
-  const autoJoinStartedRef = useRef(false);
+  const callGenerationRef = useRef(0);
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
   const whiteboardItemsRef = useRef<WhiteboardItem[]>([]);
   const activeStrokeRef = useRef<WhiteboardStroke | null>(null);
@@ -275,6 +294,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   }, [scheduledEnd, isConnected]);
 
   useEffect(() => () => {
+    callGenerationRef.current++;
     window.mansahCallActive = false;
     if (activeStrokeFrameRef.current !== null) cancelAnimationFrame(activeStrokeFrameRef.current);
     if (liveStrokeTimerRef.current !== null) window.clearTimeout(liveStrokeTimerRef.current);
@@ -393,17 +413,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   }, [stageMode]);
 
   useEffect(() => {
-    if (autoJoinStartedRef.current) return;
-    autoJoinStartedRef.current = true;
-    void startCall();
+    const timer = window.setTimeout(() => void startCall(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const startCall = async () => {
     if (isJoining) return;
+    const generation = ++callGenerationRef.current;
     setIsJoining(true);
     setStatus(t("جار الانضمام للغرفة"));
     try {
       await authorize();
+      if (generation !== callGenerationRef.current) return;
       connectionRef.current?.close();
       remoteStreamRef.current = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -444,7 +465,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           if (typing) remoteTypingTimerRef.current = window.setTimeout(() => setRemoteTyping(false), 1800);
         },
         onRemoteSpeaking: setRemoteSpeaking,
-        onDataOpen: () => sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current }),
+        onDataOpen: () => role === 'student' ? sendWhiteboard({ kind: 'sync-request' }) : sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current }),
         onLocalPeerId: (peerId) => {
           localPeerIdRef.current = peerId;
           const update = presenceRef.current?.(Boolean(peerId), peerId);
@@ -473,6 +494,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       });
       connectionRef.current = connection;
       const localStream = await connection.start();
+      if (generation !== callGenerationRef.current) { connection.close(); return; }
       localStreamRef.current = localStream;
       startAudioMonitor(localStream);
       setVideoEnabled(false);
@@ -482,10 +504,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       }
       setIsConnected(true);
     } catch (error) {
+      if (generation !== callGenerationRef.current) return;
       setStatus(error instanceof Error ? error.message : t("تعذر بدء المكالمة"));
       setIsConnected(false);
     } finally {
-      setIsJoining(false);
+      if (generation === callGenerationRef.current) setIsJoining(false);
     }
   };
 
@@ -526,6 +549,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const endCall = () => {
+    callGenerationRef.current++;
     connectionRef.current?.sendTyping(false);
     connectionRef.current?.close();
     connectionRef.current = null;
@@ -714,7 +738,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'document' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
+    return kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'document' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -751,6 +775,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
+    if (message.kind === 'sync-request') {
+      if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
+      return;
+    }
+    if (message.kind === 'pointer') {
+      const point = message.pointer;
+      if (point && (!Number.isFinite(point.x) || !Number.isFinite(point.y) || !['whiteboard', 'document'].includes(point.space))) return;
+      setRemotePointer(point);
+      if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
+      pointerTimerRef.current = window.setTimeout(() => setRemotePointer(null), 2800);
+      return;
+    }
     if (message.kind === 'clear') {
       setSyncedWhiteboardStrokes([]);
       setSyncedWhiteboardItems([]);
@@ -1206,6 +1242,31 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     return () => window.removeEventListener('keydown', handle);
   }, [selectedWhiteboardItem, whiteboardItems]);
 
+  const publishPointer = (pointer: SharedPointer | null, force = false) => {
+    setLocalPointer(pointer);
+    if (force || performance.now() - pointerSentRef.current > 40) { pointerSentRef.current = performance.now(); sendWhiteboard({ kind: 'pointer', pointer }); }
+  };
+  useEffect(() => {
+    if (!localPointer) return;
+    const timer = window.setInterval(() => sendWhiteboard({ kind: 'pointer', pointer: localPointer }), 1000);
+    return () => window.clearInterval(timer);
+  }, [localPointer]);
+  useEffect(() => { publishPointer(null, true); setRemotePointer(null); }, [stageMode, sharedDocument?.page]);
+  const renderPointer = (pointer: SharedPointer | null, space: SharedPointer['space'], remote = false) => pointer?.space === space && (space !== 'document' || pointer.page === sharedDocument?.page) ? <circle className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} r={space === 'whiteboard' ? 7 / whiteboardViewport.zoom : 9} fill="#ef4444" fillOpacity=".6" stroke="#fff" strokeWidth={space === 'whiteboard' ? 1.5 / whiteboardViewport.zoom : 2} pointerEvents="none" /> : null;
+  const startTextLongPress = (event: PointerEvent<SVGSVGElement>) => {
+    if (event.pointerType !== 'touch' || role !== 'teacher') return;
+    const point = whiteboardPoint(event);
+    const item = [...whiteboardItemsRef.current].reverse().find(item => item.type === 'text' && point.x >= item.x && point.x <= item.x + item.width && point.y >= item.y && point.y <= item.y + item.height);
+    if (!item) return;
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const timer = window.setTimeout(() => {
+      longPressRef.current = null;
+      setEditingWhiteboardText(null); setSelectedWhiteboardItem(item.id); setWhiteboardTool('select');
+      whiteboardItemInteractionRef.current = { id: item.id, mode: 'move', start: point, item: { ...item }, moved: true };
+    }, 450);
+    longPressRef.current = { timer, x: event.clientX, y: event.clientY, item };
+  };
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
     whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1244,6 +1305,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const moveWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    publishPointer({ ...whiteboardPoint(event), space: 'whiteboard' });
+    if (longPressRef.current) {
+      const press = longPressRef.current;
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 9) { clearTimeout(press.timer); longPressRef.current = null; }
+      return;
+    }
     if (whiteboardPointersRef.current.has(event.pointerId)) whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     if (whiteboardPointersRef.current.size >= 2) {
       event.preventDefault();
@@ -1301,6 +1368,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const finishWhiteboardStroke = (event?: PointerEvent<SVGSVGElement>) => {
+    if (longPressRef.current) { const press = longPressRef.current; clearTimeout(press.timer); longPressRef.current = null; setSelectedWhiteboardItem(press.item.id); setEditingWhiteboardText(press.item.id); return; }
     const wasPinching = whiteboardPinchRef.current !== null;
     if (event) whiteboardPointersRef.current.delete(event.pointerId);
     if (whiteboardPointersRef.current.size < 2) whiteboardPinchRef.current = null;
@@ -1510,10 +1578,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <label className="whiteboard-range-field"><span>{t('الشفافية')}</span><input type="range" min="20" max="100" value={Math.round((selectedWhiteboardObject.opacity ?? 1) * 100)} onChange={event => updateSelectedWhiteboardItem({ opacity: Number(event.target.value) / 100 })} /></label>
         <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem}><Copy size={16} />{t('نسخ')}</button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)}><Trash2 size={16} /></button></div>
       </div>}
-      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas tool-${whiteboardTool} ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas tool-${whiteboardTool} ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDownCapture={startTextLongPress} onContextMenu={event => event.preventDefault()} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {whiteboardItems.map(renderWhiteboardItem)}
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}
-      </svg>
+      {renderPointer(localPointer, 'whiteboard')}{renderPointer(remotePointer, 'whiteboard', true)}</svg>
     </div>
   );
 
@@ -1539,13 +1607,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const startDocumentAnnotation = (event: PointerEvent<SVGSVGElement>) => {
     if (!sharedDocument) return;
     const point = documentPoint(event);
-    if (documentTool === 'text') {
-      const text = window.prompt(t('اكتب النص الذي تريد إضافته'))?.trim();
-      if (!text) return;
-      const next = [...documentAnnotationsRef.current, { id: createWhiteboardId('document-text'), page: sharedDocument.page, kind: 'text' as const, color: documentColor, x: point.x, y: point.y, text: text.slice(0, 500) }];
-      publishDocumentAnnotations(next, true);
-      return;
-    }
     event.currentTarget.setPointerCapture(event.pointerId);
     const annotation: DocumentAnnotation = { id: createWhiteboardId(`document-${documentTool}`), page: sharedDocument.page, kind: documentTool, color: documentColor, size: documentTool === 'highlight' ? 26 : 4, points: [point] };
     documentDrawingRef.current = annotation;
@@ -1553,6 +1614,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const moveDocumentAnnotation = (event: PointerEvent<SVGSVGElement>) => {
+    publishPointer({ ...documentPoint(event), space: 'document', page: sharedDocument?.page });
     const active = documentDrawingRef.current;
     if (!active || active.kind === 'text') return;
     const point = documentPoint(event);
@@ -1637,7 +1699,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         ) : stageMode === 'document' && sharedDocument ? (
           <div className="document-stage">
             <aside className="document-side-rail"><div className="call-video-strip whiteboard-dock">{renderTile('local', 'pip')}{renderTile('remote', 'pip')}</div><div className="document-slide-list" aria-label={t('صفحات الملف')}>{Array.from({ length: sharedDocument.pages }, (_, index) => index + 1).map(page => <button type="button" key={page} className={page === sharedDocument.page ? 'active' : ''} disabled={role !== 'teacher' || whiteboardDocumentBusy} onClick={() => void publishSharedDocumentPage(page)}><span>{page}</span></button>)}</div></aside>
-            <section className="document-viewer" aria-label={t('عارض الملف')}><header><div><FileUp size={20} /><strong title={sharedDocument.name}>{sharedDocument.name}</strong><span>{t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })}</span></div><div className="document-annotation-tools" aria-label={t('أدوات التعليق على الملف')}><button type="button" className={documentTool === 'pen' ? 'active' : ''} onClick={() => setDocumentTool('pen')} title={t('قلم')}><Pencil size={17} /></button><button type="button" className={documentTool === 'highlight' ? 'active' : ''} onClick={() => setDocumentTool('highlight')} title={t('هايلايتر')}><Highlighter size={17} /></button><button type="button" className={documentTool === 'text' ? 'active' : ''} onClick={() => setDocumentTool('text')} title={t('إضافة نص')}><TypeIcon size={17} /></button><label title={t('لون الأداة')}><span style={{ background: documentColor }} /><input type="color" value={documentColor} onChange={event => setDocumentColor(event.target.value)} /></label><button type="button" onClick={undoDocumentAnnotation} title={t('تراجع')}><Undo2 size={17} /></button></div><nav><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page <= 1} onClick={() => changeSharedDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={20} /></button><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page >= sharedDocument.pages} onClick={() => changeSharedDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={20} /></button>{role === 'teacher' && <button type="button" className="document-close" onClick={closeSharedDocument} aria-label={t('إغلاق الملف')}>×</button>}</nav></header><div className="document-page"><div className="document-page-canvas"><img src={sharedDocument.src} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} /><svg viewBox="0 0 1000 1400" preserveAspectRatio="none" onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>{documentAnnotations.filter(item => item.page === sharedDocument.page).map(item => item.kind === 'text' ? <text key={item.id} x={item.x} y={item.y} fill={item.color} fontSize="34" fontWeight="700" paintOrder="stroke" stroke="#fff" strokeWidth="3">{item.text}</text> : <path key={item.id} d={documentPath(item)} fill="none" stroke={item.color} strokeWidth={item.size} strokeLinecap="round" strokeLinejoin="round" opacity={item.kind === 'highlight' ? .42 : 1} />)}</svg></div></div></section>
+            <section className="document-viewer" aria-label={t('عارض الملف')}><header><div><FileUp size={20} /><strong title={sharedDocument.name}>{sharedDocument.name}</strong><span>{t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })}</span></div><div className="document-annotation-tools" aria-label={t('أدوات التعليق على الملف')}><button type="button" className={documentTool === 'pen' ? 'active' : ''} onClick={() => setDocumentTool('pen')} title={t('قلم')}><Pencil size={17} /></button><button type="button" className={documentTool === 'highlight' ? 'active' : ''} onClick={() => setDocumentTool('highlight')} title={t('هايلايتر')}><Highlighter size={17} /></button><label title={t('لون الأداة')}><span style={{ background: documentColor }} /><input type="color" value={documentColor} onChange={event => setDocumentColor(event.target.value)} /></label><button type="button" onClick={undoDocumentAnnotation} title={t('تراجع')}><Undo2 size={17} /></button></div><nav><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page <= 1} onClick={() => changeSharedDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={20} /></button><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page >= sharedDocument.pages} onClick={() => changeSharedDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={20} /></button>{role === 'teacher' && <button type="button" className="document-close" onClick={closeSharedDocument} aria-label={t('إغلاق الملف')}>×</button>}</nav></header><div className="document-page" ref={documentPageRef}><div className="document-page-canvas" style={{ width: documentSize.width, height: documentSize.height }}><img onLoad={event => { const image = event.currentTarget; setDocumentRatio(image.naturalWidth / image.naturalHeight || 1); }} src={sharedDocument.src} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} /><svg viewBox="0 0 1000 1400" preserveAspectRatio="none" onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>{documentAnnotations.filter(item => item.page === sharedDocument.page).map(item => item.kind === 'text' ? <text key={item.id} x={item.x} y={item.y} fill={item.color} fontSize="34" fontWeight="700" paintOrder="stroke" stroke="#fff" strokeWidth="3">{item.text}</text> : <path key={item.id} d={documentPath(item)} fill="none" stroke={item.color} strokeWidth={item.size} strokeLinecap="round" strokeLinejoin="round" opacity={item.kind === 'highlight' ? .42 : 1} />)}{renderPointer(localPointer, 'document')}{renderPointer(remotePointer, 'document', true)}</svg></div></div></section>
           </div>
         ) : (
           <div className="video-grid" aria-label={t("المشاركون")}>

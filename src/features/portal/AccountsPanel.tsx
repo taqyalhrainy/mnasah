@@ -110,6 +110,12 @@ export function AccountsPanel({
       setBusy(false);
     }
   }
+  async function toggleCommission(user: User) {
+    setBusy(true); setError('');
+    try { await request(`admin/users/${user.id}`, { commission_exempt: !user.commission_exempt }); onChanged(); }
+    catch (error) { setError((error as Error).message); }
+    finally { setBusy(false); }
+  }
   return (
     <section className="accounts-panel">
       <div
@@ -188,6 +194,7 @@ export function AccountsPanel({
               {t(statusNames[user.status])}
             </span>
             <div className="row-actions">
+              {user.role === 'teachers' && <button type="button" role="switch" aria-checked={Boolean(user.commission_exempt)} className={`secondary-button commission-toggle ${user.commission_exempt ? 'exempt' : ''}`} disabled={busy} onClick={() => void toggleCommission(user)}><ShieldCheck size={17} />{t(user.commission_exempt ? 'معفى من العمولة — إعادة العمولة' : 'إعفاء من عمولة المنصة')}</button>}
               {user.role === "teachers" && (
                 <button
                   className="secondary-button"

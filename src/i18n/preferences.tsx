@@ -1,10 +1,27 @@
 import { useSyncExternalStore } from 'react';
 import { Languages, Moon, Sun } from 'lucide-react';
 import { messages } from './messages';
+import { additionalMessages } from './additionalMessages';
+Object.assign(messages, additionalMessages);
 
 export type Language = 'ar' | 'en';
 export type Theme = 'light' | 'dark';
 const sourceKeys = new Map(Object.entries(messages).map(([source, english]) => [english, source]));
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const templates = Object.entries(messages).filter(([key]) => /\{\w+\}/.test(key)).map(([key, english]) => ({
+  regex: new RegExp('^' + key.split(/(\{\w+\})/).map(part => /^\{\w+\}$/.test(part) ? '(.+?)' : escapeRegex(part)).join('') + '$'),
+  names: [...key.matchAll(/\{(\w+)\}/g)].map(match => match[1]), english,
+}));
+const phrases = Object.keys(messages).filter(key => /[\u0600-\u06ff]/.test(key) && key.length > 1 && !key.includes('{')).sort((a, b) => b.length - a.length);
+const phrasePattern = new RegExp(phrases.map(escapeRegex).join('|'), 'g');
+function englishText(key: string): string {
+  if (messages[key]) return messages[key];
+  for (const template of templates) {
+    const match = key.match(template.regex);
+    if (match) return template.english.replace(/\{(\w+)\}/g, (token, name: string) => match[template.names.indexOf(name) + 1] || token);
+  }
+  return key.replace(phrasePattern, match => messages[match]).replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x660)).replace(/،/g, ',');
+}
 const listeners = new Set<() => void>();
 function saved(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
 let language: Language = saved('mansah-language') === 'en' ? 'en' : 'ar';
@@ -22,7 +39,7 @@ export function t(source: string | null | undefined, values: Record<string, stri
   if (!source) return '';
   const replacements = typeof values === 'number' ? {} : values;
   const key = sourceKeys.get(source.trim()) || source.trim();
-  const translated = language === 'en' ? messages[key] || key : key;
+  const translated = language === 'en' ? englishText(key) : key;
   const result = translated.replace(/\{(\w+)\}/g, (token, name: string) => String(replacements[name] ?? token));
   return source.startsWith(' ') || source.endsWith(' ') ? source.slice(0, source.length - source.trimStart().length) + result + source.slice(source.trimEnd().length) : result;
 }

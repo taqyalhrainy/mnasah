@@ -37,7 +37,7 @@ export function registrationProfile(body, role) {
   const age = ageFromBirthDate(birthDate);
   if (age < (role === 'teachers' ? 18 : 5) || age > 100) fail(role === 'teachers' ? 'يجب أن يكون عمر الأستاذ 18 سنة على الأقل.' : 'تحقق من تاريخ الميلاد.');
   const gender = clean(body.gender, 20);
-  if (!['male', 'female', 'prefer_not'].includes(gender)) fail('اختر الجنس من الخيارات المتاحة.');
+  if (!['male', 'female'].includes(gender)) fail('اختر الجنس من الخيارات المتاحة.');
   const phone = jordanPhone(body.phone);
   if (body.accept_terms !== true) fail('يجب الموافقة على الشروط وسياسة الخصوصية.');
   const base = { first_name: firstName, father_name: fatherName, family_name: familyName, birth_date: birthDate, age, gender, phone };

@@ -96,6 +96,23 @@
   </head>
   <body>
     <div id="root"><main class="boot-loading" role="status" aria-live="polite"><div class="boot-loading__content"><img src="%BASE_URL%images/emtidad-alelm-final-logo-192.png" alt="شعار امتداد العلم" /><i aria-hidden="true"></i><h1>امتداد العلم</h1><p>منصة تعليم خصوصي عن بُعد للطلاب والمعلمين في الأردن.</p></div></main></div>
+    <script>
+      // Recover an outdated HTML/chunk pair once, then show an actionable fallback.
+      window.addEventListener('vite:preloadError', function(event) {
+        event.preventDefault();
+        var last = Number(sessionStorage.getItem('asset-recovery') || 0);
+        if (Date.now() - last > 60000) { sessionStorage.setItem('asset-recovery', String(Date.now())); location.reload(); }
+      });
+      setTimeout(function() {
+        var boot = document.querySelector('.boot-loading__content');
+        if (!boot) return;
+        var retry = document.createElement('button');
+        retry.textContent = document.documentElement.lang === 'en' ? 'Retry loading' : 'إعادة التحميل';
+        retry.onclick = function() { location.reload(); };
+        retry.style.cssText = 'padding:12px 24px;border:0;border-radius:10px;background:#f6d448;color:#20172c;font:inherit;cursor:pointer';
+        boot.appendChild(retry);
+      }, 15000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { allowNavigation } from '../services/unsavedChanges';
+import { lazyWithRetry } from './RecoveryBoundary';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, BellOff, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, ShieldAlert, Star } from 'lucide-react';
 import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
@@ -10,8 +12,8 @@ import { useDirectChat, type BookingCreatedNotice } from '../features/chat/useDi
 import { useDeviceNotifications } from '../services/useDeviceNotifications';
 import { removeDevicePush } from '../services/pushNotifications';
 import { PreferenceControls, direction, usePreferences, t, locale } from '../i18n/preferences';
-const DirectMessages = lazy(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
-const VideoTestPage = lazy(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
+const DirectMessages = lazyWithRetry(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
+const VideoTestPage = lazyWithRetry(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 type AdminNotificationCounts = Record<string, number>;
 const portalNotificationViews: Record<Portal, string[]> = { admin: ['bookings', 'reports', 'users', 'topups', 'audit', 'payments', 'catalog', 'profile'], teachers: ['home', 'rooms', 'messages', 'available', 'earnings', 'profile'], students: ['home', 'rooms', 'messages', 'tutors', 'wallet', 'history', 'profile'] };
@@ -56,9 +58,10 @@ function WakeLoading({ slow, attempt }: { slow: boolean; attempt: number }) {
   return <main className="loading-page wake-page" role="status" dir={direction()} aria-live="polite">
     <PreferenceControls />
     <div className="wake-card">
-      <img src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="72" height="72" alt="شعار امتداد العلم أكاديمي" />
+      <img src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="72" height="72" alt={t('شعار امتداد العلم أكاديمي')} />
       <div className="wake-spinner" aria-hidden="true" />
-      <p className="wake-kicker">امتداد العلم أكاديمي</p>
+      {slow && <button className="secondary-button" onClick={() => location.reload()}>{t("إعادة المحاولة")}</button>}
+      <p className="wake-kicker">{t('امتداد العلم أكاديمي')}</p>
       <h1>{slow ? t("لحظات ونكون معك") : t("جارٍ تحميل منصتك")}</h1>
       <p>{slow ? t('يرجى الانتظار لحظات…') : t("نجهز حسابك والبيانات الخاصة بك.")}</p>
       {attempt > 0 && <small>{t("قد يستغرق التحميل لحظات إضافية.")}</small>}
@@ -74,7 +77,8 @@ function PortalApp() {
   const [slowWake, setSlowWake] = useState(false);
   const [wakeAttempt, setWakeAttempt] = useState(0);
   const [error, setError] = useState('');
-  const [view, setView] = useState(() => notificationView(portal));
+  const [view, setViewState] = useState(() => notificationView(portal));
+  const setView = (next: string) => { if (next === view || allowNavigation()) setViewState(next); };
   const [roomLive, setRoomLive] = useState(false);
   const [retry, setRetry] = useState(0);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
@@ -170,6 +174,7 @@ function PortalApp() {
     };
   }, [retry, portal, wakeAttempt]);
   async function logout() {
+    if (!allowNavigation()) return;
     if (portal === 'admin') await removeDevicePush(portal).catch(() => undefined);
     try { await request(`auth/logout?portal=${portal}`, { role: portal }); setUser(null); setRoomLive(false); setView(portal === 'students' || portal === 'teachers' ? 'home' : 'bookings'); } catch (e) { setError((e as Error).message); }
   }
@@ -215,13 +220,13 @@ function PortalApp() {
   const learningAccountMenu = (className: string) => <details className={`account-menu ${className}`}><summary title={t('خيارات الحساب')}>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><div className="account-preferences"><PreferenceControls /></div><button className="account-reminders" aria-pressed={lessonReminders.enabled} onClick={() => toggleLessonReminders.current()}>{lessonReminders.enabled ? <Bell size={16} /> : <BellOff size={16} />}<span><strong>{t("تنبيهات الحصص")}</strong><small>{lessonReminders.enabled ? t("مفعّلة") : t("غير مفعّلة")}</small></span></button>{lessonReminders.hint && <small className="account-reminder-hint" role="status">{t(lessonReminders.hint)}</small>}<button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button className="account-logout" onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>;
   return <main className={`app-shell business-shell redesigned-shell portal-${portal} ${portal !== 'admin' ? 'learning-shell' : ''}`} dir={direction()}>
     <a className="skip-link" href="#main-content">{t("انتقل إلى المحتوى")}</a>
-    <aside className="sidebar"><button className="brand" onClick={() => setView(portal === 'admin' ? 'bookings' : 'home')} title="امتداد العلم أكاديمي"><img className="brand-monogram" src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="44" height="44" alt="شعار امتداد العلم أكاديمي" /><div><strong>امتداد العلم<span className="brand-dot">.</span></strong><span>{t(portalNames[portal])}</span></div></button>
+    <aside className="sidebar"><button className="brand" onClick={() => setView(portal === 'admin' ? 'bookings' : 'home')} title={t('امتداد العلم أكاديمي')}><img className="brand-monogram" src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="44" height="44" alt={t('شعار امتداد العلم أكاديمي')} /><div><strong>{t('امتداد العلم')}<span className="brand-dot">.</span></strong><span>{t(portalNames[portal])}</span></div></button>
       <nav className="nav-list" aria-label={t("التنقل الرئيسي")}>{nav.map(({ id, label, icon: Icon }) => <button key={id} aria-label={`${label}${id === 'rooms' && roomLive ? ' LIVE' : ''}`} aria-current={view === id ? 'page' : undefined} className={`nav-button ${view === id ? 'active' : ''}`} onClick={() => void openView(id)}><Icon size={20} strokeWidth={1.8} /><span className="nav-label-full">{t(label)}</span><span className="nav-label-short">{id === 'bookings' ? t("الحجوزات") : id === 'audit' ? t("العمليات") : id === 'catalog' ? t("المواد") : label}</span>{id === 'rooms' && roomLive && <span className="nav-live"><span aria-hidden="true" />LIVE</span>}{id === 'messages' && chat.unread > 0 && <span className="nav-unread" aria-label={t("{v0} رسائل غير مقروءة", { v0: chat.unread })}>{chat.unread > 99 ? '99+' : chat.unread}</span>}{portal === 'admin' && Number(adminNotificationsByView[id] || 0) > 0 && <span className="nav-unread admin-section-unread" aria-label={t('{v0} إشعارات جديدة', { v0: adminNotificationsByView[id] })}>{adminNotificationsByView[id] > 99 ? '99+' : adminNotificationsByView[id]}</span>}</button>)}</nav>
       {portal !== 'admin' ? learningAccountMenu('sidebar-account') : <div className="sidebar-footer"><button type="button" onClick={() => void installAndroidApp()} className="icon-button" title={t("تثبيت تطبيق أندرويد")}><Download size={19} /></button><button className="icon-button" onClick={logout} title={t("تسجيل الخروج")}><LogOut size={19} /></button></div>}
     </aside>
     {portal !== 'admin' && learningAccountMenu('mobile-account')}
     <section className="workspace">{portal === 'admin' && <header className="topbar">
-      <div className="topbar-location"><img className="mobile-brand brand-monogram" src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="36" height="36" alt="امتداد العلم أكاديمي" /><div><span className="eyebrow">{t(portalNames[portal])}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div>
+      <div className="topbar-location"><img className="mobile-brand brand-monogram" src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="36" height="36" alt={t('امتداد العلم أكاديمي')} /><div><span className="eyebrow">{t(portalNames[portal])}</span><h1>{nav.find(n => n.id === view)?.label}</h1></div></div>
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
         <PreferenceControls />
         <button className="icon-button quick-action" onClick={openQuickAction} title={t("إدارة الحسابات")}><Users size={19} /></button>

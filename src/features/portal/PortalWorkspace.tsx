@@ -1,6 +1,8 @@
+import { allowNavigation } from '../../services/unsavedChanges';
+import { RecoveryBoundary, lazyWithRetry } from '../../app/RecoveryBoundary';
 import { parseTeachingChoices, serializeTeachingChoices, teachingChoiceKey, uniqueTeachingChoices, type TeachingChoice } from './teachingChoices';
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, CircleAlert, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
 import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase, type WeeklySchedule, type PackageScheduleSelection, type CatalogData, type CatalogGroup } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
@@ -15,7 +17,7 @@ import { ReportsPanel } from './ReportsPanel';
 import { VerifiedPhoneField } from './VerifiedPhoneField';
 import type { Category } from '../../services/platformApi';
 import { GraduationCap, Library, Languages, PenLine, Sparkles, Sprout } from 'lucide-react';
-const VideoRoom = lazy(() => import('../video/VideoRoom').then(module => ({ default: module.VideoRoom })));
+const VideoRoom = lazyWithRetry(() => import('../video/VideoRoom').then(module => ({ default: module.VideoRoom })));
 
 function CategoryIcon({ value }: { value: string }) {
   if (/^(?:https?:\/\/|data:image\/|\/)/i.test(value)) return <img src={value} alt="" />;
@@ -119,7 +121,22 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [customPackages, setCustomPackages] = useState<CustomPackage[]>(() => user.custom_packages || []);
   const [teacherCurriculumId, setTeacherCurriculumId] = useState('');
   const [teacherCategoryId, setTeacherCategoryId] = useState('');
-  const [teacherPackageKey, setTeacherPackageKey] = useState('');
+  const [teacherPackageKey, setTeacherPackageKeyState] = useState('');
+  const choicesDirty = teachingDraft !== null && serializeTeachingChoices(teachingDraft) !== serializeTeachingChoices(teachingChoices);
+  const dirtyRef = useRef(false);
+  dirtyRef.current = choicesDirty;
+  const setTeacherPackageKey = (next: string) => { if (next === teacherPackageKey || allowNavigation()) setTeacherPackageKeyState(next); };
+  useEffect(() => {
+    const leave = (event: Event) => {
+      if (!dirtyRef.current) return;
+      if (!window.confirm(t('لديك تعديلات غير محفوظة على مواد التدريس. هل تريد الخروج دون حفظ؟'))) event.preventDefault();
+      else { dirtyRef.current = false; setTeachingDraft(null); }
+    };
+    const unload = (event: BeforeUnloadEvent) => { if (dirtyRef.current) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('platform-before-navigate', leave);
+    window.addEventListener('beforeunload', unload);
+    return () => { window.removeEventListener('platform-before-navigate', leave); window.removeEventListener('beforeunload', unload); };
+  }, []);
   useEffect(() => {
     setTeachingDraft(portal === 'teachers' && view === 'home' && teacherPackageKey ? parseTeachingChoices(user.subject, catalog) : null);
   }, [portal, view, teacherPackageKey, user.subject, catalog]);
@@ -385,6 +402,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   async function saveTeacherProfile(nextChoices = teachingChoices, nextPackages = customPackages, message = t('تم حفظ اختياراتك. اذهب إلى صفحة المتاحة لإعداد وقت نشر مادتك.')) {
     return act(async () => {
       const result = await request<{ user: User }>(`${portal}/profile`, { name: user.name, bio: user.bio, phone: user.phone, subject: serializeTeachingChoices(nextChoices), custom_packages: nextPackages });
+      dirtyRef.current = false; setTeachingDraft(null);
       setCustomPackages(result.user.custom_packages || nextPackages);
       onUser(result.user);
     }, message);
@@ -531,7 +549,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const callNavigation = portal === 'students'
     ? [{ id: 'home', label: t("الرئيسية") }, { id: 'rooms', label: t("الحصص المحجوزة") }, { id: 'messages', label: t("الرسائل") }, { id: 'tutors', label: t("أساتذتي") }, { id: 'wallet', label: t("المحفظة") }, { id: 'history', label: t("السجل") }, { id: 'profile', label: t("حسابي") }]
     : [{ id: 'home', label: t("الرئيسية") }, { id: 'rooms', label: t("الحصص المحجوزة") }, { id: 'messages', label: t("الرسائل") }, { id: 'available', label: t("المتاحة") }, { id: 'earnings', label: t("المستحقات") }, { id: 'profile', label: t("حسابي") }];
-  const callLayer = room && <div className={callCompact ? 'floating-call-shell' : 'immersive-call-shell'} dir={direction()}><Suspense fallback={<div className="call-loading" role="status"><div className="wake-spinner" /><p>{t("جارٍ تجهيز الغرفة…")}</p></div>}><VideoRoom
+  const callLayer = room && <div className={callCompact ? 'floating-call-shell' : 'immersive-call-shell'} dir={direction()}><RecoveryBoundary><Suspense fallback={<div className="call-loading" role="status"><div className="wake-spinner" /><p>{t("جارٍ تجهيز الغرفة…")}</p></div>}><VideoRoom
       key={room.id}
       assignedRole={room.role}
       assignedRoom={room.room}
@@ -554,7 +572,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         return room.role === 'teacher' ? presence.studentPeerId : presence.teacherPeerId;
       }}
       onLeave={() => { const ended = bookings.find(booking => booking.id === room.id) || null; setRoom(null); setCallCompact(false); if (portal === 'students' && ended && Date.now() >= ended.start) { setFeedbackBooking(ended); setRatingDraft(ended.student_rating || 0); } refresh(); }}
-    /></Suspense></div>;
+    /></Suspense></RecoveryBoundary></div>;
   const feedbackDialog = feedbackBooking && <dialog ref={node => { if (node && !node.open) node.showModal(); }} className="detail-dialog lesson-feedback-dialog" onCancel={() => setFeedbackBooking(null)}>
     <div className="section-heading"><div><span className="section-kicker">{t('بعد انتهاء المكالمة')}</span><h2>{t('كيف كانت الحصة؟')}</h2><p>{t('تقييمك يساعدنا على تحسين الجودة وحماية حقوقك.')}</p></div><button className="icon-button" onClick={() => setFeedbackBooking(null)} title={t('إغلاق')}><X size={20} /></button></div>
     <div className="rating-stars feedback-stars" role="radiogroup" aria-label={t('تقييم الحصة')}>{[1, 2, 3, 4, 5].map(value => <button type="button" role="radio" aria-checked={ratingDraft === value} className={value <= ratingDraft ? 'active' : ''} onClick={() => setRatingDraft(value)} key={value}><Star size={30} fill="currentColor" /></button>)}</div>
@@ -659,7 +677,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         <WorkspaceOverview teachingSubjects={teachingChoices.map(choice => ({ subject: choice.subject, detail: [choice.categoryName, choice.levels.join('\u060c ')].filter(Boolean).join('\u00b7 ') }))} user={user} portal={portal} bookings={bookings} availableCount={openSlots.length} onView={onView}>{teacherPackageExplorer}</WorkspaceOverview>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} onDetails={booking => setSelected(booking.id)} onCancel={cancel} />}
-      {view === 'available' && <TeacherAvailabilityHub subjects={teacherSubjects} slots={slots} bookings={bookings} busy={busy} onHome={() => onView('home')} onPublish={publishAvailability} onDelete={deleteSlot} onBookingDetails={setSelected} />}
+      {view === 'available' && <TeacherAvailabilityHub commissionExempt={user.commission_exempt} subjects={teacherSubjects} slots={slots} bookings={bookings} busy={busy} onHome={() => onView('home')} onPublish={publishAvailability} onDelete={deleteSlot} onBookingDetails={setSelected} />}
       {view === 'profile' && <section className="student-page account-page"><h2>{t("حسابي")}</h2><div className="profile-layout"><form className="work-form" onSubmit={async e => { e.preventDefault(); const data = formData(e.currentTarget); await act(async () => { const result = await request<{ user: User }>(`${portal}/profile`, data); onUser(result.user); }); }}><h3>{t("ملف الأستاذ")}</h3><label>{t("الاسم الكامل")}<input name="name" defaultValue={user.name} required /></label><label>{t("البريد الإلكتروني")}<input value={user.email} readOnly dir="ltr" /></label><label>{t("المواد والمستويات")}<textarea value={teachingChoices.map(choice => teachingChoiceLabel(choice, catalog.find(category => category.id === choice.categoryId))).join('\n')} readOnly rows={5} /></label><input type="hidden" name="subject" value={user.subject} /><label>{t("نبذة مهنية")}<textarea name="bio" defaultValue={user.bio} rows={5} /></label><button className="primary-button" disabled={busy}><Save size={17} />{t("حفظ")}</button></form><div className="account-settings"><button onClick={() => setSuccess(t("حالة التوثيق مرتبطة بموافقة الإدارة وتظهر مباشرة بعد تفعيل الحساب."))}>{t("حالة التوثيق: حسب موافقة الإدارة")}</button><button onClick={() => onView('available')}>{t("إعدادات التوفر")}</button><button onClick={() => onView('earnings')}>{t("تفاصيل المستحقات")}</button><button onClick={reminders.toggle}>{t("إعدادات الإشعارات")}</button><button onClick={() => setSuccess(t("يمكنك طلب الدعم من الإدارة عبر رسائل الحصة أو حساب المنصة."))}>{t("المساعدة والدعم")}</button></div></div></section>}
       {view === 'history' && <section className="student-page"><h2>{t("السجل")}</h2><div className="history-tabs"><button onClick={() => setFilter('all')}>{t("الكل")}</button><button onClick={() => setFilter('completed')}>{t("الحصص")}</button><button onClick={() => onView('earnings')}>{t("المستحقات")}</button></div><div className="history-list">{bookings.filter(b => filter === 'all' || b.status === filter).map(b => <article key={b.id}><HistoryIcon size={20} /><div><strong>{b.student_name}</strong><p>{catalogText(b.subject)} · {date(b.start)}</p></div><span className={`badge ${b.status}`}>{t(statusNames[b.status])}</span><b>{money(b.price)}</b></article>)}</div></section>}
     </>}

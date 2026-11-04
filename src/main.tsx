@@ -1,3 +1,4 @@
+import { RecoveryBoundary } from './app/RecoveryBoundary';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
@@ -8,12 +9,12 @@ import './styles/preferences.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <RecoveryBoundary><App /></RecoveryBoundary>
   </StrictMode>,
 );
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`);
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`, { updateViaCache: 'none' }).catch(() => undefined);
   });
 }

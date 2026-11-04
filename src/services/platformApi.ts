@@ -6,7 +6,7 @@ export type CatalogData = { groups: CatalogGroup[]; categories: Category[] };
 export type CustomPackage = { id: string; name: string; description: string; levels: string[] };
 export type Verification = { first_name?: string; father_name?: string; family_name?: string; birth_date?: string; age?: number; gender?: string; phone?: string; qualifications?: string[]; other_qualification?: string; years_experience?: number; teaching_languages?: string[]; other_teaching_language?: string; professional_bio?: string; verification_status?: string; submitted_at?: number; reviewed_at?: number; rejection_reason?: string };
 export type VerificationFile = { id: string; user_id?: string; kind: 'avatar' | 'intro_video' | 'credential'; name: string; size: number; content_type: string };
-export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string; phone?: string; avatar_url?: string; verification?: Verification; verification_files?: VerificationFile[]; auth_provider?: string; email_verified?: boolean; custom_packages?: CustomPackage[]; mustChangePassword?: boolean; teacher_rating?: number | null; teacher_rating_count?: number };
+export type User = { id: string; email: string; name: string; role: Portal; status: string; subject: string; bio: string; phone?: string; commission_exempt?: boolean; avatar_url?: string; verification?: Verification; verification_files?: VerificationFile[]; auth_provider?: string; email_verified?: boolean; custom_packages?: CustomPackage[]; mustChangePassword?: boolean; teacher_rating?: number | null; teacher_rating_count?: number };
 export type SlotOffering = { minutes: number; price: number };
 export type WeeklySchedule = { weekday: number; from: string; to: string };
 export type PackageScheduleSelection = WeeklySchedule;
@@ -26,12 +26,22 @@ const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export const apiUrl = (path: string) => `${apiBase}/api/${path}`;
 export const apiMediaUrl = (value: string) => value.startsWith('/api/') ? `${apiBase}${value}` : value;
 export class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
-export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', signal, ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
-  let data;
-  try { data = await response.json(); } catch { throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.')); }
-  if (!response.ok) throw new ApiError(t(data.error || 'تعذر تنفيذ الطلب.'), response.status);
-  return data;
+export async function request<T>(path: string, body?: unknown, signal?: AbortSignal, timeoutMs = body === undefined ? 20000 : 60000): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
+  try {
+    const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', signal: controller.signal, ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
+    let data;
+    try { data = await response.json(); } catch { throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.')); }
+    if (!response.ok) throw new ApiError(t(data.error || 'تعذر تنفيذ الطلب.'), response.status);
+    return data;
+  } catch (error) {
+    if (controller.signal.aborted && !signal?.aborted) throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.'));
+    throw error;
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
 export async function requestFile<T>(path: string, file: File, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
   const query = new URLSearchParams({ ...params, name: file.name, size: String(file.size), type: file.type });

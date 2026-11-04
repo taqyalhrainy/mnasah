@@ -39,7 +39,8 @@ export function paymentSummary(rows, range, percent = 10) {
     const cancellationCompensation = Math.max(0, Number(row.teacher_compensation) || 0);
     const cancellationFee = Math.max(0, Number(row.platform_fee) || 0);
     const price = row.status === 'cancelled' ? cancellationCompensation + cancellationFee : Math.max(0, Number(row.price) || 0);
-    const fee = row.status === 'cancelled' ? cancellationFee : Math.round(price * commissionPercent / 100);
+    const rate = Number.isFinite(Number(row.commission_percent)) && row.commission_percent != null ? Math.max(0, Math.min(90, Number(row.commission_percent))) : commissionPercent;
+    const fee = row.status === 'cancelled' ? cancellationFee : Math.round(price * rate / 100);
     return { ...row, price, fee, net: price - fee, payoutHeld: row.payout_status === 'held', payoutForfeited: row.payout_status === 'forfeited' };
   }).sort((a, b) => b.start - a.start);
   const summarize = list => {

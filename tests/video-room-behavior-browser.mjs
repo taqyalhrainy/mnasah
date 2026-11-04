@@ -45,6 +45,14 @@ try {
   const room = `behavior-${Date.now()}`;
   await teacher.goto(`${baseUrl}/video-test?room=${room}&role=teacher`);
   await student.goto(`${baseUrl}/video-test?room=${room}&role=student`);
+  for (const page of [teacher, student]) {
+    await page.locator('.video-room').waitFor();
+    await page.evaluate(() => {
+    const room = document.querySelector('.video-room');
+    const shell = document.createElement('div'); shell.className = 'immersive-call-shell';
+    room.before(shell); shell.append(room);
+    });
+  }
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 25000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 25000 });
 
@@ -121,7 +129,25 @@ try {
   await student.locator('.document-viewer').waitFor({ timeout: 10000 });
   assert.equal(await teacher.locator('.whiteboard-board-image').count(), 0, 'a document must open in the slide viewer, not be inserted into the board');
   assert.equal(await teacher.locator('.call-diagnostic').count(), 0, 'technical connection diagnostics must not be shown to users');
-  await teacher.screenshot({ path: '.private/video-room-behavior.png' });
+  for (const page of [teacher, student]) {
+    await page.waitForFunction(() => {
+      const image = document.querySelector('.document-page img');
+      const area = document.querySelector('.document-page');
+      if (!image?.naturalHeight || !area) return false;
+      const a = area.getBoundingClientRect(), b = image.getBoundingClientRect();
+      return b.height > 100 && b.top >= a.top && b.bottom <= a.bottom + 1 && b.width <= a.width;
+    });
+    assert.equal(await page.locator('.document-annotation-tools button:has(svg.lucide-type)').count(), 0);
+  }
+  const docBox = await teacher.locator('.document-page-canvas').boundingBox();
+  await teacher.mouse.move(docBox.x + docBox.width * .4, docBox.y + docBox.height * .4);
+  await student.locator('.document-page .shared-pointer.remote').waitFor();
+  await teacher.setViewportSize({ width: 390, height: 844 });
+  await teacher.waitForFunction(() => {
+    const a = document.querySelector('.document-page').getBoundingClientRect(), b = document.querySelector('.document-page img').getBoundingClientRect();
+    return b.height > 180 && b.top >= a.top && b.bottom <= a.bottom + 1 && b.width <= a.width + 1;
+  });
+  await teacher.locator('.document-viewer').screenshot({ path: '.private/video-room-behavior.png', animations: 'disabled', timeout: 10000 }).catch(() => undefined);
   console.log('Camera opt-in, private undo, image annotation, board-only zoom and shared PDF slide viewer passed.');
 } finally {
   await browser.close();

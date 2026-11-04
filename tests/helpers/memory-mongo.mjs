@@ -13,6 +13,7 @@ function matches(item, filter) {
       if (operator === '$lt') return current < expected;
       if (operator === '$lte') return current <= expected;
       if (operator === '$ne') return current !== expected;
+      if (operator === '$exists') return (current !== undefined) === expected;
       if (operator === '$in') return expected.includes(current);
       if (operator === '$elemMatch') return Array.isArray(current) && current.some(entry => matches(entry, expected));
       throw new Error(`Unsupported operator ${operator}`);
@@ -45,6 +46,11 @@ export function memoryMongo(seed = {}) {
       async countDocuments(filter = {}) { return rows.filter(row => matches(row, filter)).length; },
       async insertOne(row) { assert.ok(!row.id || !rows.some(existing => existing.id === row.id), 'duplicate id'); rows.push(structuredClone(row)); },
       async insertMany(inserted) { for (const row of inserted) await this.insertOne(row); },
+      async updateMany(filter, update) {
+        const selected = rows.filter(row => matches(row, filter));
+        for (const row of selected) await this.updateOne({ id: row.id }, update);
+        return { modifiedCount: selected.length };
+      },
       async updateOne(filter, update, options = {}) {
         let row = rows.find(item => matches(item, filter)); let inserted = false;
         if (!row && options.upsert) { row = { ...filter, ...structuredClone(update.$setOnInsert || {}) }; rows.push(row); inserted = true; }

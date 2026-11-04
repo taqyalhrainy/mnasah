@@ -339,8 +339,9 @@ function cookie(req, name) {
   const raw = req.headers.cookie || '';
   return raw.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))?.[1] || '';
 }
+const teacherCommission = teacher => teacher?.commission_exempt ? 0 : Math.max(0, Math.min(90, Number(process.env.PLATFORM_COMMISSION_PERCENT ?? 10)));
 function publicUser(u) {
-  return u ? { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
+  return u ? { id: u.id, commission_exempt: Boolean(u.commission_exempt), email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
 }
 async function restoreExpiredSuspension(user) {
   if (user?.status !== 'suspended' || !Number(user.suspended_until || 0) || Number(user.suspended_until) > Date.now()) return user;
@@ -667,7 +668,7 @@ async function enrichBookings(bookings) {
   const slots = await db.collection('slots').find({ id: { $in: slotIds } }, { projection: { _id: 0 } }).toArray();
   const slotMap = new Map(slots.map(s => [s.id, s]));
   const userIds = [...new Set(slots.flatMap(s => [s.teacher_id]).concat(bookings.map(b => b.student_id)))];
-  const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, phone: 1, verification: 1, bio: 1, subject: 1 } }).toArray();
+  const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, id: 1, name: 1, phone: 1, verification: 1, bio: 1, subject: 1, commission_exempt: 1 } }).toArray();
   const userMap = new Map(users.map(u => [u.id, u]));
   const ratings = await db.collection('ratings').find({ booking_id: { $in: bookings.map(row => row.id) } }, { projection: { _id: 0, booking_id: 1, rating: 1 } }).toArray();
   const ratingMap = new Map(ratings.map(row => [row.booking_id, Number(row.rating)]));
@@ -678,7 +679,7 @@ async function enrichBookings(bookings) {
     const { room: _room, ...safeBooking } = b;
     const teacherPhone = teacher.phone || parseVerification(teacher.verification).phone || '';
     const studentPhone = student.phone || parseVerification(student.verification).phone || '';
-    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacherPhone, student_name: student.name || '', student_phone: studentPhone, bio: teacher.bio || '', teacher_subjects: teacher.subject || '', student_rating: ratingMap.get(b.id) || 0 };
+    return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', commission_percent: b.commission_percent ?? teacherCommission(teacher), teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacherPhone, student_name: student.name || '', student_phone: studentPhone, bio: teacher.bio || '', teacher_subjects: teacher.subject || '', student_rating: ratingMap.get(b.id) || 0 };
   });
 }
 async function walletBalance(userId) {
@@ -1002,7 +1003,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const slots = await db.collection('slots').find({ start: { $gte: range.from, $lt: range.until }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { id: 1 } }).toArray();
       const bookings = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, $or: [{ status: 'completed' }, { status: 'cancelled', teacher_compensation: { $gt: 0 } }] }, { projection: { _id: 0 } }).toArray();
       const pendingPackages = await db.collection('package_purchases').find({ status: { $in: ['active', 'scheduled', 'exhausted'] }, expires_at: { $gt: Date.now() }, ...(user.role === 'teachers' ? { teacher_id: user.id } : {}) }, { projection: { _id: 0, teacher_id: 1, teacher_name: 1, package_name: 1, price: 1, refunded_amount: 1, lesson_count: 1, remaining_lessons: 1, created: 1 } }).toArray();
-      const report = paymentSummary(await enrichBookings(bookings), range, process.env.PLATFORM_COMMISSION_PERCENT || 10);
+      const report = paymentSummary(await enrichBookings(bookings), range, user.role === 'teachers' ? teacherCommission(user) : process.env.PLATFORM_COMMISSION_PERCENT || 10);
       if (user.role === 'admin') {
         const accounts = await db.collection('users').find({ role: 'teachers', status: { $ne: 'suspended' } }, { projection: { _id: 0, id: 1, name: 1 } }).sort({ name: 1 }).toArray();
         const completedByTeacher = new Map(report.teachers.map(item => [item.id, item]));
@@ -1058,6 +1059,16 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         await db.collection('sessions').deleteMany({ user_id: id });
         await db.collection('users').deleteOne({ id });
         await audit(user.id, 'user:deleted', id);
+        return res.json({ ok: true });
+      }
+      if (Object.hasOwn(body, 'commission_exempt')) {
+        if (target.role !== 'teachers' || typeof body.commission_exempt !== 'boolean') fail(400, 'اختر حالة إعفاء صحيحة لأستاذ.');
+        const slots = await db.collection('slots').find({ teacher_id: id }, { projection: { id: 1 } }).toArray();
+        // Preserve the agreed rate of existing bookings when the exemption changes.
+        await db.collection('bookings').updateMany({ slot_id: { $in: slots.map(slot => slot.id) }, commission_percent: { $exists: false } }, { $set: { commission_percent: teacherCommission(target) } });
+        await db.collection('package_purchases').updateMany({ teacher_id: id, commission_percent: { $exists: false } }, { $set: { commission_percent: teacherCommission(target) } });
+        await db.collection('users').updateOne({ id }, { $set: { commission_exempt: body.commission_exempt } });
+        await audit(user.id, 'teacher:commission', id);
         return res.json({ ok: true });
       }
       if (!['active', 'suspended'].includes(body.status)) fail(400, 'حالة غير صالحة.');
@@ -1249,7 +1260,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       try {
         const now = Date.now();
         const slots = starts.map((lessonStart, index) => { const id = crypto.randomUUID(); bookingIds.push(id); return { id: `package:${id}`, teacher_id: purchase.teacher_id, start: lessonStart, available_until: lessonStart + lessonDuration, minutes: Number(purchase.minutes), price: lessonPrice, subject, subjects: [subject], offerings: [{ minutes: Number(purchase.minutes), price: lessonPrice }], status: 'booked', package_purchase_id: purchase.id, package_sequence: index + 1, created: now }; });
-        const bookings = slots.map((slot, index) => ({ id: bookingIds[index], slot_id: slot.id, student_id: user.id, start: slot.start, minutes: Number(purchase.minutes), price: lessonPrice, subject, status: 'confirmed', room: random(), paid: 1, payment_ref: `package:${purchase.id}`, package_purchase_id: purchase.id, package_sequence: index + 1, payout_status: 'held', payout_hold_reason: `package:${purchase.id}`, notes: '', resource: '', created: now }));
+        const bookings = slots.map((slot, index) => ({ id: bookingIds[index], slot_id: slot.id, student_id: user.id, start: slot.start, minutes: Number(purchase.minutes), price: lessonPrice, subject, status: 'confirmed', room: random(), paid: 1, payment_ref: `package:${purchase.id}`, commission_percent: purchase.commission_percent ?? 10, package_purchase_id: purchase.id, package_sequence: index + 1, payout_status: 'held', payout_hold_reason: `package:${purchase.id}`, notes: '', resource: '', created: now }));
         await db.collection('slots').insertMany(slots);
         await db.collection('bookings').insertMany(bookings);
       } catch (error) {
@@ -1292,14 +1303,14 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       await walletAccount(user.id);
       const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: offer.price } }, { $inc: { balance: -offer.price }, $set: { updated: Date.now() } });
       if (!debit.modifiedCount) fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال شراء الباقة.');
-      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: [subject], lesson_count: offer.lesson_count, remaining_lessons: 0, minutes: offer.minutes, price: offer.price, weekly_schedule: storedWeeklySchedule(offer), selected_schedule: selectedSchedule, scheduled_starts: starts, scheduled_at: now, status: 'scheduled', expires_at: expiresAt, created: now, updated: now };
+      const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: [subject], lesson_count: offer.lesson_count, remaining_lessons: 0, minutes: offer.minutes, price: offer.price, commission_percent: teacherCommission(teacher), weekly_schedule: storedWeeklySchedule(offer), selected_schedule: selectedSchedule, scheduled_starts: starts, scheduled_at: now, status: 'scheduled', expires_at: expiresAt, created: now, updated: now };
       const bookingIds = starts.map(() => crypto.randomUUID());
       const lessonPrice = Math.round(Number(offer.price) / Number(offer.lesson_count));
       try {
         await db.collection('package_purchases').insertOne(purchase);
         await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'package_purchase', amount: -offer.price, reference: `package-purchase:${purchase.id}`, created: now });
         const slots = starts.map((start, index) => ({ id: `package:${bookingIds[index]}`, teacher_id: offer.teacher_id, start, available_until: start + lessonDuration, minutes: Number(offer.minutes), price: lessonPrice, subject, subjects: [subject], offerings: [{ minutes: Number(offer.minutes), price: lessonPrice }], status: 'booked', package_purchase_id: purchase.id, package_sequence: index + 1, created: now }));
-        const bookings = slots.map((slot, index) => ({ id: bookingIds[index], slot_id: slot.id, student_id: user.id, start: slot.start, minutes: Number(offer.minutes), price: lessonPrice, subject, status: 'confirmed', room: random(), paid: 1, payment_ref: `package:${purchase.id}`, package_purchase_id: purchase.id, package_sequence: index + 1, payout_status: 'held', payout_hold_reason: `package:${purchase.id}`, notes: '', resource: '', created: now }));
+        const bookings = slots.map((slot, index) => ({ id: bookingIds[index], slot_id: slot.id, student_id: user.id, start: slot.start, minutes: Number(offer.minutes), price: lessonPrice, subject, status: 'confirmed', room: random(), paid: 1, payment_ref: `package:${purchase.id}`, commission_percent: purchase.commission_percent ?? 10, package_purchase_id: purchase.id, package_sequence: index + 1, payout_status: 'held', payout_hold_reason: `package:${purchase.id}`, notes: '', resource: '', created: now }));
         await db.collection('slots').insertMany(slots);
         await db.collection('bookings').insertMany(bookings);
       } catch (error) {
@@ -1402,7 +1413,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       const bookingPrice = packagePurchase ? Math.round(Number(packagePurchase.price) / Number(packagePurchase.lesson_count)) : selectedOffering.price;
       try {
-        await db.collection('bookings').insertOne({ id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: bookingPrice, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: packagePurchase ? `package:${packagePurchase.id}` : 'wallet', package_purchase_id: packagePurchase?.id || '', notes: '', resource: '', created: Date.now() });
+        const bookingTeacher = await db.collection('users').findOne({ id: slot.teacher_id });
+        await db.collection('bookings').insertOne({ commission_percent: packagePurchase?.commission_percent ?? teacherCommission(bookingTeacher), id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: bookingPrice, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: packagePurchase ? `package:${packagePurchase.id}` : 'wallet', package_purchase_id: packagePurchase?.id || '', notes: '', resource: '', created: Date.now() });
         if (!packagePurchase) await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
         else {
           const fresh = await db.collection('package_purchases').findOne({ id: packagePurchase.id }, { projection: { _id: 0, remaining_lessons: 1 } });
@@ -1493,12 +1505,12 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       if (action === 'cancellation' && !write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        return res.json({ quote: row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 10 }) });
+        return res.json({ quote: row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: row.commission_percent ?? 10 }) });
       }
       if (action === 'cancel' && write) {
         if (row.status !== 'confirmed') fail(409, 'الحصة لم تعد قابلة للإلغاء.');
         if (user.role === 'students' && Number(row.start) <= Date.now()) fail(409, 'بعد بدء الحصة استخدم بلاغ عدم حضور الأستاذ إن لم يدخل خلال 10 دقائق.');
-        const quote = row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: process.env.PLATFORM_COMMISSION_PERCENT || 10 });
+        const quote = row.package_purchase_id ? packageCancellationQuote() : cancellationQuote({ start: row.start, price: row.price, actorRole: user.role, commissionPercent: row.commission_percent ?? 10 });
         const cancellation = { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: user.role, cancellation_reason: field(body.reason || '', 300, 0), refund_amount: quote.refund, teacher_compensation: quote.teacherCompensation, platform_fee: quote.platformFee };
         const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: cancellation });
         if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
