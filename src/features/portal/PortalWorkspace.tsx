@@ -3,7 +3,7 @@ import { RecoveryBoundary, lazyWithRetry } from '../../app/RecoveryBoundary';
 import { parseTeachingChoices, serializeTeachingChoices, teachingChoiceKey, uniqueTeachingChoices, type TeachingChoice } from './teachingChoices';
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
 import { Suspense, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, CircleAlert, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone } from 'lucide-react';
+import { BookOpen, CalendarDays, CalendarPlus, Check, ChevronLeft, CircleAlert, Download, History as HistoryIcon, RefreshCw, Search, Send, UserRound, Video, X, Save, Bell, BellOff, Clock3, BadgeCheck, ArrowRight, Plus, Trash2, PackageCheck, ShoppingBag, Star, Phone, SlidersHorizontal } from 'lucide-react';
 import { ApiError, request, requestFile, apiMediaUrl, date, money, statusNames, type Booking, type Slot, type SlotOffering, type Portal, type User, type Message, type CustomPackage, type WalletData, type CancellationQuote, type LessonPackage, type PackagePurchase, type WeeklySchedule, type PackageScheduleSelection, type CatalogData, type CatalogGroup } from '../../services/platformApi';
 import { useLessonReminders, reminderPhase } from './useLessonReminders';
 import { AccountsPanel } from './AccountsPanel';
@@ -113,8 +113,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [studentSubject, setStudentSubject] = useState('');
   const [studentScheduleDay, setStudentScheduleDay] = useState(() => dayStart());
   const [studentScheduleWeek, setStudentScheduleWeek] = useState(() => weekStart());
-  const [liveCurriculumFilter, setLiveCurriculumFilter] = useState('all');
-  const [liveSubjectFilter, setLiveSubjectFilter] = useState('all');
+
   const [selectedTutorId, setSelectedTutorId] = useState('');
   const [teachingChoices, setTeachingChoices] = useState<TeachingChoice[]>([]);
   const [teachingDraft, setTeachingDraft] = useState<TeachingChoice[] | null>(null);
@@ -440,14 +439,30 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return fuzzyMatch(specialties, studentSubject) || (s.subject === 'كل المواد المختارة' && teachesSubject(s.teacher_subjects || '', studentSubject));
   });
   const selectedDaySubjectSlots = subjectSlots.filter(slot => slotBookableOnDay(slot, studentScheduleDay));
-  const liveFilterSubjects = [...new Set((liveCurriculumFilter === 'all' ? catalog : catalog.filter(category => (category.parentId || 'curriculum-other') === liveCurriculumFilter)).flatMap(category => category.subjects))];
+  const liveFilterSubjects = activeCategory?.subjects || (activeStudentCurriculum?.categories || catalog).flatMap(category => category.subjects);
   const availableNowSlots = openSlots.filter(slot => slot.start <= Date.now() + 15 * 60000 && Number(slot.available_until || slot.start + slot.minutes * 60000) > Date.now());
   const filteredAvailableNowSlots = availableNowSlots.filter(slot => {
     const values = slotSubjects(slot);
-    const curriculumMatch = liveCurriculumFilter === 'all' || values.some(subject => liveFilterSubjects.some(value => fuzzyMatch(value, subject)));
-    const subjectMatch = liveSubjectFilter === 'all' || values.some(subject => fuzzyMatch(subject, liveSubjectFilter));
+    const choices = parseTeachingChoices(slot.teacher_subjects || '', catalog);
+    const categoryIds = new Set((activeStudentCurriculum?.categories || catalog).map(category => category.id));
+    const matchingChoices = choices.filter(choice => categoryIds.has(choice.categoryId) && (!activeCategory || choice.categoryId === activeCategory.id) && (!studentLevel || choice.levels.includes(studentLevel)) && (!studentSubject || fuzzyMatch(choice.subject, studentSubject)));
+    const curriculumMatch = !studentCurriculumId && !activeCategory || (choices.length ? matchingChoices.length > 0 : values.some(subject => liveFilterSubjects.some(value => fuzzyMatch(value, subject))));
+    const subjectMatch = !studentSubject || values.some(subject => fuzzyMatch(subject, studentSubject));
     return curriculumMatch && subjectMatch;
   });
+  const renderMaterialFilters = () => <div className="live-tutor-filters material-filter-controls">
+    <button className="secondary-button" type="button" onClick={openMaterialFilters} aria-controls="learning-path"><SlidersHorizontal size={18} />{t('فلترة المواد')}</button>
+    {studentCurriculumId && <div className="material-filter-selection"><span>{[activeStudentCurriculum?.name, studentCategory, studentLevel, studentSubject].filter(Boolean).map(value => t(value)).join(' / ')}</span><button type="button" className="icon-button" onClick={clearMaterialFilters} aria-label={t('مسح الفلاتر')}><X size={15} /></button></div>}
+  </div>;
+  function openMaterialFilters() {
+    setStudentStep(activeCategory ? studentLevel || !activeCategory.levels.length ? 'subjects' : 'levels' : activeStudentCurriculum ? 'branches' : 'categories');
+    const target = document.getElementById('learning-path');
+    target?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    target?.focus({ preventScroll: true });
+  }
+  function clearMaterialFilters() {
+    setStudentCurriculumId(''); setStudentCategory(''); setCategoryId(''); setStudentLevel(''); setStudentSubject(''); setStudentStep('categories');
+  }
   const studentSearch = <label className="student-search"><Search size={19} /><input aria-label={t("بحث")} placeholder={t("ابحث عن مادة أو أستاذ")} value={query} onChange={e => setQuery(e.target.value)} /></label>;
   const activePackagePurchases = packagePurchases.filter(item => ['active', 'scheduled'].includes(item.status) && item.expires_at > Date.now());
   const slotsForPackage = (purchase: PackagePurchase) => openSlots.filter(slot => slot.teacher_id === purchase.teacher_id && slotSubjects(slot).some(subject => purchase.subjects.includes(subject)) && slotOfferings(slot).some(offering => offering.minutes === purchase.minutes && availableBookingStarts(slot, offering.minutes).some(start => start + offering.minutes * 60000 <= purchase.expires_at)));
@@ -653,13 +668,13 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     {loading || loadedView !== view ? <WorkspaceSkeleton /> : <>
       {view === 'home' && <section className="student-home">
         <WorkspaceOverview user={user} portal={portal} bookings={bookings} availableCount={new Set(openSlots.map(slot => slot.teacher_id)).size} onView={onView}>
-          <div className="student-package-explorer" id="learning-path">
+          <div className="student-package-explorer" id="learning-path" tabIndex={-1}>
             <div className="showcase-heading"><div><span>{t('مساحتك التعليمية')}</span><h2>{studentStep === 'categories' ? t('شو حاب تتعلّم؟') : studentStep === 'branches' ? t(activeStudentCurriculum?.name || '') : t(studentCategory)}</h2><p>{studentStep === 'categories' ? t('اختار المنهاج، وإحنا بنوصلك للمرحلة والمادة المناسبة.') : studentStep === 'branches' ? t(activeStudentCurriculum?.description || '') : t(activeCategory?.description || 'كل سؤال، بداية جديدة.')}</p></div>{studentSearch}</div>
             {studentStep === 'categories' && <div className="package-grid student-package-grid">{curriculumGroups.map((group, index) => <button key={group.id} className="package-card" style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} onClick={() => chooseStudentCurriculum(group.id)}><span className="package-icon"><CategoryIcon value={group.icon} /></span><strong>{t(group.name)}</strong><small>{t(group.description)}</small><ChevronLeft size={18} /></button>)}</div>}
             {studentStep !== 'categories' && <div className="student-flow showcase-flow"><button className="package-back" onClick={() => { if (studentStep === 'branches') { setStudentStep('categories'); setStudentCurriculumId(''); } else { setStudentStep('branches'); } setStudentCategory(''); setCategoryId(''); setStudentLevel(''); setStudentSubject(''); }}><ArrowRight size={18} />{t(studentStep === 'branches' ? 'كل المناهج' : 'مراحل المنهاج')}</button><h3>{studentStep === 'branches' ? t('اختر المرحلة') : studentStep === 'levels' ? t('اختر مستواك الدراسي') : studentStep === 'subjects' ? t('اختر المادة') : t('المواعيد المناسبة إلك')}</h3>{studentStep === 'branches' && <div className="package-grid student-package-grid">{(activeStudentCurriculum?.categories || []).map((category, index) => <button key={category.id} className="package-card" style={{ '--package-delay': `${Math.min(index, 12) * 55}ms` } as CSSProperties} onClick={() => chooseCategory(category.id, category.name)}><span className="package-icon"><CategoryIcon value={category.icon} /></span><strong>{t(category.name.replace(/^.*?\|\s*/, ''))}</strong><small>{t(category.description)}</small><ChevronLeft size={18} /></button>)}</div>}{studentStep === 'levels' && <div className="choice-grid">{levels.map(level => <button onClick={() => { setStudentLevel(level); setStudentStep('subjects'); }} key={level}>{t(level)}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'subjects' && <div className="choice-grid">{subjects.map(subject => <button onClick={() => { setStudentSubject(subject); setStudentScheduleDay(dayStart()); setStudentScheduleWeek(weekStart()); setStudentStep('tutors'); }} key={subject}>{catalogText(subject)}<ChevronLeft size={16} /></button>)}</div>}{studentStep === 'tutors' && <><StudentWeekStrip slots={subjectSlots} selectedDay={studentScheduleDay} week={studentScheduleWeek} onDay={setStudentScheduleDay} onWeek={setStudentScheduleWeek} />{selectedDaySubjectSlots.length ? <TutorList slots={selectedDaySubjectSlots} busy={busy} bookSlot={slot => bookSlot(slot, null, studentScheduleDay)} onProfile={openTeacherProfile} /> : <Empty text="لا يوجد أساتذة متاحون في هذا اليوم. اختر يوماً عليه نقطة." />}</>}</div>}
           </div>
         </WorkspaceOverview>
-        <div className="student-home-market-grid"><section className="available-tutors home-nearest-tutors"><div className="section-heading"><div><span className="section-kicker">{t('جاهزون الآن')}</span><h3>{t('الأساتذة المتاحون حالياً')}</h3></div><div className="live-tutor-filters"><label>{t('المنهاج')}<select value={liveCurriculumFilter} onChange={event => { setLiveCurriculumFilter(event.target.value); setLiveSubjectFilter('all'); }}><option value="all">{t('كل المناهج')}</option>{curriculumGroups.map(group => <option key={group.id} value={group.id}>{t(group.name)}</option>)}</select></label><label>{t('المادة')}<select value={liveSubjectFilter} onChange={event => setLiveSubjectFilter(event.target.value)}><option value="all">{t('كل المواد')}</option>{liveFilterSubjects.map(subject => <option key={subject} value={subject}>{catalogText(subject)}</option>)}</select></label></div></div>{filteredAvailableNowSlots.length ? <TutorList slots={filteredAvailableNowSlots.slice(0, 8)} busy={busy} bookSlot={bookSlot} compact onProfile={openTeacherProfile} /> : <Empty text="لا يوجد أستاذ متاح الآن ضمن هذه الفئة." />}</section></div>
+        <div className="student-home-market-grid"><section className="available-tutors home-nearest-tutors"><div className="section-heading"><div><span className="section-kicker">{t('جاهزون الآن')}</span><h3>{t('الأساتذة المتاحون حالياً')}</h3></div>{renderMaterialFilters()}</div>{filteredAvailableNowSlots.length ? <TutorList slots={filteredAvailableNowSlots.slice(0, 8)} busy={busy} bookSlot={bookSlot} compact onProfile={openTeacherProfile} /> : <Empty text="لا يوجد أستاذ متاح الآن ضمن هذه الفئة." />}</section></div>
       </section>}
       {view === 'rooms' && <RoomHub portal={portal} bookings={bookings} now={reminders.now} filter={roomFilter} onFilter={setRoomFilter} busy={busy} canJoin={canJoinBooking} onJoin={join} onDetails={booking => setSelected(booking.id)} onCancel={cancel} />}
       {view === 'tutors' && <section className="student-page"><div className="section-heading"><h2>{selectedTutorId ? t('مواعيد الأستاذ') : t("أساتذتي")}</h2>{selectedTutorId && <button className="secondary-button" onClick={() => setSelectedTutorId('')}><ArrowRight size={17} />{t('العودة إلى أساتذتي')}</button>}</div>{selectedTutorId ? (openSlots.some(slot => slot.teacher_id === selectedTutorId) ? <TutorList slots={openSlots.filter(slot => slot.teacher_id === selectedTutorId)} busy={busy} bookSlot={bookSlot} onProfile={openTeacherProfile} /> : <Empty text="الأستاذ مش ناشر مواعيد جديدة" />) : <>{!myTutors.length && <Empty text="لم تحجز مع أي أستاذ بعد." />}<div className="student-list">{myTutors.map(b => <article className="saved-tutor" key={b.teacher_id}><button type="button" className="avatar" onClick={() => void openTeacherProfile(b.teacher_id)} aria-label={t('فتح ملف الأستاذ')}><UserRound size={24} /></button><button type="button" className="saved-tutor-name" onClick={() => void openTeacherProfile(b.teacher_id)}><strong>{b.teacher_name}</strong><p>{catalogText(b.subject)}{t(" · آخر حصة ")}{date(b.start)}</p></button><button className="primary-button" onClick={() => setSelectedTutorId(b.teacher_id)}>{t("احجز مجدداً")}</button></article>)}</div></>}</section>}

@@ -1502,11 +1502,23 @@ button.day-event { font: inherit; }
 .document-annotation-tools label { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #484c57; border-radius: 9px; background: #30333b; cursor: pointer; }
 .document-annotation-tools label span { width: 18px; height: 18px; border: 2px solid #fff; border-radius: 50%; }
 .document-annotation-tools input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.document-page { display: grid; place-items: center; min-height: 0; min-width: 0; overflow: hidden; padding: 0; background: radial-gradient(circle at center, #343741, #15171c 72%); }
-.document-page-canvas { position: relative; display: grid; place-items: center; max-width: 100%; max-height: 100%; touch-action: none; }
+.document-page { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; min-height: 0; min-width: 0; overflow: hidden; padding: 0; touch-action: none; user-select: none; overscroll-behavior: contain; background: radial-gradient(circle at center, #343741, #15171c 72%); }
+.document-page-canvas { position: relative; display: grid; place-items: center; justify-self: center; align-self: center; max-width: none; max-height: none; touch-action: none; will-change: transform; }
 .document-page img { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; border-radius: 4px; background: #fff; box-shadow: 0 18px 60px #0009; }
 .document-page-canvas > svg { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; overflow: visible; }
 .shared-pointer { pointer-events: none; }
+.document-page.pan-tool, .document-page.pan-tool svg { cursor: grab; }
+.document-page.pan-tool:active, .document-page.pan-tool:active svg { cursor: grabbing; }
+.document-annotation-tools { flex-wrap: wrap; }
+.document-zoom-controls { display: flex; align-items: center; gap: 5px; border-inline-start: 1px solid #4b4f5c; padding-inline-start: 9px; margin-inline-start: 4px; }
+.document-zoom-controls .document-zoom-percent { width: 58px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.document-zoom-controls .document-fit-width { width: auto; padding-inline: 10px; font-size: 12px; }
+.document-zoom-controls button:disabled { opacity: .4; cursor: default; }
+.student-package-explorer#learning-path { scroll-margin-top: 110px; outline: none; }
+.material-filter-controls { align-items: center; justify-content: flex-end; max-width: 100%; }
+.material-filter-selection { display: flex; align-items: center; gap: 6px; max-width: 440px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface); }
+.material-filter-selection > span { min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.material-filter-selection .icon-button { flex: 0 0 30px; width: 30px; min-height: 30px; }
 .recovery-panel { display: grid; place-content: center; justify-items: center; gap: 14px; min-height: 240px; padding: 28px; text-align: center; }
 .recovery-panel h2, .recovery-panel p { margin: 0; }
 .commission-toggle.exempt { border-color: #13845b; color: #116c4c; background: #daf7e9; }

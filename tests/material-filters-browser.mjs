@@ -1,0 +1,45 @@
+import { chromium } from '@playwright/test';
+import assert from 'node:assert/strict';
+import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
+const base = process.env.UI_BASE_URL || 'http://127.0.0.1:5192';
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+try {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  const jordan = educationCatalog.find(item => item.id === 'jordan-basic') || educationCatalog[0];
+  const international = educationCatalog.find(item => item.parentId === 'curriculum-international');
+  const subject = 'الرياضيات', arabic = 'اللغة العربية';
+  const now = Date.now();
+  const makeSlot = (name, category, level, chosenSubject) => ({ id: name, teacher_id: name, teacher_name: name, teacher_subjects: `${category.name} › ${chosenSubject} › ${level}`, start: now + 5 * 60000, available_until: now + 3 * 3600000, minutes: 60, price: 1000, subject: chosenSubject, subjects: [chosenSubject], offerings: [{ minutes: 60, price: 1000 }], status: 'open' });
+  const slots = [makeSlot('Jordan Math One', jordan, jordan.levels[0], subject), makeSlot('Jordan Math Two', jordan, jordan.levels[1], subject), makeSlot('Jordan Arabic', jordan, jordan.levels[0], arabic), makeSlot('International Math', international, international.levels[0], subject)];
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: { id: 'student', role: 'students', status: 'active', name: 'Student', email: 'student@test.invalid', subject: '', bio: '' } } });
+    if (path.endsWith('/catalog')) return route.fulfill({ json: { categories: educationCatalog, groups: educationGroups } });
+    return route.fulfill({ json: { bookings: [], slots, events: [], users: [], offers: [], purchases: [] } });
+  });
+  await page.goto(base + '/students', { waitUntil: 'domcontentloaded' });
+  const results = page.locator('.home-nearest-tutors');
+  await results.locator('.tutor-info').first().waitFor();
+  assert.equal(await results.locator('.tutor-info').count(), 4);
+  assert.equal(await results.locator('select').count(), 0, 'the material cards replace the old separate dropdowns');
+  await results.getByRole('button', { name: 'فلترة المواد', exact: true }).click();
+  assert.equal(await page.locator('#learning-path').evaluate(element => element === document.activeElement), true);
+  assert.ok(await page.locator('#learning-path').evaluate(element => element.getBoundingClientRect().top < 180));
+  await page.locator('#learning-path').getByRole('button').filter({ hasText: 'المنهاج الأردني' }).last().click();
+  assert.equal(await results.locator('.tutor-info').count(), 3, 'the curriculum must distinguish Jordanian maths from international maths');
+  await page.locator('#learning-path').getByRole('button').filter({ hasText: 'الأساسي' }).last().click();
+  await page.getByRole('button', { name: jordan.levels[0], exact: true }).click();
+  await page.getByRole('button', { name: subject, exact: true }).click();
+  assert.equal(await results.locator('.tutor-info').count(), 1);
+  assert.match(await results.innerText(), /Jordan Math One/);
+  assert.match(await results.locator('.material-filter-selection').innerText(), /الرياضيات/);
+  await results.getByRole('button', { name: 'فلترة المواد', exact: true }).click();
+  await page.getByRole('button', { name: arabic, exact: true }).click();
+  assert.equal(await results.locator('.tutor-info').count(), 1);
+  assert.match(await results.innerText(), /Jordan Arabic/);
+  await results.getByRole('button', { name: 'مسح الفلاتر', exact: true }).click();
+  assert.equal(await results.locator('.tutor-info').count(), 4);
+  assert.equal(await results.locator('.material-filter-selection').count(), 0);
+  console.log('Card-based subject filters, curriculum/grade matching, scroll-to-filter and clearing passed.');
+} finally { await browser.close(); }

@@ -1,4 +1,12 @@
 export const additionalMessages: Record<string, string> = {
+  "تحريك الصفحة": "Pan page",
+  "تكبير وتحريك الملف": "Document zoom and pan",
+  "تصغير الملف": "Zoom document out",
+  "تكبير الملف": "Zoom document in",
+  "عرض الصفحة كاملة": "Fit entire page",
+  "ملاءمة العرض": "Fit width",
+  "فلترة المواد": "Filter subjects",
+  "مسح الفلاتر": "Clear filters",
   "أهلًا معلمة": "Welcome, teacher",
   "أهلًا أستاذ": "Welcome, teacher",
   "أهلًا بك": "Welcome",

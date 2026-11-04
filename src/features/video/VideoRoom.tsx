@@ -1,3 +1,4 @@
+import { constrainDocumentView, fitDocumentView, zoomDocumentView } from './documentViewport';
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
@@ -114,7 +115,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardDocument, setWhiteboardDocument] = useState<WhiteboardDocument | null>(null);
   const [whiteboardDocumentBusy, setWhiteboardDocumentBusy] = useState(false);
   const [sharedDocument, setSharedDocument] = useState<SharedDocument | null>(null);
-  const [documentTool, setDocumentTool] = useState<'pen' | 'highlight'>('pen');
+  const [documentTool, setDocumentTool] = useState<'pen' | 'highlight' | 'pan'>('pen');
   const [documentColor, setDocumentColor] = useState('#facc15');
   const [documentAnnotations, setDocumentAnnotations] = useState<DocumentAnnotation[]>([]);
   const [localPointer, setLocalPointer] = useState<SharedPointer | null>(null);
@@ -124,6 +125,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const documentPageRef = useRef<HTMLDivElement>(null);
   const [documentSize, setDocumentSize] = useState({ width: 1, height: 1 });
   const [documentRatio, setDocumentRatio] = useState(1);
+  const [documentView, setDocumentView] = useState(fitDocumentView);
+  const documentViewRef = useRef(documentView);
+  documentViewRef.current = documentView;
+  const documentOverlayRef = useRef<SVGSVGElement>(null);
+  const documentPanRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const documentPointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const documentPinchRef = useRef<{ distance: number; center: { x: number; y: number } } | null>(null);
+  useEffect(() => { setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.name, sharedDocument?.page]);
+  useEffect(() => {
+    const area = documentPageRef.current;
+    if (area) setDocumentView(view => constrainDocumentView(view, documentSize, { width: area.clientWidth, height: area.clientHeight }));
+  }, [documentSize]);
   const longPressRef = useRef<{ timer: number; x: number; y: number; item: WhiteboardItem } | null>(null);
   useEffect(() => {
     const page = documentPageRef.current;
@@ -398,10 +411,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   useEffect(() => {
     const blockBrowserZoom = (event: globalThis.WheelEvent) => {
       const target = event.target as Element | null;
-      if (stageMode === 'whiteboard' && target?.closest('.whiteboard-panel') && (event.ctrlKey || event.metaKey)) event.preventDefault();
+      if (stageMode === 'document' && target?.closest('.document-page') || stageMode === 'whiteboard' && target?.closest('.whiteboard-panel') && (event.ctrlKey || event.metaKey)) event.preventDefault();
     };
     const blockBrowserZoomKeys = (event: KeyboardEvent) => {
-      if (stageMode !== 'whiteboard' || (!event.ctrlKey && !event.metaKey)) return;
+      if (!['whiteboard', 'document'].includes(stageMode) || (!event.ctrlKey && !event.metaKey)) return;
       if (['+', '-', '=', '0'].includes(event.key)) event.preventDefault();
     };
     document.addEventListener('wheel', blockBrowserZoom, { passive: false, capture: true });
@@ -1120,7 +1133,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         render: async (pageNumber) => {
           const page = await pdf.getPage(pageNumber);
           const base = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: Math.min(2.2, 1920 / base.width, 1200 / base.height) });
+          const viewport = page.getViewport({ scale: Math.min(3, 2400 / base.width, 2400 / base.height) });
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(viewport.width)); canvas.height = Math.max(1, Math.round(viewport.height));
           const context = canvas.getContext('2d', { alpha: false });
@@ -1252,7 +1265,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     return () => window.clearInterval(timer);
   }, [localPointer]);
   useEffect(() => { publishPointer(null, true); setRemotePointer(null); }, [stageMode, sharedDocument?.page]);
-  const renderPointer = (pointer: SharedPointer | null, space: SharedPointer['space'], remote = false) => pointer?.space === space && (space !== 'document' || pointer.page === sharedDocument?.page) ? <circle className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} r={space === 'whiteboard' ? 7 / whiteboardViewport.zoom : 9} fill="#ef4444" fillOpacity=".6" stroke="#fff" strokeWidth={space === 'whiteboard' ? 1.5 / whiteboardViewport.zoom : 2} pointerEvents="none" /> : null;
+  const renderPointer = (pointer: SharedPointer | null, space: SharedPointer['space'], remote = false) => pointer?.space === space && (space !== 'document' || pointer.page === sharedDocument?.page) ? <circle className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} r={space === 'whiteboard' ? 7 / whiteboardViewport.zoom : 9 / documentView.zoom} fill="#ef4444" fillOpacity=".6" stroke="#fff" strokeWidth={space === 'whiteboard' ? 1.5 / whiteboardViewport.zoom : 2 / documentView.zoom} pointerEvents="none" /> : null;
   const startTextLongPress = (event: PointerEvent<SVGSVGElement>) => {
     if (event.pointerType !== 'touch' || role !== 'teacher') return;
     const point = whiteboardPoint(event);
@@ -1596,40 +1609,96 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     });
   };
 
-  const documentPoint = (event: PointerEvent<SVGSVGElement>) => {
-    const svg = event.currentTarget;
-    const point = svg.createSVGPoint();
-    point.x = event.clientX; point.y = event.clientY;
+  const renderDocumentControls = () => <div className="document-annotation-tools" aria-label={t('أدوات التعليق على الملف')}>
+    <button type="button" className={documentTool === 'pan' ? 'active' : ''} aria-pressed={documentTool === 'pan'} onClick={() => setDocumentTool('pan')} title={t('تحريك الصفحة')}><Hand size={17} /></button>
+    <button type="button" className={documentTool === 'pen' ? 'active' : ''} aria-pressed={documentTool === 'pen'} onClick={() => setDocumentTool('pen')} title={t('قلم')}><Pencil size={17} /></button>
+    <button type="button" className={documentTool === 'highlight' ? 'active' : ''} aria-pressed={documentTool === 'highlight'} onClick={() => setDocumentTool('highlight')} title={t('هايلايتر')}><Highlighter size={17} /></button>
+    <label title={t('لون الأداة')}><span style={{ background: documentColor }} /><input type="color" value={documentColor} onChange={event => setDocumentColor(event.target.value)} /></label>
+    <button type="button" onClick={undoDocumentAnnotation} title={t('تراجع')}><Undo2 size={17} /></button>
+    <div className="document-zoom-controls" role="group" aria-label={t('تكبير وتحريك الملف')}>
+      <button type="button" disabled={documentView.zoom <= 1} onClick={() => zoomDocument(1 / 1.25)} title={t('تصغير الملف')}>−</button>
+      <button type="button" className="document-zoom-percent" onClick={() => setDocumentView(fitDocumentView)} title={t('عرض الصفحة كاملة')}>{Math.round(documentView.zoom * 100)}%</button>
+      <button type="button" disabled={documentView.zoom >= 6} onClick={() => zoomDocument(1.25)} title={t('تكبير الملف')}>+</button>
+      <button type="button" onClick={() => setDocumentView(fitDocumentView)} title={t('عرض الصفحة كاملة')}><Maximize2 size={17} /></button>
+      <button type="button" className="document-fit-width" onClick={fitDocumentWidth}>{t('ملاءمة العرض')}</button>
+    </div>
+  </div>;
+  const documentSurface = () => ({ width: documentPageRef.current?.clientWidth || 1, height: documentPageRef.current?.clientHeight || 1 });
+  const documentAnchor = (clientX: number, clientY: number) => {
+    const rect = documentPageRef.current!.getBoundingClientRect();
+    return { x: clientX - rect.left - rect.width / 2, y: clientY - rect.top - rect.height / 2 };
+  };
+  const zoomDocument = (factor: number, anchor = { x: 0, y: 0 }) => setDocumentView(view => zoomDocumentView(view, factor, anchor, documentSize, documentSurface()));
+  const fitDocumentWidth = () => { const surface = documentSurface(); setDocumentView(constrainDocumentView({ zoom: (surface.width - 28) / documentSize.width, x: 0, y: 0 }, documentSize, surface)); };
+  const documentPoint = (event: { clientX: number; clientY: number }) => {
+    const svg = documentOverlayRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const point = svg.createSVGPoint(); point.x = event.clientX; point.y = event.clientY;
     const transformed = point.matrixTransform(svg.getScreenCTM()?.inverse());
     return { x: transformed.x, y: transformed.y };
   };
-
-  const startDocumentAnnotation = (event: PointerEvent<SVGSVGElement>) => {
-    if (!sharedDocument) return;
-    const point = documentPoint(event);
+  const documentPinch = () => {
+    const [a, b] = [...documentPointersRef.current.values()];
+    return a && b ? { distance: Math.hypot(a.x - b.x, a.y - b.y), center: documentAnchor((a.x + b.x) / 2, (a.y + b.y) / 2) } : null;
+  };
+  const startDocumentAnnotation = (event: PointerEvent<HTMLDivElement>) => {
+    if (!sharedDocument || (event.button !== 0 && event.button !== 1)) return;
+    event.preventDefault();
+    documentPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
+    if (documentPointersRef.current.size >= 2) {
+      documentPinchRef.current = documentPinch(); documentPanRef.current = null;
+      if (documentDrawingRef.current) { const id = documentDrawingRef.current.id; documentDrawingRef.current = null; publishDocumentAnnotations(documentAnnotationsRef.current.filter(item => item.id !== id), true); }
+      return;
+    }
+    if (documentTool === 'pan' || event.button === 1) {
+      const view = documentViewRef.current;
+      documentPanRef.current = { clientX: event.clientX, clientY: event.clientY, x: view.x, y: view.y };
+      return;
+    }
+    if (!documentOverlayRef.current?.contains(event.target as Node)) return;
+    const point = documentPoint(event);
     const annotation: DocumentAnnotation = { id: createWhiteboardId(`document-${documentTool}`), page: sharedDocument.page, kind: documentTool, color: documentColor, size: documentTool === 'highlight' ? 26 : 4, points: [point] };
     documentDrawingRef.current = annotation;
     publishDocumentAnnotations([...documentAnnotationsRef.current, annotation]);
   };
-
-  const moveDocumentAnnotation = (event: PointerEvent<SVGSVGElement>) => {
-    publishPointer({ ...documentPoint(event), space: 'document', page: sharedDocument?.page });
+  const moveDocumentAnnotation = (event: PointerEvent<HTMLDivElement>) => {
+    const point = documentPoint(event);
+    publishPointer(point.x >= 0 && point.x <= 1000 && point.y >= 0 && point.y <= 1400 ? { ...point, space: 'document', page: sharedDocument?.page } : null);
+    if (documentPointersRef.current.has(event.pointerId)) documentPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (documentPointersRef.current.size >= 2) {
+      const pinch = documentPinch(), previous = documentPinchRef.current;
+      if (pinch && previous?.distance) setDocumentView(view => {
+        const zoomed = zoomDocumentView(view, pinch.distance / previous.distance, previous.center, documentSize, documentSurface());
+        return constrainDocumentView({ ...zoomed, x: zoomed.x + pinch.center.x - previous.center.x, y: zoomed.y + pinch.center.y - previous.center.y }, documentSize, documentSurface());
+      });
+      documentPinchRef.current = pinch;
+      return;
+    }
+    const pan = documentPanRef.current;
+    if (pan) { setDocumentView(view => constrainDocumentView({ ...view, x: pan.x + event.clientX - pan.clientX, y: pan.y + event.clientY - pan.clientY }, documentSize, documentSurface())); return; }
     const active = documentDrawingRef.current;
     if (!active || active.kind === 'text') return;
-    const point = documentPoint(event);
     const last = active.points.at(-1);
     if (last && Math.hypot(point.x - last.x, point.y - last.y) < 2) return;
     const updated: DocumentAnnotation = { ...active, points: [...active.points, point] };
     documentDrawingRef.current = updated;
     publishDocumentAnnotations(documentAnnotationsRef.current.map(item => item.id === updated.id ? updated : item));
   };
-
-  const finishDocumentAnnotation = (event: PointerEvent<SVGSVGElement>) => {
+  const finishDocumentAnnotation = (event: PointerEvent<HTMLDivElement>) => {
+    documentPointersRef.current.delete(event.pointerId);
+    documentPanRef.current = null;
+    if (documentPointersRef.current.size < 2) documentPinchRef.current = null;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* Already released. */ }
     if (!documentDrawingRef.current) return;
     documentDrawingRef.current = null;
-    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* Pointer can already be released. */ }
     publishDocumentAnnotations(documentAnnotationsRef.current, true);
+  };
+  const wheelDocument = (event: WheelEvent<HTMLDivElement>) => {
+    if (!event.defaultPrevented) event.preventDefault();
+    event.stopPropagation();
+    if (event.ctrlKey || event.metaKey) zoomDocument(Math.exp(-event.deltaY * .003), documentAnchor(event.clientX, event.clientY));
+    else setDocumentView(view => constrainDocumentView({ ...view, x: view.x - event.deltaX, y: view.y - event.deltaY }, documentSize, documentSurface()));
   };
 
   const undoDocumentAnnotation = () => {
@@ -1699,7 +1768,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         ) : stageMode === 'document' && sharedDocument ? (
           <div className="document-stage">
             <aside className="document-side-rail"><div className="call-video-strip whiteboard-dock">{renderTile('local', 'pip')}{renderTile('remote', 'pip')}</div><div className="document-slide-list" aria-label={t('صفحات الملف')}>{Array.from({ length: sharedDocument.pages }, (_, index) => index + 1).map(page => <button type="button" key={page} className={page === sharedDocument.page ? 'active' : ''} disabled={role !== 'teacher' || whiteboardDocumentBusy} onClick={() => void publishSharedDocumentPage(page)}><span>{page}</span></button>)}</div></aside>
-            <section className="document-viewer" aria-label={t('عارض الملف')}><header><div><FileUp size={20} /><strong title={sharedDocument.name}>{sharedDocument.name}</strong><span>{t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })}</span></div><div className="document-annotation-tools" aria-label={t('أدوات التعليق على الملف')}><button type="button" className={documentTool === 'pen' ? 'active' : ''} onClick={() => setDocumentTool('pen')} title={t('قلم')}><Pencil size={17} /></button><button type="button" className={documentTool === 'highlight' ? 'active' : ''} onClick={() => setDocumentTool('highlight')} title={t('هايلايتر')}><Highlighter size={17} /></button><label title={t('لون الأداة')}><span style={{ background: documentColor }} /><input type="color" value={documentColor} onChange={event => setDocumentColor(event.target.value)} /></label><button type="button" onClick={undoDocumentAnnotation} title={t('تراجع')}><Undo2 size={17} /></button></div><nav><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page <= 1} onClick={() => changeSharedDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={20} /></button><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page >= sharedDocument.pages} onClick={() => changeSharedDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={20} /></button>{role === 'teacher' && <button type="button" className="document-close" onClick={closeSharedDocument} aria-label={t('إغلاق الملف')}>×</button>}</nav></header><div className="document-page" ref={documentPageRef}><div className="document-page-canvas" style={{ width: documentSize.width, height: documentSize.height }}><img onLoad={event => { const image = event.currentTarget; setDocumentRatio(image.naturalWidth / image.naturalHeight || 1); }} src={sharedDocument.src} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} /><svg viewBox="0 0 1000 1400" preserveAspectRatio="none" onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>{documentAnnotations.filter(item => item.page === sharedDocument.page).map(item => item.kind === 'text' ? <text key={item.id} x={item.x} y={item.y} fill={item.color} fontSize="34" fontWeight="700" paintOrder="stroke" stroke="#fff" strokeWidth="3">{item.text}</text> : <path key={item.id} d={documentPath(item)} fill="none" stroke={item.color} strokeWidth={item.size} strokeLinecap="round" strokeLinejoin="round" opacity={item.kind === 'highlight' ? .42 : 1} />)}{renderPointer(localPointer, 'document')}{renderPointer(remotePointer, 'document', true)}</svg></div></div></section>
+            <section className="document-viewer" aria-label={t('عارض الملف')}><header><div><FileUp size={20} /><strong title={sharedDocument.name}>{sharedDocument.name}</strong><span>{t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })}</span></div>{renderDocumentControls()}<nav><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page <= 1} onClick={() => changeSharedDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={20} /></button><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page >= sharedDocument.pages} onClick={() => changeSharedDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={20} /></button>{role === 'teacher' && <button type="button" className="document-close" onClick={closeSharedDocument} aria-label={t('إغلاق الملف')}>×</button>}</nav></header><div className={`document-page ${documentTool === 'pan' ? 'pan-tool' : ''}`} ref={documentPageRef} onWheel={wheelDocument} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}><div className="document-page-canvas" style={{ width: documentSize.width * documentView.zoom, height: documentSize.height * documentView.zoom, transform: `translate(${documentView.x}px, ${documentView.y}px)` }}><img onLoad={event => { const image = event.currentTarget; setDocumentRatio(image.naturalWidth / image.naturalHeight || 1); }} draggable={false} src={sharedDocument.src} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} /><svg ref={documentOverlayRef} viewBox="0 0 1000 1400" preserveAspectRatio="none">{documentAnnotations.filter(item => item.page === sharedDocument.page).map(item => item.kind === 'text' ? <text key={item.id} x={item.x} y={item.y} fill={item.color} fontSize="34" fontWeight="700" paintOrder="stroke" stroke="#fff" strokeWidth="3">{item.text}</text> : <path key={item.id} d={documentPath(item)} fill="none" stroke={item.color} strokeWidth={item.size} strokeLinecap="round" strokeLinejoin="round" opacity={item.kind === 'highlight' ? .42 : 1} />)}{renderPointer(localPointer, 'document')}{renderPointer(remotePointer, 'document', true)}</svg></div></div></section>
           </div>
         ) : (
           <div className="video-grid" aria-label={t("المشاركون")}>
