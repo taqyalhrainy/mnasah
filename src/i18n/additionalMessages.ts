@@ -1,6 +1,7 @@
 export const additionalMessages: Record<string, string> = {
   "تثبيت على iPhone": "Install on iPhone",
   "شرح تثبيت التطبيق على الآيفون": "iPhone installation guide",
+  "فيديو تثبيت التطبيق على الآيفون": "iPhone app installation video",
   "حوّل المنصة إلى تطبيق": "Turn the platform into an app",
   "منصة تعليم خصوصي": "Private tutoring platform",
   "افتح المنصة في Safari": "Open the platform in Safari",
@@ -21,6 +22,10 @@ export const additionalMessages: Record<string, string> = {
   "تفعيل إشعارات الهاتف": "Enable phone notifications",
   "تصل حتى عند إغلاق التطبيق": "Delivered even when the app is closed",
   "فعّل إشعارات امتداد العلم": "Enable Imtidad Al-Elm notifications",
+  "تفعيل إشعارات الجهاز": "Enable device notifications",
+  "فعّل إشعارات امتداد العلم على اللابتوب": "Enable Imtidad Al-Elm notifications on your laptop",
+  "الإشعارات محظورة من إعدادات المتصفح. اسمح بها لهذا الموقع من علامة القفل بجانب الرابط، ثم حاول مرة أخرى.": "Notifications are blocked in browser settings. Allow them for this site from the lock icon next to the address, then try again.",
+  "اسمح بالإشعارات لتظهر على اللابتوب حتى لو كنت تتصفح موقعًا آخر أو كانت المنصة في الخلفية.": "Allow notifications to appear on your laptop even while browsing another website or when the platform is in the background.",
   "الإشعارات مرفوضة من إعدادات الهاتف. فعّلها من إعدادات Chrome أو التطبيق ثم ارجع وحاول.": "Notifications are blocked in phone settings. Enable them for Chrome or the app, then return and try again.",
   "اسمح بالإشعارات لتصلك الرسائل والحجوزات على الهاتف حتى عند إغلاق التطبيق.": "Allow notifications to receive messages and bookings on your phone even when the app is closed.",
   "تحقق مرة أخرى": "Check again",

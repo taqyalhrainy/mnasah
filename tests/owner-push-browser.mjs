@@ -7,8 +7,14 @@ const base = process.env.UI_BASE_URL || 'http://127.0.0.1:5192';
 const publicKey = webpush.generateVAPIDKeys().publicKey;
 await mkdir('.private/owner-push', { recursive: true });
 try {
-  for (const scenario of [{ name: 'iphone', result: 'granted', theme: 'light' }, { name: 'android', result: 'granted', theme: 'dark' }, { name: 'denied', result: 'denied', theme: 'light' }]) {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, reducedMotion: 'reduce', userAgent: scenario.name === 'android' ? 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36' : 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1' });
+  for (const scenario of [{ name: 'iphone', result: 'granted', theme: 'light' }, { name: 'android', result: 'granted', theme: 'dark' }, { name: 'desktop', result: 'granted', theme: 'dark' }, { name: 'denied', result: 'denied', theme: 'light' }]) {
+    const viewport = scenario.name === 'desktop' ? { width: 1280, height: 820 } : { width: 390, height: 844 };
+    const userAgent = scenario.name === 'android'
+      ? 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36'
+      : scenario.name === 'desktop'
+        ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'
+        : 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
+    const context = await browser.newContext({ viewport, isMobile: scenario.name !== 'desktop', reducedMotion: 'reduce', userAgent });
     const page = await context.newPage();
     await page.route(/^https:\/\//, route => route.abort());
     await page.addInitScript(({ result, theme, publicKey }) => {
@@ -34,14 +40,18 @@ try {
       return route.fulfill({ json: { bookings: [], slots: [], users: [], events: [], topups: [], wallets: [], notifications: [], unreadByView: {}, groups: [], categories: [] } });
     });
     await page.goto(base + '/owner', { waitUntil: 'domcontentloaded' });
-    if (scenario.name === 'android') await page.locator('.device-notification-prompt').waitFor();
+    if (scenario.name === 'android' || scenario.name === 'desktop') await page.locator('.device-notification-prompt').waitFor();
     await page.locator('details.account-menu > summary').click();
     const menuBounds = await page.locator('.owner-account-dropdown').boundingBox();
-    assert.ok(menuBounds.x >= 0 && menuBounds.x + menuBounds.width <= 390, 'notification menu must fit inside the phone screen');
+    assert.ok(menuBounds.x >= 0 && menuBounds.x + menuBounds.width <= viewport.width, 'notification menu must fit inside the screen');
     assert.equal(await page.evaluate(() => window.__push.calls), 0, 'must not prompt automatically on app launch');
     if (scenario.name === 'iphone') {
       await page.getByRole('button', { name: 'تثبيت على iPhone', exact: true }).click();
       await page.locator('.ios-install-guide').waitFor();
+      await page.waitForFunction(() => {
+        const video = document.querySelector('.iphone-video-shell video');
+        return video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime > 0.5;
+      });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'iPhone guide must fit inside the phone screen');
       await page.screenshot({ path: '.private/owner-push/iphone-install-guide.png' });
       await page.getByRole('button', { name: 'إغلاق الشرح', exact: true }).click();

@@ -14,6 +14,8 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported');
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const isAndroid = /Android/i.test(navigator.userAgent);
+  const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isDesktop = !isAndroid && !isIos;
   useEffect(() => {
     let alive = true;
     setEnabled(false); setHint(''); setChecked(false);
@@ -51,5 +53,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, toggle, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, toggle, test };
 }
