@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v15';
+const CACHE_NAME = 'imtidad-shell-v16';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -33,21 +33,17 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     const network = fetch(request).then(async response => {
       if (!response.ok) throw new Error('Navigation unavailable');
-      if (response.ok) {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(INDEX_URL, response.clone());
-      }
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(INDEX_URL, response.clone());
       return response;
     });
     event.waitUntil(network.catch(() => undefined));
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(INDEX_URL);
-      try {
-        return await Promise.race([network, new Promise((resolve, reject) => setTimeout(() => cached ? resolve(cached) : reject(new Error('offline')), 8000))]);
-      } catch {
-        return (await cache.match(INDEX_URL)) || Response.error();
-      }
+      if (cached) return cached;
+      try { return await network; }
+      catch { return Response.error(); }
     })());
     return;
   }

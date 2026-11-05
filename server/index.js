@@ -1579,13 +1579,15 @@ app.use(express.static(path.join(root, 'dist/client'), {
   maxAge: '1y',
   immutable: true,
   setHeaders(res, filePath) {
-    if (filePath.endsWith('index.html') || filePath.endsWith('service-worker.js') || filePath.endsWith('manifest.webmanifest')) {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'public, max-age=0, stale-while-revalidate=86400, stale-if-error=604800');
+      } else if (filePath.endsWith('service-worker.js') || filePath.endsWith('manifest.webmanifest')) {
       res.setHeader('Cache-Control', 'no-cache');
     }
   },
 }));
 app.get('*path', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'public, max-age=0, stale-while-revalidate=86400, stale-if-error=604800');
   res.sendFile(path.join(root, 'dist/client/index.html'));
 });
 app.use((error, _req, res, _next) => {

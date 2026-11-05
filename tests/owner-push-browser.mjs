@@ -34,10 +34,19 @@ try {
       return route.fulfill({ json: { bookings: [], slots: [], users: [], events: [], topups: [], wallets: [], notifications: [], unreadByView: {}, groups: [], categories: [] } });
     });
     await page.goto(base + '/owner', { waitUntil: 'domcontentloaded' });
+    if (scenario.name === 'android') await page.locator('.device-notification-prompt').waitFor();
     await page.locator('details.account-menu > summary').click();
     const menuBounds = await page.locator('.owner-account-dropdown').boundingBox();
     assert.ok(menuBounds.x >= 0 && menuBounds.x + menuBounds.width <= 390, 'notification menu must fit inside the phone screen');
     assert.equal(await page.evaluate(() => window.__push.calls), 0, 'must not prompt automatically on app launch');
+    if (scenario.name === 'iphone') {
+      await page.getByRole('button', { name: 'تثبيت على iPhone', exact: true }).click();
+      await page.locator('.ios-install-guide').waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'iPhone guide must fit inside the phone screen');
+      await page.screenshot({ path: '.private/owner-push/iphone-install-guide.png' });
+      await page.getByRole('button', { name: 'إغلاق الشرح', exact: true }).click();
+      await page.locator('details.account-menu > summary').click();
+    }
     const toggle = page.locator('.device-notification-toggle');
     await toggle.click();
     await page.waitForFunction(() => !document.querySelector('.device-notification-toggle')?.disabled);

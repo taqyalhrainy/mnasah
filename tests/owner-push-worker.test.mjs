@@ -14,6 +14,22 @@ test('navigation falls back to the platform shell on a temporary server error', 
   assert.equal(await (await result).text(), 'platform shell');
 });
 
+test('repeat navigation returns the cached shell without waiting for a slow server', async () => {
+  const handlers = {};
+  const origin = 'https://emtidad-alelm.onrender.com';
+  const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
+  const cached = new Response('instant shell');
+  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
+    self, URL, Response,
+    fetch: () => new Promise(() => {}),
+    caches: { open: async () => ({ match: async () => cached }) },
+  });
+  let result;
+  handlers.fetch({ request: { method: 'GET', mode: 'navigate', url: origin + '/students' }, waitUntil: () => {}, respondWith: promise => { result = promise; } });
+  const response = await Promise.race([result, new Promise((_, reject) => setTimeout(() => reject(new Error('cached navigation waited for the server')), 100))]);
+  assert.equal(await response.text(), 'instant shell');
+});
+
 test('background worker shows owner notifications without an open page and opens the target section', async () => {
   const handlers = {}, shown = [], messages = [], opened = [];
   let running = [];
