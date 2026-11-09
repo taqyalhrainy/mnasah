@@ -2058,10 +2058,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (stageModeRef.current === 'whiteboard') setStageMode(sharedDocumentRef.current ? 'document' : 'video');
     sendWhiteboard({ kind: 'board-session', open: false });
   };
-  const splitResources = stageMode !== 'video' && boardOpen && Boolean(sharedDocument);
   const isWindowsDevice = /Windows/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
   return (
-    <section className={`video-room call-experience ${splitResources ? 'split-resources' : ''} ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
+    <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
       {remoteAudioBlocked && <button type="button" className="remote-audio-unlock" onClick={() => void resumeRemoteAudio()}><Mic size={18} />{t('اضغط لتشغيل صوت المكالمة')}</button>}
       {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file"  onChange={handleWhiteboardFileChange} />}
@@ -2082,8 +2081,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           {sharedDocument && <button type="button" className="shared-document-tile" onClick={() => { setStageMode('document'); setFocusedParticipant(null); }} aria-label={t('تكبير الملف المشترك')}><img src={lessonFileUrl(sharedDocument.src)} alt="" /></button>}
           {boardOpen && <button type="button" className="shared-document-tile shared-whiteboard-tile" onClick={() => { setStageMode('whiteboard'); setFocusedParticipant(null); }} aria-label={t('العودة إلى البورد المشترك')}><svg viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`}><rect x={whiteboardViewport.x} y={whiteboardViewport.y} width={viewWidth} height={viewHeight} fill="#fff" />{whiteboardStrokes.map(stroke => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}{whiteboardItems.map(item => item.type === 'image' ? <image key={item.id} href={item.src} x={item.x} y={item.y} width={item.width} height={item.height} /> : <text key={item.id} x={item.x + item.width} y={item.y + item.fontSize} textAnchor="end" fontSize={item.fontSize} fill={item.color}>{item.text}</text>)}</svg></button>}
         </div>
-        {(stageMode === 'whiteboard' || splitResources) && <div className="whiteboard-stage"><aside className="whiteboard-side-rail">{renderWhiteboardTools()}</aside>{renderWhiteboard()}</div>}
-        {(stageMode === 'document' || splitResources) && sharedDocument && <div className="document-stage">
+        {stageMode === 'whiteboard' && <div className="whiteboard-stage"><aside className="whiteboard-side-rail">{renderWhiteboardTools()}</aside>{renderWhiteboard()}</div>}
+        {stageMode === 'document' && sharedDocument && <div className="document-stage">
           <section className="document-viewer" aria-label={t('عارض الملف')}>
             <header>{renderDocumentControls()}</header>
             <div className={`document-page ${documentTool === 'pan' ? 'pan-tool' : ''}`} ref={documentPageRef} onWheel={wheelDocument} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>
