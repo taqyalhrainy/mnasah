@@ -2715,12 +2715,19 @@ html.call-active .support-whatsapp { display: none; }
   .muted-speaking-warning { bottom: calc(128px + env(safe-area-inset-bottom)); padding: 9px 11px; font-size: 11px; }.muted-speaking-warning small { font-size: 10px; }
 }
 
-/* Square gallery tiles, including independent camera and screen-share streams. */
+/* Gallery tiles retain their media nodes while changing lesson surfaces. */
 .call-experience.video-mode .stable-media-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: none; grid-auto-rows: max-content; align-content: center; align-items: start; gap: 8px; overflow-y: auto; padding: 3px; }
 .call-experience.video-mode .stable-media-grid > .participant-tile,.call-experience.video-mode .stable-media-grid > .shared-document-tile { position: relative; inset: auto; grid-column: auto; grid-row: auto; order: 0; width: 100%; height: auto; max-height: none; aspect-ratio: 1; align-self: start; }
 .call-experience.video-mode .stable-media-grid.has-focus { display: flex; flex-wrap: wrap; align-content: center; align-items: center; }
 .call-experience.video-mode .stable-media-grid.has-focus > .participant-tile,.call-experience.video-mode .stable-media-grid.has-focus > .shared-document-tile { flex: 0 0 calc(25% - 6px); width: auto; height: 112px; aspect-ratio: auto; }
 .call-experience.video-mode .stable-media-grid.has-focus > .is-focused { order: -1; flex: 0 0 100%; width: 100%; height: calc(100% - 124px); aspect-ratio: auto; }
+.call-experience.video-mode .stable-media-grid.camera-only:not(.has-focus) { grid-template-columns: minmax(0,1fr); grid-template-rows: repeat(2,minmax(0,1fr)); grid-auto-rows: minmax(0,1fr); align-content: stretch; align-items: stretch; overflow: hidden; }
+.call-experience.video-mode .stable-media-grid.camera-only:not(.has-focus) > .participant-tile { width: 100%; height: 100%; aspect-ratio: auto; min-height: 0; }
+.shared-whiteboard-tile > svg { display: block; width: 100%; height: 100%; background: #fff; }
+.document-viewer .document-page { position: relative; }
+.document-page-loading { position: absolute; z-index: 4; inset-inline: 12px; bottom: 12px; display: flex; justify-content: center; align-items: center; gap: 7px; width: max-content; max-width: calc(100% - 24px); margin-inline: auto; padding: 8px 12px; border: 1px solid #bc93ed; border-radius: 20px; color: #faf6ff; background: #342446f2; box-shadow: 0 4px 16px #0004; pointer-events: none; font-size: 12px; }
+.document-page-loading svg { animation: call-spin 1s linear infinite; }
+.whiteboard-mode .shared-whiteboard-tile,.document-mode .shared-whiteboard-tile { display: none; }
 .call-experience .file-share-button.file-stop-button { width: 48px; min-width: 48px; padding: 0; }
 .share-tile video { object-fit: contain; }
 
@@ -2759,4 +2766,41 @@ html.call-active .support-whatsapp { display: none; }
   .call-experience.whiteboard-mode .whiteboard-panel { grid-column: 1 / -1; grid-row: 2; }
   .call-experience.document-mode .call-stage { grid-template-rows: min(45vw,180px) minmax(0,1fr); }
   .document-toolbar-navigation { gap: 4px; }
+}
+
+/* Separate, recognizable file/board controls; closing one never closes the other. */
+.call-resource-control { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; padding: 3px; border: 1px solid transparent; border-radius: 22px; }
+.call-resource-control.is-open { border-color: #736184; background: #15131c; }
+.call-resource-control.file-resource.is-open { border-color: #a58a42; }
+.call-resource-control .tool-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+.call-resource-control .tool-button > span { font-size: 10px; line-height: 1.1; }
+.call-resource-control .resource-stop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 43px; padding: 5px 7px; border: 0; border-radius: 15px; color: #eddbff; background: #392c4b; cursor: pointer; }
+.call-resource-control.file-resource .resource-stop { color: #ffe4a3; background: #43371f; }
+.resource-stop > span { font-size: 10px; white-space: nowrap; }
+.resource-stop:hover { filter: brightness(1.2); }
+.call-experience .call-toolbar { max-width: min(100%,900px); flex-wrap: wrap; gap: 5px; }
+/* Restore the board's full canvas and the original tools below the camera rail. */
+.call-experience.whiteboard-mode .whiteboard-side-rail { display: block; padding: 0; overflow-y: auto; }
+.call-experience.whiteboard-mode .whiteboard-tools { display: grid; width: auto; grid-template-columns: repeat(3,minmax(34px,1fr)); grid-auto-rows: auto; gap: 7px; padding: 9px; }
+.call-experience.whiteboard-mode .whiteboard-tools .whiteboard-tool-heading { display: block; }
+.call-experience.whiteboard-mode .whiteboard-panel { border-radius: 16px; }
+.call-experience.whiteboard-mode .stable-media-grid .camera-placeholder > span { width: 34px; height: 34px; font-size: 18px; }
+.call-experience.whiteboard-mode .stable-media-grid .camera-placeholder { padding-bottom: 20px; }
+.call-experience.whiteboard-mode .stable-media-grid .camera-placeholder strong,.call-experience.whiteboard-mode .stable-media-grid .camera-placeholder small { display: none; }
+.support-whatsapp,.support-whatsapp:hover { width: auto; height: auto; min-height: 42px; padding: 11px 18px; border-radius: 24px; color: #fff !important; background: #643982; font-size: 14px; font-weight: 700; }
+.support-whatsapp > span,.support-whatsapp:hover > span { display: block; }
+.support-whatsapp strong { display: none; }
+.support-whatsapp small { font-size: inherit; }
+@media (min-width: 1000px) { .call-experience.video-mode .stable-media-grid.camera-only:not(.has-focus) { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 760px) {
+  .call-experience .call-toolbar { gap: 4px; padding: 6px; border-radius: 24px; }
+  .call-resource-control { padding: 2px; gap: 2px; border-radius: 16px; }
+  .call-resource-control .tool-button { width: 34px; height: 37px; }
+  .call-resource-control .resource-stop { min-height: 37px; padding: 4px; border-radius: 12px; }
+  .resource-stop > span,.call-resource-control .tool-button > span { font-size: 9px; }
+  .call-experience.whiteboard-mode .call-stage { grid-template-columns: minmax(0,210px) minmax(0,1fr); grid-template-rows: 82px minmax(0,1fr); }
+  .call-experience.whiteboard-mode .whiteboard-tools { grid-template-columns: repeat(6,32px); grid-auto-rows: 32px; width: max-content; gap: 4px; padding: 4px; }
+  .call-experience.whiteboard-mode .whiteboard-tools .whiteboard-tool-heading { display: none; }
+  .call-experience.whiteboard-mode .whiteboard-side-rail { overflow: auto; }
+  .support-whatsapp,.support-whatsapp:hover { min-height: 40px; padding: 9px 14px; font-size: 12px; }
 }

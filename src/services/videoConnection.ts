@@ -17,7 +17,7 @@ type PeerCallbacks = {
   onLocalScreenStream?: (stream: MediaStream | null) => void;
   onRemoteScreenStream?: (stream: MediaStream | null) => void;
   onLocalStreamChange?: (stream: MediaStream) => void;
-  onRemoteProfile?: (profile: { name: string; avatar?: string }) => void;
+  onRemoteProfile?: (profile: { name: string; avatar?: string } | null) => void;
   onPeerLeft: () => void;
   onStatus: (status: string) => void;
 };
@@ -33,6 +33,18 @@ const iceServers: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] },
   ...(hasTurnServer ? [{ urls: turnUrls, username: turnUsername, credential: turnCredential }] : []),
 ];
+const audioConstraints: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+const videoConstraints: MediaTrackConstraints = {
+  width: { ideal: 640, max: 1280 }, height: { ideal: 360, max: 720 },
+  frameRate: { ideal: 24, max: 30 }, facingMode: { ideal: 'user' },
+};
+const leaveGraceMs = 750;
+const mediaRetryDelays = [150, 300];
+
+function isTransientCaptureError(cause: unknown) {
+  const name = (cause as { name?: string } | null)?.name;
+  return name === 'NotReadableError' || name === 'AbortError';
+}
 
 function normalizeRoomId(roomId: string) {
   return roomId
@@ -68,7 +80,18 @@ export class VideoConnection {
   private diagnosedCalls = new WeakSet<MediaConnection>();
   private resolvedIceServers: RTCIceServer[] = iceServers;
   private videoRepair?: Promise<void>;
+  private audioRepair?: Promise<void>;
+  private cameraAcquisition?: Promise<MediaStreamTrack | undefined>;
+  private startPromise?: Promise<MediaStream>;
+  private generation = 0;
+  private remoteStream?: MediaStream;
+  private remotePresent = false;
   private profile?: { name: string; avatar?: string };
+  private readonly handlePageHide = (event: PageTransitionEvent) => {
+    // BFCache pages can resume; ordinary backgrounding/PiP uses visibilitychange.
+    // Unload delivery is best-effort because the browser may stop networking.
+    if (!event.persisted) this.close();
+  };
 
   constructor(
     private readonly roomId: string,
@@ -76,8 +99,20 @@ export class VideoConnection {
     private readonly callbacks: PeerCallbacks,
   ) {}
 
-  async start() {
+  // Callers restoring an enabled camera can request both devices in one prompt.
+  start(options: { video?: boolean } = {}): Promise<MediaStream> {
+    if (this.startPromise) return this.startPromise;
+    if (!this.closed && this.localStream) return Promise.resolve(this.localStream);
     this.closed = false;
+    const generation = ++this.generation;
+    const pending = this.startSession(generation, options.video === true).finally(() => {
+      if (this.startPromise === pending) this.startPromise = undefined;
+    });
+    this.startPromise = pending;
+    return pending;
+  }
+
+  private async startSession(generation: number, video: boolean) {
     const cleanRoomId = normalizeRoomId(this.roomId);
     if (!cleanRoomId) {
       throw new Error(t("اكتب رقم غرفة صحيح"));
@@ -88,28 +123,62 @@ export class VideoConnection {
     }
 
     this.callbacks.onStatus(t("جاري تشغيل المايك"));
-    const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    let stream: MediaStream | undefined;
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+      try {
+        stream = await this.acquireUserMedia({ audio: audioConstraints, video: video ? videoConstraints : false }, generation);
+      } catch (cause) {
+        const name = (cause as { name?: string } | null)?.name;
+        // Hardware/camera constraints must not block an otherwise usable mic.
+        // Denials deliberately do not trigger another permission request.
+        if (!video || !(isTransientCaptureError(cause) || name === 'NotFoundError' || name === 'OverconstrainedError')) throw cause;
+        video = false;
+        stream = await this.acquireUserMedia({ audio: audioConstraints, video: false }, generation);
+      }
     } catch (cause) {
+      if (this.closed || generation !== this.generation) throw new Error('Call closed');
       const error = cause as DOMException;
       if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') {
         throw new Error(t('اسمح للمتصفح باستخدام المايك ثم حاول مجدداً.'));
       }
       throw new Error(t('تعذر تشغيل المايك على هذا الجهاز. أغلق أي تطبيق يستخدمه ثم حاول مجدداً.'));
     }
-    if (this.closed) { this.localStream?.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
-    this.placeholderVideoTrack = this.createPlaceholderVideoTrack();
-    if (this.placeholderVideoTrack) this.localStream.addTrack(this.placeholderVideoTrack);
+    if (!stream || this.closed || generation !== this.generation) { stream?.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
+    this.localStream = stream;
+    window.addEventListener('pagehide', this.handlePageHide);
+    this.videoEnabled = video;
+    this.cameraTrack = stream.getVideoTracks()[0];
+    stream.getAudioTracks().forEach(track => { track.enabled = this.audioEnabled; });
+    if (!this.cameraTrack) {
+      this.placeholderVideoTrack = this.createPlaceholderVideoTrack();
+      if (this.placeholderVideoTrack) stream.addTrack(this.placeholderVideoTrack);
+    }
 
     try {
       const result = await request<{ ice_servers?: RTCIceServer[] }>(`${this.role}s/video/ice`, undefined, undefined, 5000);
-      if (Array.isArray(result.ice_servers) && result.ice_servers.length) this.resolvedIceServers = result.ice_servers;
+      if (generation === this.generation && Array.isArray(result.ice_servers) && result.ice_servers.length) this.resolvedIceServers = result.ice_servers;
     } catch { /* Static STUN/TURN configuration remains available as a fallback. */ }
 
-    if (this.closed) { this.localStream?.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
+    if (this.closed || generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
     this.createPeer();
-    return this.localStream;
+    return stream;
+  }
+
+  private async acquireUserMedia(constraints: MediaStreamConstraints, generation: number): Promise<MediaStream | undefined> {
+    for (let attempt = 0; ; attempt++) {
+      if (this.closed || generation !== this.generation) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (this.closed || generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); return; }
+        return stream;
+      } catch (cause) {
+        if (this.closed || generation !== this.generation) return;
+        if (!isTransientCaptureError(cause) || attempt >= mediaRetryDelays.length) throw cause;
+        // Mobile device release can lag track.stop(). Bound automatic retries
+        // to 450 ms per acquisition (900 ms including a mic-only fallback).
+        await new Promise<void>(resolve => window.setTimeout(resolve, mediaRetryDelays[attempt]));
+      }
+    }
   }
 
   toggleAudio(enabled: boolean) {
@@ -117,27 +186,52 @@ export class VideoConnection {
     this.localStream?.getAudioTracks().forEach((track) => {
       track.enabled = enabled;
     });
-    if (enabled) void this.repairAudio();
+    if (enabled) void this.repairAudio().catch(() => undefined);
     this.sendAudioState();
   }
 
   async repairAudio() {
     if (this.closed || !this.localStream) return;
-    let track = this.localStream.getAudioTracks().find(candidate => candidate.readyState === 'live');
-    if (!track) {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      track = stream.getAudioTracks()[0];
-      this.localStream.getAudioTracks().forEach(oldTrack => { this.localStream?.removeTrack(oldTrack); oldTrack.stop(); });
-      if (track) this.localStream.addTrack(track);
-    }
-    if (!track) return;
-    track.enabled = this.audioEnabled;
-    const sender = this.activeCall?.peerConnection.getSenders().find(candidate => candidate.track?.kind === 'audio' || candidate.track === null && candidate.getParameters().codecs?.some(codec => codec.mimeType.toLowerCase().startsWith('audio/')));
-    if (sender && sender.track !== track) await sender.replaceTrack(track);
+    if (this.audioRepair) return this.audioRepair;
+    const localStream = this.localStream;
+    const generation = this.generation;
+    const pending = (async () => {
+      let track = localStream.getAudioTracks().find(candidate => candidate.readyState === 'live');
+      if (!track) {
+        const stream = await this.acquireUserMedia({ audio: audioConstraints, video: false }, generation);
+        if (!stream) return;
+        if (this.closed || generation !== this.generation) { stream.getTracks().forEach(item => item.stop()); return; }
+        track = stream.getAudioTracks()[0];
+        localStream.getAudioTracks().forEach(oldTrack => { localStream.removeTrack(oldTrack); oldTrack.stop(); });
+        if (track) localStream.addTrack(track);
+      }
+      if (!track) return;
+      track.enabled = this.audioEnabled;
+      const sender = this.activeCall?.peerConnection.getSenders().find(candidate => candidate.track?.kind === 'audio' || candidate.track === null && candidate.getParameters().codecs?.some(codec => codec.mimeType.toLowerCase().startsWith('audio/')));
+      if (sender && sender.track !== track) await sender.replaceTrack(track);
+    })().finally(() => { if (this.audioRepair === pending) this.audioRepair = undefined; });
+    this.audioRepair = pending;
+    return pending;
+  }
+
+  private acquireCamera(force = false) {
+    if (this.cameraAcquisition) return this.cameraAcquisition;
+    // Muting is often temporary on mobile; reuse a live track on a normal toggle.
+    if (!force && this.cameraTrack?.readyState === 'live') return Promise.resolve(this.cameraTrack);
+    const generation = this.generation;
+    const pending = this.acquireUserMedia({ audio: false, video: videoConstraints }, generation).then(stream => {
+      if (!stream) return;
+      if (this.closed || generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); return; }
+      const track = stream.getVideoTracks()[0];
+      if (track) { this.cameraTrack?.stop(); this.cameraTrack = track; }
+      return track;
+    }).finally(() => { if (this.cameraAcquisition === pending) this.cameraAcquisition = undefined; });
+    this.cameraAcquisition = pending;
+    return pending;
   }
 
   async toggleVideo(enabled: boolean) {
-    if (!this.localStream) return this.localStream;
+    if (this.closed || !this.localStream) return this.localStream;
     this.videoEnabled = enabled;
     if (!enabled) {
       if (this.cameraTrack) this.cameraTrack.enabled = false;
@@ -145,26 +239,24 @@ export class VideoConnection {
       return this.localStream;
     }
 
-    if (!this.cameraTrack || this.cameraTrack.readyState === 'ended' || this.cameraTrack.muted) {
-      const previous = this.cameraTrack;
-      const cameraStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 360, max: 720 },
-          frameRate: { ideal: 24, max: 30 },
-          facingMode: { ideal: 'user' },
-        },
-      });
-      this.cameraTrack = cameraStream.getVideoTracks()[0];
-      previous?.stop();
-      if (this.closed) { cameraStream.getTracks().forEach(track => track.stop()); return this.localStream; }
+    const generation = this.generation;
+    let track: MediaStreamTrack | undefined;
+    try {
+      track = await this.acquireCamera();
+    } catch (cause) {
+      if (!this.closed && generation === this.generation) {
+        this.videoEnabled = Boolean(this.cameraTrack?.readyState === 'live' && this.cameraTrack.enabled);
+        this.sendVideoState();
+      }
+      throw cause;
     }
-    if (!this.cameraTrack) throw new Error(t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
-    this.cameraTrack.enabled = true;
+    if (this.closed || generation !== this.generation) return this.localStream;
+    if (!track) throw new Error(t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
+    track.enabled = this.videoEnabled;
     if (this.videoSource === 'camera') {
-      await this.replaceOutgoingVideoTrack(this.cameraTrack);
-      this.replaceLocalPreviewTrack(this.cameraTrack);
+      await this.replaceOutgoingVideoTrack(track);
+      if (this.closed || generation !== this.generation) return this.localStream;
+      this.replaceLocalPreviewTrack(track);
     }
     this.sendVideoState();
     this.callbacks.onLocalStreamChange?.(this.localStream);
@@ -176,23 +268,24 @@ export class VideoConnection {
     if (this.videoRepair) return this.videoRepair;
     const current = this.cameraTrack;
     if (!force && current?.readyState === 'live' && !current.muted) return;
-    this.videoRepair = (async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 }, facingMode: 'user' } });
-      const track = stream.getVideoTracks()[0];
-      if (this.closed || !this.videoEnabled || this.videoSource !== 'camera') { stream.getTracks().forEach(item => item.stop()); return; }
-      if (!track) return;
-      this.cameraTrack = track;
+    const generation = this.generation;
+    const pending = (async () => {
+      const track = await this.acquireCamera(true);
+      if (this.closed || generation !== this.generation || !track) return;
+      track.enabled = this.videoEnabled;
+      if (!this.videoEnabled || this.videoSource !== 'camera') return;
       await this.replaceOutgoingVideoTrack(track);
+      if (this.closed || generation !== this.generation) return;
       this.replaceLocalPreviewTrack(track);
-      current?.stop();
       this.sendVideoState();
       this.callbacks.onLocalStreamChange?.(this.localStream!);
-    })().finally(() => { this.videoRepair = undefined; });
-    return this.videoRepair;
+    })().finally(() => { if (this.videoRepair === pending) this.videoRepair = undefined; });
+    this.videoRepair = pending;
+    return pending;
   }
 
   async startScreenShare() {
-    if (!this.localStream) {
+    if (this.closed || !this.localStream) {
       throw new Error(t("ابدأ الجلسة قبل مشاركة الشاشة"));
     }
 
@@ -200,10 +293,12 @@ export class VideoConnection {
       throw new Error(t("مشاركة الشاشة غير مدعومة على هذا المتصفح أو نظام الهاتف"));
     }
 
+    const generation = this.generation;
     const screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: false,
     });
+    if (this.closed || generation !== this.generation) { screenStream.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
     const [screenTrack] = screenStream.getVideoTracks();
     if (!screenTrack) {
       throw new Error(t("لم يتم اختيار شاشة للمشاركة"));
@@ -218,7 +313,7 @@ export class VideoConnection {
     this.callbacks.onStatus(t("مشاركة الشاشة تعمل الآن"));
 
     screenTrack.onended = () => {
-      void this.stopScreenShare();
+      if (this.screenTrack === screenTrack) void this.stopScreenShare();
     };
 
     return screenStream;
@@ -245,21 +340,85 @@ export class VideoConnection {
   }
 
   close() {
+    if (this.closed) return;
     this.closed = true;
+    window.removeEventListener('pagehide', this.handlePageHide);
+    ++this.generation;
+    this.startPromise = undefined;
+    this.audioRepair = undefined;
+    this.videoRepair = undefined;
+    this.cameraAcquisition = undefined;
+    this.discoveryInFlight = false;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
+    this.retryTimer = undefined;
     void this.callbacks.onLocalPeerId?.(null);
-    this.activeCall?.close();
-    this.activeDataConnection?.close();
-    this.outgoingScreenCall?.close(); this.incomingScreenCall?.close();
-    this.pendingCalls.forEach(call => call.close());
-    this.pendingDataConnections.forEach(connection => connection.close());
-    this.pendingCalls.clear();
+
+    // Keep the captured data transport alive until delivery is acknowledged (or
+    // a short deadline). PeerJS close/destroy immediately discards its buffers.
+    const peer = this.peer;
+    const data = this.activeDataConnection;
+    this.peer = undefined;
+    this.activeDataConnection = undefined;
+    const finish = () => { data?.close(); peer?.destroy(); };
+    if (data?.open) {
+      let finished = false;
+      const timer = window.setTimeout(finishLeave, leaveGraceMs);
+      function finishLeave() {
+        if (finished) return;
+        finished = true;
+        window.clearTimeout(timer);
+        data!.off('data', acknowledge);
+        data!.off('close', finishLeave);
+        finish();
+      }
+      const acknowledge = (message: unknown) => {
+        if (message && typeof message === 'object' && (message as { type?: string }).type === 'peer-leave-ack') finishLeave();
+      };
+      data.on('data', acknowledge);
+      data.on('close', finishLeave);
+      try { void Promise.resolve(data.send({ type: 'peer-leave' })).catch(finishLeave); } catch { finishLeave(); }
+    } else {
+      finish();
+    }
+    this.closeRemoteMedia();
+    this.remotePresent = false;
+    const pendingData = [...this.pendingDataConnections];
     this.pendingDataConnections.clear();
-    this.peer?.destroy();
+    pendingData.forEach(connection => connection.close());
+    this.screenStream?.getTracks().forEach(track => { track.onended = null; track.stop(); });
     this.screenTrack?.stop();
     this.cameraTrack?.stop();
     this.placeholderVideoTrack?.stop();
-    this.localStream?.getTracks().forEach((track) => track.stop());
+    this.localStream?.getTracks().forEach(track => track.stop());
+    this.localStream = undefined;
+    this.cameraTrack = this.placeholderVideoTrack = this.screenTrack = undefined;
+    this.screenStream = undefined;
+  }
+
+  private closeRemoteMedia() {
+    const calls = new Set([...this.pendingCalls, this.activeCall, this.incomingScreenCall, this.outgoingScreenCall]);
+    this.pendingCalls.clear();
+    this.activeCall = this.incomingScreenCall = this.outgoingScreenCall = undefined;
+    this.hasRemoteStream = false;
+    const stream = this.remoteStream;
+    this.remoteStream = undefined;
+    calls.forEach(call => { if (call) { this.clearCallTimeout(call); call.close(); } });
+    stream?.getTracks().forEach(track => track.stop());
+  }
+
+  private clearRemoteParticipant() {
+    const wasPresent = this.remotePresent;
+    this.remotePresent = false;
+    this.closeRemoteMedia();
+    if (!wasPresent || this.closed) return;
+    this.callbacks.onRemoteScreenStream?.(null);
+    this.callbacks.onRemoteTyping?.(false);
+    this.callbacks.onRemoteSpeaking?.(false);
+    this.callbacks.onRemoteProfile?.(null);
+    this.callbacks.onRemoteVideoEnabled?.(false);
+    this.callbacks.onRemoteAudioEnabled?.(false);
+    this.callbacks.onRemoteVideoSource('camera');
+    this.callbacks.onPeerLeft();
   }
 
   private async replaceOutgoingVideoTrack(track?: MediaStreamTrack) {
@@ -307,8 +466,8 @@ export class VideoConnection {
         return;
       }
       if (call.metadata?.kind === 'screen') {
-        const expectedPeer = this.activeDataConnection?.peer || this.remotePeerId;
-        if (expectedPeer && call.peer !== expectedPeer) { call.close(); return; }
+        const expectedPeer = this.activeDataConnection?.peer || this.activeCall?.peer;
+        if (!expectedPeer || call.peer !== expectedPeer) { call.close(); return; }
         const previous = this.incomingScreenCall; this.incomingScreenCall = call; previous?.close();
         call.on('stream', stream => { if (!this.closed && this.incomingScreenCall === call) this.callbacks.onRemoteScreenStream?.(stream); });
         const ended = () => { if (this.incomingScreenCall === call) { this.incomingScreenCall = undefined; this.callbacks.onRemoteScreenStream?.(null); } };
@@ -324,11 +483,19 @@ export class VideoConnection {
         return;
       }
 
+      const peerChanged = this.remotePeerId !== call.peer;
+      if (peerChanged) {
+        const previous = this.activeDataConnection;
+        this.activeDataConnection = undefined;
+        this.clearRemoteParticipant();
+        previous?.close();
+      }
+      this.remotePeerId = call.peer;
       this.callbacks.onStatus(t("جاري قبول الاتصال"));
+      // Incoming PeerJS calls create peerConnection inside answer(). Binding
+      // ICE/track listeners before answering dereferences an absent transport.
       call.answer(this.localStream!);
       this.bindCallEvents(call);
-      const peerChanged = this.remotePeerId !== call.peer;
-      this.remotePeerId = call.peer;
       this.ensureStudentDataConnection(call.peer, peerChanged);
     });
 
@@ -381,7 +548,7 @@ export class VideoConnection {
   }
 
   reconnectSignaling() {
-    if (!this.peer || this.peer.destroyed || !this.peer.disconnected) return;
+    if (this.closed || !this.peer || this.peer.destroyed || !this.peer.disconnected) return;
 
     try {
       this.peer.reconnect();
@@ -392,6 +559,7 @@ export class VideoConnection {
   }
 
   resumeAfterBackground() {
+    if (this.closed) return;
     this.reconnectSignaling();
     void this.repairAudio().catch(() => undefined);
     void this.repairVideo().catch(() => this.callbacks.onStatus(t('تعذر استعادة الكاميرا. اضغط زر الكاميرا لإعادة تشغيلها.')));
@@ -429,12 +597,19 @@ export class VideoConnection {
     if (this.closed) return;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
 
+    const generation = this.generation;
     const findOtherPeer = async () => {
-      if (this.closed || this.discoveryInFlight || !this.callbacks.getRemotePeerId) return;
+      if (this.closed || generation !== this.generation || this.discoveryInFlight || !this.callbacks.getRemotePeerId) return;
       this.discoveryInFlight = true;
+      const dataAtDiscovery = this.activeDataConnection;
+      const callAtDiscovery = this.activeCall;
+      const peerAtDiscovery = this.remotePeerId;
       try {
         const discoveredPeerId = await this.callbacks.getRemotePeerId();
-        if (this.closed || !discoveredPeerId) return;
+        if (this.closed || generation !== this.generation || !discoveredPeerId) return;
+        // A presence response started before a new handshake must not replace
+        // the peer that has since connected directly.
+        if (dataAtDiscovery !== this.activeDataConnection || callAtDiscovery !== this.activeCall || peerAtDiscovery !== this.remotePeerId) return;
         const peerChanged = discoveredPeerId !== this.remotePeerId;
         this.remotePeerId = discoveredPeerId;
         if (this.role === 'teacher') {
@@ -443,9 +618,9 @@ export class VideoConnection {
           this.ensureStudentDataConnection(discoveredPeerId, peerChanged);
         }
       } catch {
-        if (!this.hasRemoteStream) this.callbacks.onStatus(t("جاري إعادة الاتصال"));
+        if (!this.closed && generation === this.generation && !this.hasRemoteStream) this.callbacks.onStatus(t("جاري إعادة الاتصال"));
       } finally {
-        this.discoveryInFlight = false;
+        if (generation === this.generation) this.discoveryInFlight = false;
       }
     };
 
@@ -461,15 +636,11 @@ export class VideoConnection {
       if (this.activeDataConnection && this.activeDataConnection.peer !== targetPeerId) {
         const staleData = this.activeDataConnection;
         this.activeDataConnection = undefined;
+        this.clearRemoteParticipant();
         staleData.close();
       }
-      const staleCall = this.activeCall;
-      this.activeCall = undefined;
-      this.hasRemoteStream = false;
-      staleCall?.close();
-      this.pendingCalls.forEach(call => call.close());
-      this.pendingCalls.clear();
-      this.callbacks.onPeerLeft();
+      if (this.activeCall || this.hasRemoteStream) this.clearRemoteParticipant();
+      else this.closeRemoteMedia();
     }
 
     this.callbacks.onStatus(t("جاري البحث عن الطالب"));
@@ -482,9 +653,11 @@ export class VideoConnection {
     if (replaceStaleConnection) {
       const staleData = this.activeDataConnection;
       this.activeDataConnection = undefined;
+      if ((staleData && staleData.peer !== targetPeerId) || (this.activeCall && this.activeCall.peer !== targetPeerId)) this.clearRemoteParticipant();
       staleData?.close();
-      this.pendingDataConnections.forEach(connection => connection.close());
+      const pending = [...this.pendingDataConnections];
       this.pendingDataConnections.clear();
+      pending.forEach(connection => connection.close());
     }
     this.bindDataConnection(this.peer.connect(targetPeerId, { reliable: true }));
   }
@@ -509,14 +682,17 @@ export class VideoConnection {
         call.close();
         return;
       }
-      if (this.activeCall && this.activeCall !== call && !this.pendingCalls.has(call)) return;
+      if (this.activeCall !== call && !this.pendingCalls.has(call)) return;
       const previousCall = this.activeCall;
       this.activeCall = call;
       this.hasRemoteStream = true;
+      this.remotePresent = true;
+      this.remoteStream = remoteStream;
       this.pendingCalls.delete(call);
       this.clearCallTimeout(call);
-      this.pendingCalls.forEach(candidate => candidate.close());
+      const pending = [...this.pendingCalls];
       this.pendingCalls.clear();
+      pending.forEach(candidate => { this.clearCallTimeout(candidate); candidate.close(); });
       if (previousCall && previousCall !== call) previousCall.close();
       this.callbacks.onRemoteStream(remoteStream);
       // Media and data may reconnect in either order. Re-request flags after the
@@ -550,9 +726,7 @@ export class VideoConnection {
       this.pendingCalls.delete(call);
       this.clearCallTimeout(call);
       if (this.closed || this.activeCall !== call) return;
-      this.hasRemoteStream = false;
-      this.activeCall = undefined;
-      this.callbacks.onPeerLeft();
+      this.clearRemoteParticipant();
       this.callbacks.onStatus(error.message || t("تعذر إكمال المكالمة"));
       this.startPeerSearch();
     });
@@ -569,17 +743,20 @@ export class VideoConnection {
     this.diagnosedCalls.add(call);
     const connection = call.peerConnection;
     let disconnectedTimer = 0;
+    call.on('close', () => { if (disconnectedTimer) window.clearTimeout(disconnectedTimer); });
     const recover = () => {
       if (this.closed || (this.activeCall !== call && !this.pendingCalls.has(call))) return;
-      this.hasRemoteStream = false;
-      if (this.activeCall === call) this.activeCall = undefined;
+      if (this.activeCall === call) this.clearRemoteParticipant();
       this.pendingCalls.delete(call);
       this.clearCallTimeout(call);
-      this.callbacks.onPeerLeft();
       call.close();
       this.startPeerSearch();
     };
     connection.addEventListener('connectionstatechange', () => {
+      if (this.closed || (this.activeCall !== call && !this.pendingCalls.has(call))) {
+        if (disconnectedTimer) window.clearTimeout(disconnectedTimer);
+        return;
+      }
       if (connection.connectionState === 'connected') {
         if (disconnectedTimer) window.clearTimeout(disconnectedTimer);
         return;
@@ -598,6 +775,7 @@ export class VideoConnection {
       }
     });
     connection.addEventListener('icecandidateerror', () => {
+      if (this.closed || (this.activeCall !== call && !this.pendingCalls.has(call))) return;
       if (!this.hasRemoteStream) this.callbacks.onStatus(hasTurnServer ? t('تعذر الوصول إلى خادم تمرير المكالمة. جاري المحاولة…') : t('جاري فحص مسار مباشر للصوت والفيديو…'));
     });
   }
@@ -605,9 +783,7 @@ export class VideoConnection {
   private handleCallEnded(call: MediaConnection) {
     // Closing a superseded call must not tear down the fresh replacement.
     if (this.closed || this.activeCall !== call) return;
-    this.hasRemoteStream = false;
-    this.activeCall = undefined;
-    this.callbacks.onPeerLeft();
+    this.clearRemoteParticipant();
     this.callbacks.onStatus(t("غادر الطرف الآخر الجلسة، بانتظار عودته"));
     this.startPeerSearch();
   }
@@ -616,22 +792,30 @@ export class VideoConnection {
     this.pendingDataConnections.add(connection);
 
     connection.on('open', async () => {
-      if (this.closed) {
+      if (this.closed || !this.pendingDataConnections.has(connection)) {
         connection.close();
         return;
       }
-      if (this.activeDataConnection?.open && this.activeDataConnection !== connection) {
-        if (this.activeDataConnection.peer === connection.peer) { connection.close(); return; }
+      const previous = this.activeDataConnection;
+      if (previous?.open && previous !== connection) {
+        if (previous.peer === connection.peer) {
+          this.pendingDataConnections.delete(connection); connection.close(); return;
+        }
         const expected = await this.callbacks.getRemotePeerId?.().catch(() => null);
-        if (this.closed || !connection.open || (expected && expected !== connection.peer)) { connection.close(); return; }
-        const previous = this.activeDataConnection;
-        this.activeDataConnection = undefined;
-        previous?.close();
+        if (this.closed || !this.pendingDataConnections.has(connection) || !connection.open || this.activeDataConnection !== previous || (expected && expected !== connection.peer)) {
+          this.pendingDataConnections.delete(connection); connection.close(); return;
+        }
       }
+      this.activeDataConnection = undefined;
+      if ((previous && previous !== connection) || (this.activeCall && this.activeCall.peer !== connection.peer)) this.clearRemoteParticipant();
+      previous?.close();
       this.activeDataConnection = connection;
+      this.remotePeerId = connection.peer;
+      this.remotePresent = true;
       this.pendingDataConnections.delete(connection);
-      this.pendingDataConnections.forEach(candidate => candidate.close());
+      const pending = [...this.pendingDataConnections];
       this.pendingDataConnections.clear();
+      pending.forEach(candidate => candidate.close());
       this.sendCurrentState();
       this.callbacks.onDataOpen?.();
       connection.send({ type: 'state-request' });
@@ -645,6 +829,17 @@ export class VideoConnection {
 
     connection.on('data', (message) => {
       if (this.closed || this.activeDataConnection !== connection) return;
+      if (message && typeof message === 'object' && (message as { type?: string }).type === 'peer-leave') {
+        // Acknowledge before retiring the channel; flush preserves message order.
+        try { void Promise.resolve(connection.send({ type: 'peer-leave-ack' })).catch(() => undefined); } catch { /* Already disconnected. */ }
+        this.activeDataConnection = undefined;
+        this.clearRemoteParticipant();
+        try { connection.close({ flush: true }); } catch { connection.close(); }
+        window.setTimeout(() => connection.close(), leaveGraceMs);
+        this.callbacks.onStatus(t("غادر الطرف الآخر الجلسة، بانتظار عودته"));
+        this.startPeerSearch();
+        return;
+      }
       if (message && typeof message === 'object' && (message as { type?: string }).type === 'screen-state') {
         if ((message as { enabled?: boolean }).enabled === false) {
           const incoming = this.incomingScreenCall; this.incomingScreenCall = undefined; incoming?.close(); this.callbacks.onRemoteScreenStream?.(null);
@@ -684,19 +879,17 @@ export class VideoConnection {
       if (isWhiteboardMessage(message)) this.callbacks.onWhiteboardMessage?.(message.message);
     });
 
-    connection.on('close', () => {
+    const ended = () => {
       this.pendingDataConnections.delete(connection);
-      if (this.activeDataConnection !== connection) return;
+      if (this.closed || this.activeDataConnection !== connection) return;
       this.activeDataConnection = undefined;
-      if (this.role === 'student' && this.remotePeerId) this.ensureStudentDataConnection(this.remotePeerId);
-    });
-
-    connection.on('error', () => {
-      this.pendingDataConnections.delete(connection);
-      if (this.activeDataConnection !== connection) return;
-      this.activeDataConnection = undefined;
-      if (this.role === 'student' && this.remotePeerId) this.ensureStudentDataConnection(this.remotePeerId);
-    });
+      connection.close();
+      this.clearRemoteParticipant();
+      this.callbacks.onStatus(t("غادر الطرف الآخر الجلسة، بانتظار عودته"));
+      this.startPeerSearch();
+    };
+    connection.on('close', ended);
+    connection.on('error', ended);
   }
 
   private sendVideoSource() {

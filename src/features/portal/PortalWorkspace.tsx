@@ -79,6 +79,9 @@ const teachingChoiceLabel = (choice: TeachingChoice, category?: Category) => [t(
 export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLiveChange, onReminderControls, searchFocusKey = 0 }: { portal: Portal; user: User; view: string; onUser: (u: User | null) => void; onView: (view: string) => void; onRoomLiveChange?: (live: boolean) => void; onReminderControls?: (enabled: boolean, hint: string, toggle: () => void) => void; searchFocusKey?: number }) {
   usePreferences();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const bookingsRef = useRef(bookings);
+  bookingsRef.current = bookings;
+  const presenceUpdatesRef = useRef(new Map<string, { updatedAt: number; receivedAt: number; teacher_present_until: number; student_present_until: number }>());
   const [slots, setSlots] = useState<Slot[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -221,6 +224,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     if (view === 'messages' || view === 'payments' || view === 'earnings' || view === 'wallet' || view === 'topups' || view === 'reports') return;
     let alive = true;
     setLoading(true); setError('');
+    const requestedAt = performance.now();
     const path = portal === 'students' ? (view === 'home' ? 'slots' : view === 'profile' ? 'profile' : 'overview') : view === 'bookings' ? 'overview' : view;
     Promise.allSettled([
       request<{ bookings?: Booking[]; slots?: Slot[]; users?: User[]; events?: EventRow[] }>(`${portal}/${path}`),
@@ -234,7 +238,10 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       if (tutorSlotsResult.status === 'fulfilled' && tutorSlotsResult.value) setSlots(Array.isArray(tutorSlotsResult.value.slots) ? tutorSlotsResult.value.slots : []);
       if (dataResult.status === 'fulfilled') {
         const data = dataResult.value;
-        if (data.bookings) setBookings(data.bookings);
+        if (data.bookings) setBookings(data.bookings.map(booking => {
+          const presence = presenceUpdatesRef.current.get(booking.id);
+          return presence && presence.receivedAt >= requestedAt ? { ...booking, teacher_present_until: presence.teacher_present_until, student_present_until: presence.student_present_until } : booking;
+        }));
         if (data.slots) setSlots(data.slots);
         if (data.users) setUsers(data.users);
         if (data.events) setEvents(data.events);
@@ -247,19 +254,35 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   useEffect(() => {
     if (portal === 'admin') { onRoomLiveChange?.(false); return; }
     let alive = true;
-    const loadRooms = () => request<{ bookings: Booking[] }>(`${portal}/rooms`).then(result => {
+    const loadRooms = () => { const requestedAt = performance.now(); return request<{ bookings: Booking[] }>(`${portal}/rooms`).then(result => {
       if (!alive) return;
-      const roomBookings = Array.isArray(result.bookings) ? result.bookings : [];
+      const roomBookings = (Array.isArray(result.bookings) ? result.bookings : []).map(booking => {
+        const presence = presenceUpdatesRef.current.get(booking.id);
+        return presence && presence.receivedAt >= requestedAt ? { ...booking, teacher_present_until: presence.teacher_present_until, student_present_until: presence.student_present_until } : booking;
+      });
       setBookings(roomBookings);
       const now = Date.now();
       const counterpartLive = roomBookings.some(booking => booking.status === 'confirmed' && Number(portal === 'students' ? booking.teacher_present_until : booking.student_present_until) > now);
       onRoomLiveChange?.(counterpartLive);
-    }).catch(() => undefined);
+    }).catch(() => undefined); };
     void loadRooms();
     const timer = window.setInterval(loadRooms, 10000);
     const visible = () => { if (document.visibilityState === 'visible') void loadRooms(); };
+    const presenceChanged = (event: Event) => {
+      const value = (event as CustomEvent).detail;
+      if (!value || typeof value.bookingId !== 'string' || !Number.isFinite(value.updatedAt) || !Number.isFinite(value.teacher_present_until) || !Number.isFinite(value.student_present_until)) return;
+      const previous = presenceUpdatesRef.current.get(value.bookingId);
+      if (previous && previous.updatedAt > value.updatedAt) return;
+      const presence = { updatedAt: value.updatedAt, receivedAt: performance.now(), teacher_present_until: value.teacher_present_until, student_present_until: value.student_present_until };
+      presenceUpdatesRef.current.set(value.bookingId, presence);
+      const next = bookingsRef.current.map(booking => booking.id === value.bookingId ? { ...booking, ...presence } : booking);
+      bookingsRef.current = next; setBookings(next);
+      const now = Date.now();
+      onRoomLiveChange?.(next.some(booking => booking.status === 'confirmed' && Number(portal === 'students' ? booking.teacher_present_until : booking.student_present_until) > now));
+    };
+    window.addEventListener('booking:presence', presenceChanged);
     document.addEventListener('visibilitychange', visible);
-    return () => { alive = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', visible); onRoomLiveChange?.(false); };
+    return () => { alive = false; window.clearInterval(timer); window.removeEventListener('booking:presence', presenceChanged); document.removeEventListener('visibilitychange', visible); onRoomLiveChange?.(false); };
   }, [portal, revision, onRoomLiveChange]);
   useEffect(() => {
     if (catalog.length) setTeachingChoices(parseTeachingChoices(user.subject, catalog));
@@ -604,7 +627,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
         const result = await request<{ messages: Message[] }>(`${portal}/bookings/${room.id}/messages`, { body });
         setMessages(result.messages);
       }}
-      onPresenceChange={(active, peerId) => request(`${portal}/bookings/${room.id}/presence`, { active, peerId })}
+      onPresenceChange={(active, peerId, joining = false) => request(`${portal}/bookings/${room.id}/presence`, { active, peerId, joining }, undefined, 10000, !active)}
       getRemotePeerId={async () => {
         const presence = await request<{ teacherPeerId?: string | null; studentPeerId?: string | null }>(`${portal}/bookings/${room.id}/presence`);
         return room.role === 'teacher' ? presence.studentPeerId : presence.teacherPeerId;

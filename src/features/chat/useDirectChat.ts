@@ -94,6 +94,7 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
         }
       });
       socket.on('availability:changed', () => window.dispatchEvent(new Event('availability:changed')));
+      socket.on('booking:presence', (presence: unknown) => window.dispatchEvent(new CustomEvent('booking:presence', { detail: presence })));
       socket.on('connect', () => { void refresh(); setRevision(value => value + 1); window.dispatchEvent(new Event('availability:changed')); });
       socket.on('chat:typing', (data: { threadId: string; authorId: string; active: boolean }) => {
         if (data.authorId === current.current.user?.id) return;

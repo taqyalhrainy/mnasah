@@ -675,6 +675,18 @@ async function enrichBookings(bookings) {
     return { ...s, ...safeBooking, start: Number(b.start || s.start || 0), minutes: Number(b.minutes || s.minutes || 0), price: Number(b.price ?? s.price ?? 0), subject: b.subject || s.subject || '', commission_percent: b.commission_percent ?? teacherCommission(teacher), teacher_id: s.teacher_id, teacher_name: teacher.name || '', teacher_phone: teacherPhone, student_name: student.name || '', student_phone: studentPhone, bio: teacher.bio || '', teacher_subjects: teacher.subject || '', student_rating: ratingMap.get(b.id) || 0 };
   });
 }
+function bookingPresence(row, now = Date.now()) {
+  return {
+    bookingId: row.id,
+    teacher_present_until: Number(row.teacher_present_until || 0),
+    student_present_until: Number(row.student_present_until || 0),
+    teacherPeerId: Number(row.teacher_present_until || 0) > now ? row.teacher_peer_id || null : null,
+    studentPeerId: Number(row.student_present_until || 0) > now ? row.student_peer_id || null : null,
+    teacher_last_seen_at: Number(row.teacher_last_seen_at || 0),
+    student_last_seen_at: Number(row.student_last_seen_at || 0),
+    updatedAt: now,
+  };
+}
 async function walletBalance(userId) {
   return Number((await walletAccount(userId))?.balance || 0);
 }
@@ -1442,8 +1454,12 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
     const [category, id, action] = path.split('/');
     if (category === 'bookings' && id) {
-      if (action === 'room' || action === 'presence' || action === 'complete') await finalizeEndedBookings({ id });
-      const row = (await enrichBookings([await db.collection('bookings').findOne({ id }, { projection: { _id: 0 } })]))[0];
+      // A leave must clear presence even if finalization is slow or already closed the lesson.
+      const leaving = action === 'presence' && write && body.active === false;
+      if (!leaving && (action === 'room' || action === 'presence' || action === 'complete')) await finalizeEndedBookings({ id });
+      const booking = await db.collection('bookings').findOne({ id }, { projection: { _id: 0 } });
+      if (!booking) fail(404, 'الحصة غير موجودة.');
+      const row = (await enrichBookings([booking]))[0];
       if (!row || (user.role !== 'admin' && row.teacher_id !== user.id && row.student_id !== user.id)) fail(404, 'الحصة غير موجودة.');
       if (action === 'room' && !write) {
         if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الدخول متاح فقط لطرفي الحصة المؤكدة.');
@@ -1453,31 +1469,55 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         return res.json({ room: bookingDocument.room, role: user.role === 'teachers' ? 'teacher' : 'student' });
       }
       if (action === 'presence') {
-        if (user.role === 'admin' || row.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
+        const participant = (user.role === 'teachers' && row.teacher_id === user.id) || (user.role === 'students' && row.student_id === user.id);
+        if (!participant || (!leaving && row.status !== 'confirmed')) fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
+        let presence = row;
         if (write) {
+          if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
           const key = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
           const peerKey = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
           const joinedKey = user.role === 'teachers' ? 'teacher_joined_at' : 'student_joined_at';
           const seenKey = user.role === 'teachers' ? 'teacher_last_seen_at' : 'student_last_seen_at';
-          const until = body.active === false ? 0 : Date.now() + 45000;
-          const peerId = body.active === false ? '' : field(body.peerId || '', 160, 0);
-          await db.collection('bookings').updateOne({ id }, { $set: { [key]: until, [peerKey]: peerId, [seenKey]: Date.now() } });
-          if (body.active !== false) await db.collection('bookings').updateOne({ id, $or: [{ [joinedKey]: { $exists: false } }, { [joinedKey]: 0 }] }, { $set: { [joinedKey]: Date.now() } });
-          row[key] = until;
-          row[peerKey] = peerId;
-          if (body.active !== false && !Number(row[joinedKey] || 0)) row[joinedKey] = Date.now();
+          const departedKey = user.role === 'teachers' ? 'teacher_last_departed_peer_id' : 'student_last_departed_peer_id';
+          const now = Date.now();
+          const requestedPeerId = field(body.peerId || '', 160, 0);
+          if (body.joining !== undefined && typeof body.joining !== 'boolean') fail(400, 'تحقق من الحقول المطلوبة وطول النص.');
+          if (!leaving && body.joining !== undefined && !requestedPeerId) fail(400, 'تحقق من الحقول المطلوبة وطول النص.');
+          const peerId = leaving ? '' : requestedPeerId;
+          const filter = { id, ...(!leaving ? { status: 'confirmed' } : {}) };
+          const observedPeer = row[peerKey] === undefined ? { $exists: false } : row[peerKey];
+          if (leaving) {
+            // Record a departure even before the first join has persisted, without
+            // clearing another peer that has already replaced this session.
+            if (requestedPeerId) filter.$or = [{ [peerKey]: requestedPeerId }, { [peerKey]: '' }, { [peerKey]: { $exists: false } }];
+            else filter[peerKey] = observedPeer;
+          } else if (body.joining === false) {
+            // Heartbeats renew an established session; they never establish one.
+            filter[peerKey] = requestedPeerId;
+          } else if (body.joining === true) {
+            // Compare both session and departure state: a concurrent leave may
+            // clear an already-empty peer field while the initial join is in flight.
+            filter[peerKey] = observedPeer;
+            filter[departedKey] = row[departedKey] === undefined ? { $exists: false } : row[departedKey];
+            filter.$nor = [{ [departedKey]: requestedPeerId }];
+          }
+          const departedPeerId = leaving ? requestedPeerId || row[peerKey] : '';
+          const changed = await db.collection('bookings').updateOne(filter, { $set: { [key]: leaving ? 0 : now + 45000, [peerKey]: peerId, [seenKey]: now, ...(departedPeerId ? { [departedKey]: departedPeerId } : {}) } });
+          if (!leaving && changed.modifiedCount) await db.collection('bookings').updateOne({ id, status: 'confirmed', [peerKey]: peerId, $or: [{ [joinedKey]: { $exists: false } }, { [joinedKey]: 0 }] }, { $set: { [joinedKey]: now } });
+          // Read both participants from storage; the other side may have updated
+          // while this request was in flight. Never publish a speculative write.
+          presence = await db.collection('bookings').findOne({ id }, { projection: { _id: 0 } });
+          if (!presence) fail(404, 'الحصة غير موجودة.');
+          if (!leaving && presence.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
+          if (changed.modifiedCount) io.to(`chat:${row.teacher_id}`).to(`chat:${row.student_id}`).emit('booking:presence', bookingPresence(presence));
         }
-        const teacherLive = Number(row.teacher_present_until || 0) > Date.now();
-        const studentLive = Number(row.student_present_until || 0) > Date.now();
+        const snapshot = bookingPresence(presence);
         return res.json({
-          teacherLive,
-          studentLive,
-          teacher_present_until: Number(row.teacher_present_until || 0),
-          student_present_until: Number(row.student_present_until || 0),
-          teacher_joined_at: Number(row.teacher_joined_at || 0),
-          student_joined_at: Number(row.student_joined_at || 0),
-          teacherPeerId: teacherLive ? row.teacher_peer_id || null : null,
-          studentPeerId: studentLive ? row.student_peer_id || null : null,
+          ...snapshot,
+          teacherLive: snapshot.teacher_present_until > snapshot.updatedAt,
+          studentLive: snapshot.student_present_until > snapshot.updatedAt,
+          teacher_joined_at: Number(presence.teacher_joined_at || 0),
+          student_joined_at: Number(presence.student_joined_at || 0),
         });
       }
       if (action === 'messages') {

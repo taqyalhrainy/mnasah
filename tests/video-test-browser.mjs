@@ -8,6 +8,7 @@ const browser = await chromium.launch({
   args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
 });
 const context = await browser.newContext({ permissions: ['camera', 'microphone'] });
+for (const host of ['fonts.googleapis.com', 'fonts.gstatic.com', 'accounts.google.com']) await context.route(`https://${host}/**`, route => route.abort());
 const teacher = await context.newPage();
 const student = await context.newPage();
 teacher.setDefaultTimeout(15000);
@@ -27,6 +28,11 @@ try {
   await student.locator('.video-test-page').waitFor();
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
+  for (const page of [teacher, student]) {
+    const tiles = await page.locator('.participant-tile').evaluateAll(nodes => nodes.map(node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, height: r.height }; }));
+    assert.ok(tiles[1].y >= tiles[0].y + tiles[0].height - 1 && Math.abs(tiles[0].x - tiles[1].x) < 2, 'desktop cameras must also be vertically stacked');
+  }
+  await teacher.screenshot({ path: '.private/classroom-desktop-stacked.png' });
   await teacher.getByTitle('إيقاف المايك', { exact: true }).click();
   await teacher.waitForFunction(() => !document.querySelector('.participant-tile:last-of-type')?.classList.contains('speaking'));
   assert.equal(await teacher.locator('.participant-tile').last().evaluate(element => element.classList.contains('speaking')), false, 'muted speakers must not have a green outline');
@@ -136,8 +142,8 @@ try {
   await student.waitForFunction(() => document.querySelector('.document-page img')?.getAttribute('alt')?.includes('2'));
   for (const page of [teacher, student]) {
     await page.locator('.participant-tile').first().click();
-    await page.locator('.shared-document-tile').waitFor();
-    await page.locator('.shared-document-tile').click();
+    await page.locator('.shared-document-tile:not(.shared-whiteboard-tile)').waitFor();
+    await page.locator('.shared-document-tile:not(.shared-whiteboard-tile)').click();
     await page.locator('.document-page img').waitFor();
     assert.equal(await page.evaluate(() => window.stableVideoNodes.every((video, index) => video === document.querySelectorAll('video')[index])), true, 'camera elements must remain mounted across focus/document changes');
     await page.setViewportSize({ width: 390, height: 844 });

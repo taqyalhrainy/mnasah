@@ -1,4 +1,13 @@
 export const additionalMessages: Record<string, string> = {
+  "البورد": "Board",
+  "جارٍ تجهيز الصفحة…": "Preparing page…",
+  "البورد المشترك": "Shared board",
+  "العودة إلى البورد المشترك": "Return to the shared board",
+  "إنهاء مشاركة البورد": "End board sharing",
+  "إغلاق البورد": "Close board",
+  "إغلاق الملف": "Close file",
+  "عرض الملف المشترك": "Show shared file",
+  "تعذر رفع معاينة الصفحة.": "The page preview could not upload.",
   "تعذر رفع نسخة التنزيل. معاينة الملف ما زالت متاحة.": "The original file could not upload. The preview is still available.",
   "مشاركة شاشة {v0}": "{v0}'s screen share",
   "الحصة أصبحت غير متاحة. قد حجزها طالب قبلك أو انتهت فترتها.": "This lesson is no longer available. Another student may have booked it, or its availability has ended.",

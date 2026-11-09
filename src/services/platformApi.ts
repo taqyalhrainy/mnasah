@@ -26,14 +26,14 @@ const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export const apiUrl = (path: string) => `${apiBase}/api/${path}`;
 export const apiMediaUrl = (value: string) => value.startsWith('/api/') ? `${apiBase}${value}` : value;
 export class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
-export async function request<T>(path: string, body?: unknown, signal?: AbortSignal, timeoutMs = body === undefined ? 20000 : 60000): Promise<T> {
+export async function request<T>(path: string, body?: unknown, signal?: AbortSignal, timeoutMs = body === undefined ? 20000 : 60000, keepalive = false): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (signal?.aborted) controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(abort, timeoutMs);
   try {
-    const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', signal: controller.signal, ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
+    const response = await fetch(`${apiBase}/api/${path}`, { credentials: 'include', cache: 'no-store', signal: controller.signal, keepalive, ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
     let data;
     try { data = await response.json(); } catch { throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.')); }
     if (!response.ok) throw new ApiError(t(data.error || 'تعذر تنفيذ الطلب.'), response.status);
