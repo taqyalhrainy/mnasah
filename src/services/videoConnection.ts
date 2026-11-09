@@ -14,6 +14,8 @@ type PeerCallbacks = {
   onLocalPeerId?: (peerId: string | null) => void | Promise<void>;
   getRemotePeerId?: () => Promise<string | null | undefined>;
   onLocalVideoSource: (source: VideoSource) => void;
+  onLocalScreenStream?: (stream: MediaStream | null) => void;
+  onRemoteScreenStream?: (stream: MediaStream | null) => void;
   onLocalStreamChange?: (stream: MediaStream) => void;
   onRemoteProfile?: (profile: { name: string; avatar?: string }) => void;
   onPeerLeft: () => void;
@@ -51,6 +53,9 @@ export class VideoConnection {
   private cameraTrack?: MediaStreamTrack;
   private placeholderVideoTrack?: MediaStreamTrack;
   private screenTrack?: MediaStreamTrack;
+  private screenStream?: MediaStream;
+  private outgoingScreenCall?: MediaConnection;
+  private incomingScreenCall?: MediaConnection;
   private videoSource: VideoSource = 'camera';
   private videoEnabled = false;
   private audioEnabled = true;
@@ -153,6 +158,7 @@ export class VideoConnection {
       });
       this.cameraTrack = cameraStream.getVideoTracks()[0];
       previous?.stop();
+      if (this.closed) { cameraStream.getTracks().forEach(track => track.stop()); return this.localStream; }
     }
     if (!this.cameraTrack) throw new Error(t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
     this.cameraTrack.enabled = true;
@@ -204,18 +210,18 @@ export class VideoConnection {
     }
 
     this.screenTrack = screenTrack;
-    this.videoSource = 'screen';
-    await this.replaceOutgoingVideoTrack(screenTrack);
-    this.replaceLocalPreviewTrack(screenTrack);
+    this.screenStream = screenStream;
+    this.callbacks.onLocalScreenStream?.(screenStream);
     this.callbacks.onLocalVideoSource('screen');
-    this.sendVideoSource();
+    this.activeDataConnection?.open && this.activeDataConnection.send({ type: 'screen-state', enabled: true });
+    this.connectScreenShare();
     this.callbacks.onStatus(t("مشاركة الشاشة تعمل الآن"));
 
     screenTrack.onended = () => {
       void this.stopScreenShare();
     };
 
-    return this.localStream;
+    return screenStream;
   }
 
   async stopScreenShare() {
@@ -223,10 +229,10 @@ export class VideoConnection {
 
     const screenTrack = this.screenTrack;
     this.screenTrack = undefined;
-    this.videoSource = 'camera';
-    const restoredTrack = this.videoEnabled ? this.cameraTrack : this.placeholderVideoTrack;
-    await this.replaceOutgoingVideoTrack(restoredTrack);
-    this.replaceLocalPreviewTrack(restoredTrack);
+    this.screenStream = undefined;
+    this.outgoingScreenCall?.close(); this.outgoingScreenCall = undefined;
+    this.callbacks.onLocalScreenStream?.(null);
+    this.activeDataConnection?.open && this.activeDataConnection.send({ type: 'screen-state', enabled: false });
     this.callbacks.onLocalVideoSource('camera');
     this.sendVideoSource();
     this.callbacks.onStatus(this.hasRemoteStream ? t("الاتصال مباشر") : t("بانتظار دخول الطرف الثاني بنفس كود الغرفة"));
@@ -244,6 +250,7 @@ export class VideoConnection {
     void this.callbacks.onLocalPeerId?.(null);
     this.activeCall?.close();
     this.activeDataConnection?.close();
+    this.outgoingScreenCall?.close(); this.incomingScreenCall?.close();
     this.pendingCalls.forEach(call => call.close());
     this.pendingDataConnections.forEach(connection => connection.close());
     this.pendingCalls.clear();
@@ -297,6 +304,15 @@ export class VideoConnection {
     peer.on('call', (call) => {
       if (this.closed || this.peer !== peer) {
         call.close();
+        return;
+      }
+      if (call.metadata?.kind === 'screen') {
+        const expectedPeer = this.activeDataConnection?.peer || this.remotePeerId;
+        if (expectedPeer && call.peer !== expectedPeer) { call.close(); return; }
+        const previous = this.incomingScreenCall; this.incomingScreenCall = call; previous?.close();
+        call.on('stream', stream => { if (!this.closed && this.incomingScreenCall === call) this.callbacks.onRemoteScreenStream?.(stream); });
+        const ended = () => { if (this.incomingScreenCall === call) { this.incomingScreenCall = undefined; this.callbacks.onRemoteScreenStream?.(null); } };
+        call.on('close', ended); call.on('error', ended); call.answer();
         return;
       }
       // Keep one deterministic media-call direction. If both sides dial at the
@@ -442,6 +458,11 @@ export class VideoConnection {
     if (!replaceStaleCall && (this.activeCall || this.hasRemoteStream || this.pendingCalls.size)) return;
 
     if (replaceStaleCall) {
+      if (this.activeDataConnection && this.activeDataConnection.peer !== targetPeerId) {
+        const staleData = this.activeDataConnection;
+        this.activeDataConnection = undefined;
+        staleData.close();
+      }
       const staleCall = this.activeCall;
       this.activeCall = undefined;
       this.hasRemoteStream = false;
@@ -459,8 +480,9 @@ export class VideoConnection {
     if (this.closed || this.role !== 'student' || !this.peer?.open) return;
     if (!replaceStaleConnection && (this.activeDataConnection?.open || this.pendingDataConnections.size)) return;
     if (replaceStaleConnection) {
-      this.activeDataConnection?.close();
+      const staleData = this.activeDataConnection;
       this.activeDataConnection = undefined;
+      staleData?.close();
       this.pendingDataConnections.forEach(connection => connection.close());
       this.pendingDataConnections.clear();
     }
@@ -487,6 +509,7 @@ export class VideoConnection {
         call.close();
         return;
       }
+      if (this.activeCall && this.activeCall !== call && !this.pendingCalls.has(call)) return;
       const previousCall = this.activeCall;
       this.activeCall = call;
       this.hasRemoteStream = true;
@@ -496,6 +519,13 @@ export class VideoConnection {
       this.pendingCalls.clear();
       if (previousCall && previousCall !== call) previousCall.close();
       this.callbacks.onRemoteStream(remoteStream);
+      // Media and data may reconnect in either order. Re-request flags after the
+      // new media session is accepted so a late peer-left event cannot leave a
+      // live camera hidden behind the old "camera off" state.
+      if (this.activeDataConnection?.open && this.activeDataConnection.peer === call.peer) {
+        this.sendCurrentState();
+        this.activeDataConnection.send({ type: 'state-request' });
+      }
       this.callbacks.onStatus(t("الاتصال مباشر"));
       void this.repairAudio().catch(() => undefined);
 
@@ -585,24 +615,26 @@ export class VideoConnection {
   private bindDataConnection(connection: DataConnection) {
     this.pendingDataConnections.add(connection);
 
-    connection.on('open', () => {
+    connection.on('open', async () => {
       if (this.closed) {
         connection.close();
         return;
       }
       if (this.activeDataConnection?.open && this.activeDataConnection !== connection) {
-        connection.close();
-        return;
+        if (this.activeDataConnection.peer === connection.peer) { connection.close(); return; }
+        const expected = await this.callbacks.getRemotePeerId?.().catch(() => null);
+        if (this.closed || !connection.open || (expected && expected !== connection.peer)) { connection.close(); return; }
+        const previous = this.activeDataConnection;
+        this.activeDataConnection = undefined;
+        previous?.close();
       }
       this.activeDataConnection = connection;
       this.pendingDataConnections.delete(connection);
       this.pendingDataConnections.forEach(candidate => candidate.close());
       this.pendingDataConnections.clear();
-      this.sendVideoSource();
-      this.sendVideoState();
-      this.sendAudioState();
-      if (this.profile) this.sendProfile(this.profile);
+      this.sendCurrentState();
       this.callbacks.onDataOpen?.();
+      connection.send({ type: 'state-request' });
       // A fresh student data channel is an explicit presence handshake and
       // replaces any media connection that belongs to the previous session.
       if (this.role === 'teacher' && this.activeCall?.peer !== connection.peer) {
@@ -612,6 +644,18 @@ export class VideoConnection {
     });
 
     connection.on('data', (message) => {
+      if (this.closed || this.activeDataConnection !== connection) return;
+      if (message && typeof message === 'object' && (message as { type?: string }).type === 'screen-state') {
+        if ((message as { enabled?: boolean }).enabled === false) {
+          const incoming = this.incomingScreenCall; this.incomingScreenCall = undefined; incoming?.close(); this.callbacks.onRemoteScreenStream?.(null);
+        }
+        return;
+      }
+      if (message && typeof message === 'object' && (message as { type?: string }).type === 'state-request') {
+        this.sendCurrentState();
+        this.callbacks.onDataOpen?.();
+        return;
+      }
       if (message && typeof message === 'object' && (message as { type?: string }).type === 'profile') {
         const profile = (message as { profile?: { name?: unknown; avatar?: unknown } }).profile;
         if (typeof profile?.name === 'string') this.callbacks.onRemoteProfile?.({ name: profile.name.slice(0, 120), avatar: typeof profile.avatar === 'string' && /^\/api\/media\/avatar\//.test(profile.avatar) ? profile.avatar : undefined });
@@ -658,6 +702,25 @@ export class VideoConnection {
   private sendVideoSource() {
     if (!this.activeDataConnection?.open) return;
     this.activeDataConnection.send({ type: 'video-source', source: this.videoSource });
+  }
+
+  private sendCurrentState() {
+    this.sendVideoSource(); this.sendVideoState(); this.sendAudioState();
+    if (this.activeDataConnection?.open) this.activeDataConnection.send({ type: 'screen-state', enabled: Boolean(this.screenStream) });
+    if (this.profile) this.sendProfile(this.profile);
+    this.connectScreenShare();
+  }
+
+  private connectScreenShare() {
+    const target = this.activeDataConnection?.peer || this.remotePeerId;
+    if (this.closed || !this.screenStream || !this.peer?.open || !target) return;
+    if (this.outgoingScreenCall?.peer === target && this.outgoingScreenCall.open) return;
+    if (this.outgoingScreenCall?.peer === target) return;
+    const previous = this.outgoingScreenCall; this.outgoingScreenCall = undefined; previous?.close();
+    const call = this.peer.call(target, this.screenStream, { metadata: { kind: 'screen' } });
+    this.outgoingScreenCall = call;
+    const ended = () => { if (this.outgoingScreenCall === call) this.outgoingScreenCall = undefined; };
+    call.on('close', ended); call.on('error', ended);
   }
 
   private sendVideoState() {

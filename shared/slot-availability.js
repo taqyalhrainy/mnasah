@@ -3,7 +3,7 @@ export function bookingStarts(slot, minutes, now = Date.now()) {
   const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
   const step = 5 * 60000;
   const first = Number(slot.start) + Math.max(0, Math.ceil((now + 1000 - Number(slot.start)) / step)) * step;
-  const occupied = slot.booked_ranges || slot.reservations || [];
+  const occupied = [...(slot.booked_ranges || slot.reservations || []), ...(slot.withdrawn_ranges || [])];
   const starts = [];
   for (let start = first; start + minutes * 60000 <= end; start += step) {
     if (!occupied.some(range => start < range.end && start + minutes * 60000 > range.start)) starts.push(start);

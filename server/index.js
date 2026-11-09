@@ -1403,7 +1403,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (Number(packagePurchase.minutes) !== selectedOffering.minutes || !packagePurchase.subjects.includes(selectedSubject)) fail(400, 'اختر موعداً مطابقاً لمادة الباقة ومدتها.');
       }
       const bookingId = crypto.randomUUID();
-      const reserved = await db.collection('slots').updateOne({ id, status: 'open', start: { $lte: selectedStart }, available_until: { $gte: selectedEnd }, $nor: [{ reservations: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }] }, { $push: { reservations: { booking_id: bookingId, start: selectedStart, end: selectedEnd } } });
+      const reserved = await db.collection('slots').updateOne({ id, status: 'open', start: { $lte: selectedStart }, available_until: { $gte: selectedEnd }, $nor: [{ reservations: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }, { withdrawn_ranges: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }] }, { $push: { reservations: { booking_id: bookingId, start: selectedStart, end: selectedEnd } } });
       if (!reserved.modifiedCount) fail(409, 'محجوز: الحصة أصبحت غير متاحة، لقد حجزها طالب قبلك. اختر وقتاً آخر.');
       if (packagePurchase) {
         const consumed = await db.collection('package_purchases').updateOne({ id: packagePurchase.id, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: selectedEnd } }, { $inc: { remaining_lessons: -1 }, $set: { updated: Date.now() } });
@@ -1517,7 +1517,14 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         const cancellation = { status: 'cancelled', room: random(), cancelled_at: Date.now(), cancelled_by: user.role, cancellation_reason: field(body.reason || '', 300, 0), refund_amount: quote.refund, teacher_compensation: quote.teacherCompensation, platform_fee: quote.platformFee };
         const cancelled = await db.collection('bookings').updateOne({ id, status: 'confirmed' }, { $set: cancellation });
         if (!cancelled.modifiedCount) fail(409, 'الحصة لم تعد قابلة للإلغاء.');
-        await db.collection('slots').updateOne({ id: row.slot_id }, { $pull: { reservations: { booking_id: id } } });
+        await db.collection('slots').updateOne({ id: row.slot_id }, {
+          $pull: { reservations: { booking_id: id } },
+          ...(user.role === 'teachers' ? { $push: { withdrawn_ranges: { start: Number(row.start), end: Number(row.start) + Number(row.minutes) * 60000 } } } : {}),
+        });
+        if (user.role === 'teachers') {
+          const withdrawn = await db.collection('slots').findOne({ id: row.slot_id });
+          if (withdrawn && !slotHasAvailability(withdrawn) && !await db.collection('bookings').findOne({ slot_id: row.slot_id, status: 'confirmed' })) await db.collection('slots').updateOne({ id: row.slot_id, status: 'open' }, { $set: { status: 'cancelled' } });
+        }
         if (row.payment_ref === 'wallet' && quote.refund > 0) {
           await walletAccount(row.student_id);
           await db.collection('wallet_accounts').updateOne({ user_id: row.student_id }, { $inc: { balance: quote.refund }, $set: { updated: Date.now() } });

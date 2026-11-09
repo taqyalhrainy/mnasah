@@ -49,4 +49,13 @@ test('expired windows, real slot IDs, live updates, booking races and lesson fil
   const download = await fetch(base + studentUrl, { headers: { cookie: cookie('student') } });
   assert.equal(download.status, 200); assert.deepEqual(Buffer.from(await download.arrayBuffer()), file);
   assert.equal((await fetch(base + studentUrl, { headers: { cookie: cookie('other') } })).status, 404);
+  await call('teacher', `bookings/${booking.id}/cancel`, {});
+  const afterCancellation = (await call('other', 'slots')).slots.find(slot => slot.id === future.slot.id);
+  assert.ok(afterCancellation, 'uncancelled hours in the same window remain available');
+  assert.equal(bookingStarts(afterCancellation, 60).includes(starts[0]), false, 'teacher cancellation withdraws the cancelled hour');
+  await call('other', `slots/${future.slot.id}`, { subject: 'رياضيات', minutes: 60, start: starts[0] }, 409);
+  const single = await call('teacher', 'slots', { subjects: ['رياضيات'], start: now + 6 * hour, available_until: now + 7 * hour, offerings: [{ minutes: 60, price: 1000 }] });
+  const singleBooking = await call('student', `slots/${single.slot.id}`, { subject: 'رياضيات', minutes: 60, start: single.slot.start });
+  await call('teacher', `bookings/${singleBooking.id}/cancel`, {});
+  assert.equal((await call('other', 'slots')).slots.some(slot => slot.id === single.slot.id), false, 'a cancelled single lesson must not return to availability');
 });

@@ -2714,3 +2714,49 @@ html.call-active .support-whatsapp { display: none; }
   .support-whatsapp { bottom: calc(134px + env(safe-area-inset-bottom)); inset-inline-start: 12px; width: 42px; height: 42px; padding: 0; }
   .muted-speaking-warning { bottom: calc(128px + env(safe-area-inset-bottom)); padding: 9px 11px; font-size: 11px; }.muted-speaking-warning small { font-size: 10px; }
 }
+
+/* Square gallery tiles, including independent camera and screen-share streams. */
+.call-experience.video-mode .stable-media-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: none; grid-auto-rows: max-content; align-content: center; align-items: start; gap: 8px; overflow-y: auto; padding: 3px; }
+.call-experience.video-mode .stable-media-grid > .participant-tile,.call-experience.video-mode .stable-media-grid > .shared-document-tile { position: relative; inset: auto; grid-column: auto; grid-row: auto; order: 0; width: 100%; height: auto; max-height: none; aspect-ratio: 1; align-self: start; }
+.call-experience.video-mode .stable-media-grid.has-focus { display: flex; flex-wrap: wrap; align-content: center; align-items: center; }
+.call-experience.video-mode .stable-media-grid.has-focus > .participant-tile,.call-experience.video-mode .stable-media-grid.has-focus > .shared-document-tile { flex: 0 0 calc(25% - 6px); width: auto; height: 112px; aspect-ratio: auto; }
+.call-experience.video-mode .stable-media-grid.has-focus > .is-focused { order: -1; flex: 0 0 100%; width: 100%; height: calc(100% - 124px); aspect-ratio: auto; }
+.call-experience .file-share-button.file-stop-button { width: 48px; min-width: 48px; padding: 0; }
+.share-tile video { object-fit: contain; }
+
+/* Restore the earlier whiteboard composition without recreating camera nodes. */
+.call-experience.whiteboard-mode .call-stage { display: grid; grid-template-columns: minmax(0,1fr) 174px; grid-template-rows: 174px minmax(0,1fr); }
+.call-experience.whiteboard-mode .whiteboard-stage { display: contents; }
+.call-experience.whiteboard-mode .stable-media-grid { display: grid; grid-column: 2; grid-row: 1; grid-template-columns: 1fr; grid-template-rows: repeat(2,minmax(0,1fr)); height: 100%; overflow: auto; }
+.call-experience.whiteboard-mode .stable-media-grid > .participant-tile { position: relative; inset: auto; grid-column: 1; grid-row: auto; width: 100%; height: 100%; aspect-ratio: auto; }
+.call-experience.whiteboard-mode .whiteboard-side-rail { grid-column: 2; grid-row: 2; }
+.call-experience.whiteboard-mode .whiteboard-panel { grid-column: 1; grid-row: 1 / -1; }
+.whiteboard-mode .stable-media-grid > .share-tile { display: none; }
+
+/* Two consistent tool rows, with a non-wrapping page counter. */
+.call-experience .document-viewer > header > .document-annotation-tools { display: grid; grid-template-columns: minmax(0,1fr); gap: 7px; width: 100%; }
+.document-toolbar-navigation,.document-page-navigation,.document-drawing-controls { display: flex; align-items: center; gap: 6px; }
+.document-toolbar-navigation { justify-content: space-between; width: 100%; }
+.document-drawing-controls { justify-content: center; overflow-x: auto; padding-bottom: 2px; }
+.document-page-navigation { direction: rtl; }
+.document-annotation-tools .document-page-picker > button { display: flex; justify-content: center; gap: 3px; width: 88px; min-width: 88px; padding-inline: 5px; white-space: nowrap; }
+.document-page-picker > button > span { display: inline-block; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1; color: #f5f1fa; }
+.document-drawing-controls > a,.document-drawing-controls > button,.document-drawing-controls > label,.document-page-navigation > button,.document-zoom-controls > button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 1px solid #4c4656; border-radius: 9px; color: #f4f1fa; background: #2e2c35; text-decoration: none; }
+.document-drawing-controls > label { position: relative; overflow: hidden; cursor: pointer; }
+.document-drawing-controls > label > span { width: 19px; height: 19px; border: 2px solid #fff; border-radius: 50%; }
+.document-drawing-controls > label > input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.document-zoom-controls { display: flex; align-items: center; gap: 3px; direction: ltr; }
+.document-zoom-controls > .document-zoom-percent { flex-basis: 48px; width: 48px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.document-drawing-controls > button.active { background: #a278e4; color: #16111f; border-color: #bd9cf1; }
+@media (min-width: 1000px) { .call-experience.video-mode .stable-media-grid:not(.has-focus) { grid-template-columns: repeat(2,minmax(0,min(42vh,420px))); justify-content: center; } }
+@media (max-width: 760px) {
+  .call-experience.video-mode .stable-media-grid.has-focus > .participant-tile,.call-experience.video-mode .stable-media-grid.has-focus > .shared-document-tile { height: 88px; }
+  .call-experience.video-mode .stable-media-grid.has-focus > .is-focused { height: calc(100% - 100px); }
+  .call-experience.whiteboard-mode .call-stage { grid-template-columns: minmax(0,230px) minmax(0,1fr); grid-template-rows: 76px minmax(0,1fr); gap: 6px; }
+  .call-experience.whiteboard-mode .stable-media-grid { grid-column: 1; grid-row: 1; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: minmax(0,1fr); }
+  .call-experience.whiteboard-mode .whiteboard-side-rail { grid-column: 2; grid-row: 1; display: block; overflow-x: auto; }
+  .call-experience.whiteboard-mode .whiteboard-tools { display: grid; grid-template-columns: repeat(6,32px); grid-auto-rows: 32px; gap: 4px; width: max-content; }
+  .call-experience.whiteboard-mode .whiteboard-panel { grid-column: 1 / -1; grid-row: 2; }
+  .call-experience.document-mode .call-stage { grid-template-rows: min(45vw,180px) minmax(0,1fr); }
+  .document-toolbar-navigation { gap: 4px; }
+}

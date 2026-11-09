@@ -3,7 +3,7 @@ import { gridAttachmentBytes } from './chat-attachments.js';
 import { attachmentHeaders } from '../shared/chat-attachments.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
-const uploads = new Set();
+const uploads = new Map();
 export async function serveLessonFile(req, res, { db, user, path, bytes = gridAttachmentBytes(db) }) {
   const match = /^bookings\/([^/]+)\/files(?:\/([^/]+))?$/.exec(path);
   if (!match) return false;
@@ -26,8 +26,8 @@ export async function serveLessonFile(req, res, { db, user, path, bytes = gridAt
   if (req.headers['content-type']?.split(';')[0] !== 'application/octet-stream') fail(415, 'ارفع الملف بصيغته الأصلية.');
   const size = Number(req.query.size);
   if (!Number.isSafeInteger(size) || size <= 0 || size > 100 * 1024 * 1024) fail(413, 'الحد الأقصى للملف 100 ميغابايت.');
-  if (uploads.has(user.id)) fail(429, 'انتظر انتهاء رفع الملف الحالي.');
-  uploads.add(user.id);
+  if ((uploads.get(user.id) || 0) >= 2) fail(429, 'انتظر انتهاء رفع الملف الحالي.');
+  uploads.set(user.id, (uploads.get(user.id) || 0) + 1);
   const file = { id: crypto.randomUUID(), booking_id: bookingId, name: String(req.query.name || 'file').replace(/[\r\n]/g, '').slice(0, 250), size, content_type: String(req.query.type || 'application/octet-stream').slice(0, 100), ready: false, created: Date.now() };
   try {
     await db.collection('lesson_files').insertOne(file);
@@ -42,6 +42,6 @@ export async function serveLessonFile(req, res, { db, user, path, bytes = gridAt
   } catch (error) {
     await bytes.remove(file.id).catch(() => undefined);
     await db.collection('lesson_files').deleteOne({ id: file.id }); throw error;
-  } finally { uploads.delete(user.id); }
+  } finally { const remaining = (uploads.get(user.id) || 1) - 1; if (remaining) uploads.set(user.id, remaining); else uploads.delete(user.id); }
   return true;
 }

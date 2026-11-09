@@ -1,4 +1,6 @@
 export const additionalMessages: Record<string, string> = {
+  "تعذر رفع نسخة التنزيل. معاينة الملف ما زالت متاحة.": "The original file could not upload. The preview is still available.",
+  "مشاركة شاشة {v0}": "{v0}'s screen share",
   "الحصة أصبحت غير متاحة. قد حجزها طالب قبلك أو انتهت فترتها.": "This lesson is no longer available. Another student may have booked it, or its availability has ended.",
   "محجوز: الحصة أصبحت غير متاحة، لقد حجزها طالب قبلك. اختر وقتاً آخر.": "Booked: another student has just reserved this time. Please choose another time.",
   "غير متاح للطلاب": "Unavailable to students",
