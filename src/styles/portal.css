@@ -2804,3 +2804,39 @@ html.call-active .support-whatsapp { display: none; }
   .call-experience.whiteboard-mode .whiteboard-side-rail { overflow: auto; }
   .support-whatsapp,.support-whatsapp:hover { min-height: 40px; padding: 9px 14px; font-size: 12px; }
 }
+
+/* Keep both shared resources together and give mobile tools their own full row. */
+.call-experience.video-mode .stable-media-grid.with-document > .shared-document-tile { grid-column: auto; }
+.call-experience.split-resources .call-stage { grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: 120px minmax(0,1fr); gap: 8px; }
+.call-experience.split-resources .stable-media-grid { grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: minmax(0,1fr); overflow: hidden; }
+.call-experience.split-resources .stable-media-grid > .participant-tile { grid-column: auto; grid-row: auto; width: 100%; height: 100%; min-height: 0; }
+.call-experience.split-resources .whiteboard-stage { display: grid; grid-column: 1; grid-row: 2; grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); gap: 6px; }
+.call-experience.split-resources .whiteboard-side-rail { grid-column: 1; grid-row: 1; overflow: auto; }
+.call-experience.split-resources .whiteboard-tools { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px; width: 100%; box-sizing: border-box; }
+.call-experience.split-resources .whiteboard-tools .whiteboard-tool-heading { display: none; }
+.call-experience.split-resources .whiteboard-panel { grid-column: 1; grid-row: 2; min-height: 0; }
+.call-experience.split-resources .document-stage { grid-column: 2; grid-row: 2; min-width: 0; }
+.call-experience.split-resources .document-toolbar-navigation { flex-wrap: wrap; justify-content: center; }
+@media (max-width: 760px) {
+  .call-experience.whiteboard-mode:not(.split-resources) .call-stage { grid-template-columns: minmax(0,1fr); grid-template-rows: clamp(96px,16dvh,126px) auto minmax(0,1fr); gap: 7px; }
+  .call-experience.whiteboard-mode:not(.split-resources) .stable-media-grid { grid-column: 1; grid-row: 1; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .call-experience.whiteboard-mode:not(.split-resources) .stable-media-grid > .participant-tile { grid-column: auto; grid-row: auto; }
+  .call-experience.whiteboard-mode:not(.split-resources) .whiteboard-side-rail { grid-column: 1; grid-row: 2; overflow: visible; }
+  .call-experience.whiteboard-mode:not(.split-resources) .whiteboard-panel { grid-column: 1; grid-row: 3; }
+  .call-experience.whiteboard-mode .whiteboard-tools { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px; width: 100%; box-sizing: border-box; }
+  .call-experience .whiteboard-tools .tool-mode,.call-experience .whiteboard-tools > button { flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; padding: 0; }
+  .call-experience .whiteboard-tools .whiteboard-size-picker { flex: 0 0 104px; width: 104px; margin: 0; padding: 3px 6px; }
+  .call-experience .whiteboard-tools .whiteboard-zoom-value { align-self: center; min-width: 34px; font-size: 11px; }
+  .call-experience .whiteboard-tools .whiteboard-color-picker { flex: 0 0 32px; width: 32px; height: 32px; }
+  .call-experience.whiteboard-mode .stable-media-grid .participant-meta { font-size: 10px; padding: 4px 6px; max-width: calc(100% - 12px); }
+  .call-experience.split-resources .call-stage { grid-template-rows: clamp(96px,16dvh,126px) minmax(0,1fr); gap: 6px; }
+  .call-experience.split-resources .whiteboard-tools { flex-wrap: nowrap; width: auto; min-width: 100%; }
+  .call-experience.split-resources .whiteboard-side-rail { overflow-x: auto; overflow-y: hidden; padding-bottom: 3px; }
+  .call-experience.split-resources .whiteboard-tools > * { flex-shrink: 0; }
+  .call-experience.split-resources .whiteboard-tools .whiteboard-size-picker { flex-basis: 104px; }
+  .call-experience.split-resources .document-zoom-controls { flex-wrap: wrap; justify-content: center; }
+  .call-experience.split-resources .document-page-navigation { gap: 2px; }
+  .call-experience.split-resources .document-drawing-controls { justify-content: flex-start; flex-wrap: wrap; overflow: visible; }
+  .call-experience.split-resources .document-toolbar-navigation { min-width: 0; }
+  .call-experience.split-resources .document-annotation-tools .document-page-picker > button { width: 64px; min-width: 64px; }
+}
