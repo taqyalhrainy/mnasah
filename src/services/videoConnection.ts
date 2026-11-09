@@ -14,6 +14,8 @@ type PeerCallbacks = {
   onLocalPeerId?: (peerId: string | null) => void | Promise<void>;
   getRemotePeerId?: () => Promise<string | null | undefined>;
   onLocalVideoSource: (source: VideoSource) => void;
+  onLocalStreamChange?: (stream: MediaStream) => void;
+  onRemoteProfile?: (profile: { name: string; avatar?: string }) => void;
   onPeerLeft: () => void;
   onStatus: (status: string) => void;
 };
@@ -60,6 +62,8 @@ export class VideoConnection {
   private callTimeouts = new WeakMap<MediaConnection, number>();
   private diagnosedCalls = new WeakSet<MediaConnection>();
   private resolvedIceServers: RTCIceServer[] = iceServers;
+  private videoRepair?: Promise<void>;
+  private profile?: { name: string; avatar?: string };
 
   constructor(
     private readonly roomId: string,
@@ -136,7 +140,8 @@ export class VideoConnection {
       return this.localStream;
     }
 
-    if (!this.cameraTrack || this.cameraTrack.readyState === 'ended') {
+    if (!this.cameraTrack || this.cameraTrack.readyState === 'ended' || this.cameraTrack.muted) {
+      const previous = this.cameraTrack;
       const cameraStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -147,6 +152,7 @@ export class VideoConnection {
         },
       });
       this.cameraTrack = cameraStream.getVideoTracks()[0];
+      previous?.stop();
     }
     if (!this.cameraTrack) throw new Error(t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
     this.cameraTrack.enabled = true;
@@ -155,7 +161,28 @@ export class VideoConnection {
       this.replaceLocalPreviewTrack(this.cameraTrack);
     }
     this.sendVideoState();
+    this.callbacks.onLocalStreamChange?.(this.localStream);
     return this.localStream;
+  }
+
+  async repairVideo(force = false) {
+    if (this.closed || !this.localStream || !this.videoEnabled || this.videoSource !== 'camera') return;
+    if (this.videoRepair) return this.videoRepair;
+    const current = this.cameraTrack;
+    if (!force && current?.readyState === 'live' && !current.muted) return;
+    this.videoRepair = (async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 }, facingMode: 'user' } });
+      const track = stream.getVideoTracks()[0];
+      if (this.closed || !this.videoEnabled || this.videoSource !== 'camera') { stream.getTracks().forEach(item => item.stop()); return; }
+      if (!track) return;
+      this.cameraTrack = track;
+      await this.replaceOutgoingVideoTrack(track);
+      this.replaceLocalPreviewTrack(track);
+      current?.stop();
+      this.sendVideoState();
+      this.callbacks.onLocalStreamChange?.(this.localStream!);
+    })().finally(() => { this.videoRepair = undefined; });
+    return this.videoRepair;
   }
 
   async startScreenShare() {
@@ -351,6 +378,7 @@ export class VideoConnection {
   resumeAfterBackground() {
     this.reconnectSignaling();
     void this.repairAudio().catch(() => undefined);
+    void this.repairVideo().catch(() => this.callbacks.onStatus(t('تعذر استعادة الكاميرا. اضغط زر الكاميرا لإعادة تشغيلها.')));
     try { this.activeCall?.peerConnection.restartIce?.(); } catch { /* Some mobile WebViews do not expose restartIce. */ }
 
     if (!this.hasRemoteStream) {
@@ -372,8 +400,13 @@ export class VideoConnection {
 
   sendSpeaking(speaking: boolean) {
     if (!this.activeDataConnection?.open) return false;
-    this.activeDataConnection.send({ type: 'speaking', speaking });
+    this.activeDataConnection.send({ type: 'speaking', speaking: speaking && this.audioEnabled });
     return true;
+  }
+
+  sendProfile(profile: { name: string; avatar?: string }) {
+    this.profile = profile;
+    if (this.activeDataConnection?.open) this.activeDataConnection.send({ type: 'profile', profile });
   }
 
   private startPeerSearch() {
@@ -568,6 +601,7 @@ export class VideoConnection {
       this.sendVideoSource();
       this.sendVideoState();
       this.sendAudioState();
+      if (this.profile) this.sendProfile(this.profile);
       this.callbacks.onDataOpen?.();
       // A fresh student data channel is an explicit presence handshake and
       // replaces any media connection that belongs to the previous session.
@@ -578,6 +612,11 @@ export class VideoConnection {
     });
 
     connection.on('data', (message) => {
+      if (message && typeof message === 'object' && (message as { type?: string }).type === 'profile') {
+        const profile = (message as { profile?: { name?: unknown; avatar?: unknown } }).profile;
+        if (typeof profile?.name === 'string') this.callbacks.onRemoteProfile?.({ name: profile.name.slice(0, 120), avatar: typeof profile.avatar === 'string' && /^\/api\/media\/avatar\//.test(profile.avatar) ? profile.avatar : undefined });
+        return;
+      }
       if (isTypingMessage(message)) {
         this.callbacks.onRemoteTyping?.(message.typing);
         return;

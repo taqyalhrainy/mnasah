@@ -23,6 +23,8 @@ import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
 import { validCatalogOrder } from '../shared/catalog-order.js';
 import { validPushSubscription, deliverDevicePush, notifyPlatformOwners } from '../shared/device-push.js';
 import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
+import { slotAvailability } from '../shared/slot-availability.js';
+import { serveLessonFile } from './lesson-files.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -131,6 +133,8 @@ async function connect() {
     db.collection('lesson_reports').createIndex({ status: 1, created: -1 }),
     db.collection('lesson_reports').createIndex({ booking_id: 1, reporter_id: 1, status: 1 }),
     db.collection('messages').createIndex({ booking_id: 1, created: 1 }),
+    db.collection('lesson_files').createIndex({ id: 1 }, { unique: true }),
+    db.collection('lesson_files').createIndex({ booking_id: 1, created: -1 }),
     db.collection('conversations').createIndex({ id: 1 }, { unique: true }),
     db.collection('conversations').createIndex({ teacher_id: 1, student_id: 1 }, { unique: true }),
     db.collection('conversations').createIndex({ student_id: 1 }),
@@ -278,18 +282,7 @@ async function restorePackageLesson(booking) {
   return true;
 }
 const packageCancellationQuote = () => ({ tier: 'package_credit', hoursBefore: 0, refund: 0, teacherCompensation: 0, platformFee: 0, refundPercent: 0, packageCredit: true });
-const slotHasAvailability = slot => {
-  const clockTolerance = 1000;
-  const minimum = Math.min(...storedOfferings(slot).map(item => Number(item.minutes))) * 60000;
-  const end = Number(slot.available_until || slot.start + slot.minutes * 60000);
-  let cursor = Math.max(Number(slot.start), Date.now());
-  for (const range of [...(slot.booked_ranges || [])].sort((left, right) => left.start - right.start)) {
-    if (range.end <= cursor) continue;
-    if (range.start - cursor + clockTolerance >= minimum) return true;
-    cursor = Math.max(cursor, range.end);
-  }
-  return end - cursor + clockTolerance >= minimum;
-};
+const slotHasAvailability = slot => slotAvailability(slot).available;
 async function occupiedPackageRanges(teacherId, studentId) {
   const teacherSlots = await db.collection('slots').find({ teacher_id: teacherId }, { projection: { _id: 0, id: 1, start: 1, minutes: 1 } }).toArray();
   const slotMap = new Map(teacherSlots.map(slot => [slot.id, slot]));
@@ -873,6 +866,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     }
 
     if (await serveVerificationFile(req, res, { db, user, path })) return;
+    if (/^bookings\/[^/]+\/files/.test(path) && write && !validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
+    if (await serveLessonFile(req, res, { db, user, path, ...(attachmentBytes ? { bytes: attachmentBytes } : {}) })) return;
     if (await serveWalletTopup(req, res, { db, user, path, ...(topupProofBytes ? { bytes: topupProofBytes } : {}), onSubmitted: topup => audit(user.id, 'wallet:topup-request', topup.id) })) return;
     if (path === 'verification/status' && !write && user.role === 'teachers') return res.json({ user: publicUser(user), files: await db.collection('verification_files').find({ user_id: user.id }, { projection: { _id: 0, declared_type: 0 } }).toArray() });
     if (path === 'verification/submit' && write && user.role === 'teachers') {
@@ -1362,24 +1357,31 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const until = hasAvailabilityWindow ? suppliedUntil : start + maxMinutes * 60000;
       const now = Date.now();
       if (!Number.isSafeInteger(start) || start > now + 31536000000 || start < now - 60000 || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
-      const overlaps = await db.collection('slots').findOne({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until }, $expr: { $gt: [{ $ifNull: ['$available_until', { $add: ['$start', { $multiply: ['$minutes', 60000] }] }] }, start] } });
-      if (overlaps) fail(409, 'الموعد يتعارض مع موعد آخر.');
+      const existing = await db.collection('slots').find({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until } }, { projection: { _id: 0 } }).toArray();
+      const occupied = (await occupiedPackageRanges(user.id, '')).filter(range => range.start < until && range.end > start);
+      if (occupied.length || existing.some(slot => Number(slot.available_until || slot.start + slot.minutes * 60000) > start && slotHasAvailability(slot))) fail(409, 'الموعد يتعارض مع موعد آخر.');
       const slotId = crypto.randomUUID();
-      await db.collection('slots').insertOne({ id: slotId, teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() });
+      const slot = { id: slotId, teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() };
+      await db.collection('slots').insertOne(slot);
+      io.emit('availability:changed', { id: slotId });
       await audit(user.id, 'slot:create', slotId);
-      return res.json({ ok: true });
+      return res.json({ ok: true, slot });
     }
     if (path.startsWith('slots/') && write) {
       const id = path.split('/')[1];
       if (user.role === 'teachers') {
+        const ownedSlot = await db.collection('slots').findOne({ id, teacher_id: user.id });
+        if (!ownedSlot) fail(404, 'الموعد غير موجود.');
+        if (ownedSlot.status === 'cancelled') return res.json({ ok: true });
         if (await db.collection('bookings').findOne({ slot_id: id, status: 'confirmed' })) fail(409, 'لا يمكن حذف فترة فيها حجز مؤكد. ألغِ الحصة أولاً.');
         const result = await db.collection('slots').updateOne({ id, teacher_id: user.id, status: 'open' }, { $set: { status: 'cancelled' } });
         if (!result.modifiedCount) fail(409, 'تعذر حذف الموعد لأنه غير متاح.');
+        io.emit('availability:changed', { id });
         return res.json({ ok: true });
       }
       if (user.role !== 'students') fail(403, 'الحجز متاح للطلاب فقط.');
       const slot = await db.collection('slots').findOne({ id, status: 'open', available_until: { $gt: Date.now() } });
-      if (!slot) fail(409, 'الموعد لم يعد متاحاً.');
+      if (!slot) fail(409, 'الحصة أصبحت غير متاحة. قد حجزها طالب قبلك أو انتهت فترتها.');
       const subjects = storedSubjects(slot), offerings = storedOfferings(slot);
       const legacyAllSubjects = !Array.isArray(slot.subjects) && slot.subject === 'كل المواد المختارة';
       const requestedSubject = typeof body.subject === 'string' ? field(body.subject, 100) : '';
@@ -1402,7 +1404,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       }
       const bookingId = crypto.randomUUID();
       const reserved = await db.collection('slots').updateOne({ id, status: 'open', start: { $lte: selectedStart }, available_until: { $gte: selectedEnd }, $nor: [{ reservations: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }] }, { $push: { reservations: { booking_id: bookingId, start: selectedStart, end: selectedEnd } } });
-      if (!reserved.modifiedCount) fail(409, 'هذا الوقت حُجز للتو. اختر وقتاً آخر من الفترة المتاحة.');
+      if (!reserved.modifiedCount) fail(409, 'محجوز: الحصة أصبحت غير متاحة، لقد حجزها طالب قبلك. اختر وقتاً آخر.');
       if (packagePurchase) {
         const consumed = await db.collection('package_purchases').updateOne({ id: packagePurchase.id, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: selectedEnd } }, { $inc: { remaining_lessons: -1 }, $set: { updated: Date.now() } });
         if (!consumed.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(409, 'تم استخدام آخر حصة من هذه الباقة للتو.'); }
@@ -1432,6 +1434,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const bookingNotice = { id: bookingId, subject: selectedSubject, start: selectedStart, minutes: selectedOffering.minutes, teacher_name: slot.teacher_name || teacherAccount?.name || '', student_name: user.name, teacher_phone: teacherAccount?.phone || parseVerification(teacherAccount?.verification).phone || '', student_phone: user.phone || parseVerification(user.verification).phone || '' };
       io.to(`chat:${slot.teacher_id}`).emit('booking:created', { ...bookingNotice, audience: 'teacher' });
       io.to(`chat:${user.id}`).emit('booking:created', { ...bookingNotice, audience: 'student' });
+      io.emit('availability:changed', { id });
       void sendDevicePush(slot.teacher_id, { title: 'حجز جديد', body: `حجز ${user.name} حصة ${selectedSubject}`, tag: `booking-${bookingId}`, url: 'teachers' });
       void sendDevicePush(user.id, { title: 'تم تأكيد حجزك', body: `تم حجز حصة ${selectedSubject} بنجاح`, tag: `booking-${bookingId}`, url: 'students' });
       await audit(user.id, 'booking:create', bookingId);
@@ -1522,6 +1525,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         }
         if (row.package_purchase_id) await restorePackageLesson(row);
         await audit(user.id, 'booking:cancel', id);
+        io.emit('availability:changed', { id: row.slot_id });
         return res.json({ ok: true, quote });
       }
       if (action === 'report-no-show' && write && user.role === 'students') {
@@ -1544,6 +1548,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           { upsert: true },
         );
         await audit(user.id, 'booking:teacher-no-show', id);
+        io.emit('availability:changed', { id: row.slot_id });
         return res.json({ ok: true, quote });
       }
       if (action === 'complete' && write && ['teachers', 'students'].includes(user.role)) {

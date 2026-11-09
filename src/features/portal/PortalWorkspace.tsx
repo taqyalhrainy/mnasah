@@ -1,4 +1,5 @@
 import { allowNavigation } from '../../services/unsavedChanges';
+import { bookingStarts, slotAvailability } from '../../../shared/slot-availability.js';
 import { RecoveryBoundary, lazyWithRetry } from '../../app/RecoveryBoundary';
 import { parseTeachingChoices, serializeTeachingChoices, teachingChoiceKey, uniqueTeachingChoices, type TeachingChoice } from './teachingChoices';
 import { t, locale, direction, usePreferences, catalogText, searchText } from '../../i18n/preferences';
@@ -71,19 +72,7 @@ const slotSubjects = (slot: Slot) => slot.subjects?.filter(Boolean).length
 const slotOfferings = (slot: Slot): SlotOffering[] => slot.offerings?.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).length
   ? [...new Map(slot.offerings.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).map(item => [item.minutes, item])).values()].sort((left, right) => left.minutes - right.minutes)
   : [{ minutes: slot.minutes, price: slot.price }];
-const availableBookingStarts = (slot: Slot, minutes: number) => {
-  if (!minutes) return [];
-  const step = 5 * 60000;
-  const windowEnd = Number(slot.available_until || slot.start + slot.minutes * 60000);
-  const first = Math.max(Number(slot.start), Math.ceil((Date.now() + 1000) / step) * step);
-  const occupied = slot.booked_ranges || [];
-  const starts: number[] = [];
-  for (let start = first; start + minutes * 60000 <= windowEnd; start += step) {
-    const end = start + minutes * 60000;
-    if (!occupied.some(range => start < range.end && end > range.start)) starts.push(start);
-  }
-  return starts;
-};
+const availableBookingStarts = (slot: Slot, minutes: number) => bookingStarts(slot, minutes);
 const slotBookableOnDay = (slot: Slot, value: number) => slotOfferings(slot).some(offering => availableBookingStarts(slot, offering.minutes).some(start => localDayKey(start) === localDayKey(value)));
 const teachingChoiceLabel = (choice: TeachingChoice, category?: Category) => [t(choice.categoryName), catalogText(choice.subject), ...(category?.levels.length ? [choice.levels.length === category.levels.length ? t('كل المستويات') : choice.levels.map(catalogText).join('، ')] : [])].join(' › ');
 
@@ -143,10 +132,18 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [bookingSlot, setBookingSlot] = useState<Slot | null>(null);
+  const [bookingError, setBookingError] = useState('');
   const [bookingSubject, setBookingSubject] = useState('');
   const [bookingMinutes, setBookingMinutes] = useState(0);
   const [bookingStart, setBookingStart] = useState(0);
   const [bookingDay, setBookingDay] = useState<number | null>(null);
+  useEffect(() => {
+    if (!bookingSlot || busy) return;
+    const latest = slots.find(slot => slot.id === bookingSlot.id);
+    if (!latest) { setBookingError(t('الحصة أصبحت غير متاحة. قد حجزها طالب قبلك أو انتهت فترتها.')); return; }
+    if (latest !== bookingSlot) setBookingSlot(latest);
+    if (bookingMinutes && bookingStart && !availableBookingStarts(latest, bookingMinutes).includes(bookingStart)) setBookingError(t('محجوز: الحصة أصبحت غير متاحة، لقد حجزها طالب قبلك. اختر وقتاً آخر.'));
+  }, [slots, bookingSlot?.id, bookingMinutes, bookingStart, busy]);
   const [profileAvatarVersion, setProfileAvatarVersion] = useState(0);
   const [profileAvatarAvailable, setProfileAvatarAvailable] = useState(false);
   const [walletRequired, setWalletRequired] = useState(0);
@@ -185,6 +182,25 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     return () => cancelAnimationFrame(frame);
   }, [portal, view, loadedView, loading, searchFocusKey]);
   const refresh = () => setRevision(v => v + 1);
+  useEffect(() => {
+    if (portal === 'admin') return;
+    let alive = true, pending = false, again = false;
+    const sync = async () => {
+      if (pending) { again = true; return; }
+      pending = true;
+      try {
+        const result = await request<{ slots: Slot[] }>(`${portal}/slots`);
+        if (alive) setSlots(result.slots || []);
+      } catch { /* Retain the last good list during a temporary network interruption. */ }
+      finally { pending = false; if (again && alive) { again = false; void sync(); } }
+    };
+    const visible = () => { if (document.visibilityState === 'visible') void sync(); };
+    window.addEventListener('availability:changed', sync);
+    document.addEventListener('visibilitychange', visible);
+    const timer = window.setInterval(visible, 10000);
+    void sync();
+    return () => { alive = false; clearInterval(timer); window.removeEventListener('availability:changed', sync); document.removeEventListener('visibilitychange', visible); };
+  }, [portal, user.id]);
   useEffect(() => { setQuery(''); setFilter('all'); setSelected(null); setSuccess(''); if (view !== 'tutors') setSelectedTutorId(''); }, [view]);
   useEffect(() => {
     const id = new URLSearchParams(location.search).get('lesson');
@@ -345,7 +361,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       setFeedbackBooking(null); setFeedbackReport(false); setFeedbackReview(''); setRatingDraft(0);
     }
   };
-  const openSlots = slots.filter(s => s.status === 'open' && (s.available_until || s.start + s.minutes * 60000) > Date.now() && (portal !== 'students' || slotOfferings(s).some(offering => availableBookingStarts(s, offering.minutes).length)) && matches(searchText(slotSubjects(s).join(' '), s.teacher_name || '', s.teacher_subjects || '')));
+  const openSlots = slots.filter(s => s.status === 'open' && slotAvailability(s).available && matches(searchText(slotSubjects(s).join(' '), s.teacher_name || '', s.teacher_subjects || ''))).sort((a, b) => Number(a.created || a.start) - Number(b.created || b.start) || a.id.localeCompare(b.id));
   const teacherMap = new Map<string, Booking>();
   bookings.forEach(b => { if (!teacherMap.has(b.teacher_id)) teacherMap.set(b.teacher_id, b); });
   const myTutors = [...teacherMap.values()];
@@ -485,7 +501,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     } finally { setBusy(false); }
   }
   async function completeBooking(slot: Slot, subject: string, offering: SlotOffering, start: number, purchase?: PackagePurchase | null) {
-    setBusy(true); setError(''); setSuccess('');
+    setBusy(true); setError(''); setSuccess(''); setBookingError('');
     try {
       if (!purchase) {
         const wallet = await request<WalletData>('students/wallet');
@@ -499,7 +515,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       setWalletRequired(0); setBookingSlot(null); setBookingPackage(null); setBookingDay(null); setSuccess(t(purchase ? 'تم تأكيد الحجز وخصم حصة واحدة من باقتك. ستجده في الحصص المحجوزة.' : 'تم تأكيد الحجز. ستجده الآن في الحصص المحجوزة.')); refresh(); onView('rooms');
     } catch (cause) {
       if (!purchase && cause instanceof ApiError && cause.status === 402) { const wallet = await request<WalletData>('students/wallet').catch(() => ({ balance: 0 } as WalletData)); setWalletRequired(offering.price); setBookingSlot(null); setInsufficientWallet({ balance: wallet.balance, price: offering.price }); }
-      else setError((cause as Error).message);
+      else { setBookingError((cause as Error).message); setError((cause as Error).message); window.dispatchEvent(new Event('availability:changed')); }
     } finally { setBusy(false); }
   }
   async function bookPackageTime(purchase: PackagePurchase) {
@@ -514,6 +530,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     finally { setBusy(false); }
   }
   const bookSlot = (slot: Slot, purchase: PackagePurchase | null = null, selectedDay: number | null = null) => {
+    setBookingError('');
     const availableSubjects = purchase ? slotSubjects(slot).filter(subject => purchase.subjects.includes(subject)) : slotSubjects(slot);
     const offerings = purchase ? slotOfferings(slot).filter(offering => offering.minutes === purchase.minutes) : slotOfferings(slot);
     const filteredSubject = studentSubject && availableSubjects.find(subject => fuzzyMatch(subject, studentSubject));
@@ -525,8 +542,11 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   async function publishAvailability(drafts: AvailabilityDraft[]) {
     setBusy(true); setError(''); setSuccess('');
     try {
-      for (const draft of drafts) await post('slots', { subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, offerings: draft.offerings });
-      setSlots(current => [...drafts.map(draft => ({ id: crypto.randomUUID?.() || `slot-${Date.now()}-${draft.start}`, teacher_id: user.id, subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, offerings: draft.offerings, available_until: draft.availableUntil, price: draft.price, status: 'open' })), ...current]);
+      for (const draft of drafts) {
+        const result = await request<{ slot: Slot }>('teachers/slots', { subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, offerings: draft.offerings });
+        if (result.slot) setSlots(current => [...current.filter(slot => slot.id !== result.slot.id), result.slot]);
+      }
+      window.dispatchEvent(new Event('availability:changed'));
       setSuccess(t('تم نشر مواعيدك وإضافتها إلى التقويم.'));
       return true;
     } catch (cause) {
@@ -569,6 +589,9 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       assignedRole={room.role}
       assignedRoom={room.room}
       currentUserId={user.id}
+      lessonId={room.id}
+      displayName={user.name}
+      avatarUrl={user.avatar_url}
       scheduledEnd={room.scheduledEnd}
       onGraceExpired={() => request(`${portal}/bookings/${room.id}/complete`, {})}
       authorize={() => request(`${portal}/bookings/${room.id}/room`)}
@@ -645,6 +668,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     const startOptions = selectedOffering ? availableBookingStarts(bookingSlot, selectedOffering.minutes).filter(start => (!bookingPackage || start + selectedOffering.minutes * 60000 <= bookingPackage.expires_at) && (!bookingDay || localDayKey(start) === localDayKey(bookingDay))) : [];
     const subjectAlreadyFiltered = Boolean(studentSubject && availableSubjects.some(subject => fuzzyMatch(subject, studentSubject)));
     return <dialog ref={node => { if (node && !node.open) node.showModal(); }} onCancel={() => { setBookingSlot(null); setBookingPackage(null); setBookingDay(null); }} className="booking-choice-dialog" aria-labelledby="booking-choice-title">
+      {bookingError && <p className="notice error booking-error" role="alert">{bookingError}</p>}
       <header><div><span>{bookingPackage ? t('حجز من باقتك') : t('أكمل اختيار حصتك')}</span><h2 id="booking-choice-title">{bookingSlot.teacher_name}</h2><p>{date(bookingDay || bookingSlot.start)} – {timeOnly(bookingSlot.available_until || bookingSlot.start + bookingSlot.minutes * 60000)}</p>{bookingPackage && <small className="booking-package-badge"><PackageCheck size={14} />{bookingPackage.package_name} · {bookingPackage.remaining_lessons} {t('حصص متبقية')}</small>}</div><button className="icon-button" type="button" aria-label={t('إغلاق')} onClick={() => { setBookingSlot(null); setBookingPackage(null); setBookingDay(null); }}><X size={20} /></button></header>
       {!subjectAlreadyFiltered && availableSubjects.length > 1 && <fieldset><legend>{t('أي مادة تريد أن تدرس؟')}</legend><div className="booking-choice-grid subjects">{availableSubjects.map(subject => <label className={bookingSubject === subject ? 'selected' : ''} key={subject}><input type="radio" name="booking-subject" checked={bookingSubject === subject} onChange={() => setBookingSubject(subject)} /><span><BookOpen size={18} />{catalogText(subject)}</span></label>)}</div></fieldset>}
       <fieldset><legend>{offerings.length > 1 ? t('اختر مدة الحصة التي تناسبك') : t('مدة الحصة')}</legend><div className="booking-choice-grid durations">{offerings.map(offering => <label className={bookingMinutes === offering.minutes ? 'selected' : ''} key={offering.minutes}><input type="radio" name="booking-duration" checked={bookingMinutes === offering.minutes} onChange={() => { const starts = availableBookingStarts(bookingSlot, offering.minutes).filter(start => (!bookingPackage || start + offering.minutes * 60000 <= bookingPackage.expires_at) && (!bookingDay || localDayKey(start) === localDayKey(bookingDay))); setBookingMinutes(offering.minutes); setBookingStart(starts[0] || 0); }} /><span><Clock3 size={18} /><strong>{offering.minutes} {t('دقيقة')}</strong><small>{bookingPackage ? t('مشمولة في الباقة') : money(offering.price)}</small></span></label>)}</div></fieldset>

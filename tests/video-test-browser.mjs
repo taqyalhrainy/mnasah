@@ -1,5 +1,6 @@
 import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
+import { zipSync, strToU8 } from 'fflate';
 
 const browser = await chromium.launch({
   channel: 'chrome',
@@ -26,6 +27,10 @@ try {
   await student.locator('.video-test-page').waitFor();
   await teacher.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
   await student.waitForFunction(() => [...document.querySelectorAll('video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 20000 });
+  await teacher.getByTitle('إيقاف المايك', { exact: true }).click();
+  await teacher.waitForFunction(() => !document.querySelector('.participant-tile:last-of-type')?.classList.contains('speaking'));
+  assert.equal(await teacher.locator('.participant-tile').last().evaluate(element => element.classList.contains('speaking')), false, 'muted speakers must not have a green outline');
+  await teacher.getByTitle('تشغيل المايك', { exact: true }).click();
 
   await teacher.getByTitle('المحادثة').click();
   await student.getByTitle('المحادثة').click();
@@ -36,7 +41,7 @@ try {
   await teacher.getByTitle('المحادثة').click();
   await student.getByTitle('المحادثة').click();
 
-  await teacher.locator('.call-toolbar .tool-button').nth(3).click();
+  await teacher.getByTitle('اللوح المشترك', { exact: true }).click();
   await teacher.locator('.whiteboard-canvas').waitFor();
   await student.locator('.whiteboard-canvas').waitFor();
   for (const page of [teacher, student]) {
@@ -94,7 +99,7 @@ try {
   assert.ok(textSizeAfter > textSizeBefore, `resizing a text box must scale its text (${textSizeBefore} -> ${textSizeAfter})`);
 
   const imageBuffer = await teacher.locator('.call-stage').screenshot();
-  await teacher.locator('.whiteboard-image-input').setInputFiles({ name: 'board-image.png', mimeType: 'image/png', buffer: imageBuffer });
+  await teacher.locator('.whiteboard-image-input[accept^="image/"]').setInputFiles({ name: 'board-image.png', mimeType: 'image/png', buffer: imageBuffer });
   await student.locator('.whiteboard-board-image').waitFor({ timeout: 10000 });
   assert.ok((await student.locator('.whiteboard-board-image').getAttribute('src'))?.startsWith('data:image/webp'));
   await teacher.evaluate(async () => {
@@ -114,6 +119,37 @@ try {
   assert.equal(pastedSize.width / pastedSize.viewWidth <= 0.43 && pastedSize.height / pastedSize.viewHeight <= 0.47, true, `pasted image should start at a balanced board size: ${JSON.stringify(pastedSize)}`);
   await teacher.screenshot({ path: '.private/whiteboard-text-image.png' });
 
+  await teacher.evaluate(() => { window.stableVideoNodes = [...document.querySelectorAll('video')]; });
+  await student.evaluate(() => { window.stableVideoNodes = [...document.querySelectorAll('video')]; });
+  const slides = {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>',
+    'ppt/presentation.xml': '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst><p:sldSz cx="9144000" cy="5143500"/></p:presentation>',
+    'ppt/_rels/presentation.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>',
+    ...Object.fromEntries([1, 2].map(number => [`ppt/slides/slide${number}.xml`, `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="500000"/><a:ext cx="7000000" cy="2000000"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="3600"/><a:t>Slide ${number}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`])),
+  };
+  await teacher.locator('[data-whiteboard-file-input]').setInputFiles({ name: 'class-slides.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: Buffer.from(zipSync(Object.fromEntries(Object.entries(slides).map(([name, content]) => [name, strToU8(content)])))) });
+  await teacher.locator('.document-page img').waitFor({ timeout: 30000 });
+  await student.locator('.document-page img').waitFor({ timeout: 20000 });
+  await teacher.getByTitle('صفحات الملف', { exact: true }).click();
+  await teacher.getByRole('option', { name: 'صفحة 2', exact: true }).click();
+  await student.waitForFunction(() => document.querySelector('.document-page img')?.getAttribute('alt')?.includes('2'));
+  for (const page of [teacher, student]) {
+    await page.locator('.participant-tile').first().click();
+    await page.locator('.shared-document-tile').waitFor();
+    await page.locator('.shared-document-tile').click();
+    await page.locator('.document-page img').waitFor();
+    assert.equal(await page.evaluate(() => window.stableVideoNodes.every((video, index) => video === document.querySelectorAll('video')[index])), true, 'camera elements must remain mounted across focus/document changes');
+    await page.setViewportSize({ width: 390, height: 844 });
+    const bounds = await page.locator('.stable-media-grid').boundingBox();
+    assert.ok(bounds.height >= 100, `camera rail should stay visible on mobile: ${bounds.height}`);
+    await page.waitForFunction(() => document.querySelector('.document-page img')?.naturalWidth > 0);
+    await page.screenshot({ path: `.private/video-document-${page === teacher ? 'teacher' : 'student'}.png` });
+  }
+  await teacher.getByTitle('إنهاء مشاركة الملف', { exact: true }).click();
+  await student.locator('.document-page').waitFor({ state: 'detached' });
+  for (const page of [teacher, student]) await page.setViewportSize({ width: 1280, height: 720 });
+
   async function leaveAndReturn(leaver, waitingParticipant) {
     await waitingParticipant.evaluate(() => { window.remoteStreamBeforeReturn = document.querySelectorAll('video')[0]?.srcObject; });
     await leaver.locator('.call-toolbar .danger').click();
@@ -130,6 +166,10 @@ try {
 
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log('Direct video route, whiteboard stability, and repeated teacher/student leave-and-return checks passed.');
+} catch (error) {
+  console.error(await teacher.evaluate(() => [...document.querySelectorAll('.call-experience,.call-stage,.stable-media-grid,.shared-document-tile')].map(element => ({ className: element.className, rect: element.getBoundingClientRect().toJSON() }))));
+  await teacher.screenshot({ path: '.private/video-failure.png' });
+  throw error;
 } finally {
   await browser.close();
 }

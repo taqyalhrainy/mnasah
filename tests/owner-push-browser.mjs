@@ -70,10 +70,13 @@ try {
       await page.getByRole('status').filter({ hasText: 'تم إرسال الإشعار التجريبي' }).waitFor();
       assert.equal(testPushes, 1);
       await page.screenshot({ path: `.private/owner-push/${scenario.name}.png` });
+      registered = false; // Simulate a lost server record while the browser is still subscribed.
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.locator('details.account-menu > summary').click();
       await page.waitForFunction(() => document.querySelector('.device-notification-toggle')?.getAttribute('aria-pressed') === 'true');
       assert.equal(await page.evaluate(() => window.__push.calls), 1, 'existing permission must not be requested again');
+      assert.equal(await page.locator('.device-notification-prompt').count(), 0, 'already permitted devices must not be nagged again');
+      assert.equal(registered, true, 'restore the server record silently for an existing subscription');
       await toggle.click();
       await page.waitForFunction(() => document.querySelector('.device-notification-toggle')?.getAttribute('aria-pressed') === 'false');
       assert.equal(registered, false);

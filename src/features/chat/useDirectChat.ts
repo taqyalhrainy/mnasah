@@ -93,7 +93,8 @@ export function useDirectChat(portal: Portal, user: User | null, active: boolean
           new Notification(title, { body: notice.audience === 'teacher' ? t('حجز طالب حصة جديدة معك.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.'), tag: `booking-${notice.id}`, icon: `${import.meta.env.BASE_URL}images/emtidad-alelm-final-logo-192.png` });
         }
       });
-      socket.on('connect', () => { void refresh(); setRevision(value => value + 1); });
+      socket.on('availability:changed', () => window.dispatchEvent(new Event('availability:changed')));
+      socket.on('connect', () => { void refresh(); setRevision(value => value + 1); window.dispatchEvent(new Event('availability:changed')); });
       socket.on('chat:typing', (data: { threadId: string; authorId: string; active: boolean }) => {
         if (data.authorId === current.current.user?.id) return;
         clearTimeout(typingTimers.get(data.threadId));

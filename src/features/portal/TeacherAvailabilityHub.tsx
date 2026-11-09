@@ -1,4 +1,5 @@
 import { TimePicker as TimeWheel } from './TimePicker';
+import { slotAvailability } from '../../../shared/slot-availability.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, Trash2, X } from 'lucide-react';
 import { catalogText, locale, t, usePreferences } from '../../i18n/preferences';
@@ -75,13 +76,18 @@ export function TeacherAvailabilityHub({ commissionExempt = false, subjects, slo
 
   const monthDays = useMemo(() => { const first = new Date(month); const count = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(); const lead = (first.getDay() + 6) % 7; return [...Array.from({ length: lead }, () => null), ...Array.from({ length: count }, (_, index) => new Date(first.getFullYear(), first.getMonth(), index + 1).getTime())]; }, [month]);
   const publishDays = useMemo(() => Array.from({ length: 28 }, (_, index) => { const day = new Date(today); day.setDate(day.getDate() + index); return day.getTime(); }), [today]);
-  const activeSlots = slots.filter(slot => slot.status !== 'cancelled');
+  const activeSlots = slots.filter(slot => slot.status !== 'cancelled').map(slot => {
+    const occupied = bookings.filter(booking => booking.slot_id === slot.id && booking.status === 'confirmed').map(booking => ({ start: booking.start, end: booking.start + booking.minutes * 60000 }));
+    const availability = slotAvailability({ ...slot, booked_ranges: occupied });
+    return { ...slot, status: availability.available ? slot.status : 'unavailable', availabilityReason: availability.reason };
+  });
+  const unavailableSlots = activeSlots.filter(slot => slot.status === 'unavailable' && Number(slot.available_until || slot.start + slot.minutes * 60000) > Date.now());
   const activeBookings = bookings.filter(booking => booking.status === 'confirmed' || booking.status === 'completed');
   const daySlots = activeSlots.filter(slot => rangeIntersectsDay(slot.start, slot.available_until || slot.start + slot.minutes * 60000, calendarDay));
   const dayBookings = activeBookings.filter(booking => sameDay(booking.start, calendarDay));
   const freeWindows = useMemo(() => {
     const opening = atTime(calendarDay, '08:00'), closing = atTime(calendarDay, '22:00');
-    const busyRanges = [...daySlots.map(slot => [slot.start, slot.available_until || slot.start + slot.minutes * 60000] as const), ...dayBookings.map(booking => [booking.start, booking.start + booking.minutes * 60000] as const)].sort((left, right) => left[0] - right[0]);
+    const busyRanges = [...daySlots.filter(slot => slot.status === 'open').map(slot => [slot.start, slot.available_until || slot.start + slot.minutes * 60000] as const), ...dayBookings.map(booking => [booking.start, booking.start + booking.minutes * 60000] as const)].sort((left, right) => left[0] - right[0]);
     const windows: Array<[number, number]> = []; let cursor = sameDay(calendarDay, Date.now()) ? Math.max(opening, Date.now()) : opening;
     busyRanges.forEach(([start, end]) => { if (end <= cursor || start >= closing) return; if (start - cursor >= 30 * 60000) windows.push([cursor, Math.min(start, closing)]); cursor = Math.max(cursor, end); });
     if (closing - cursor >= 30 * 60000) windows.push([cursor, closing]); return windows;
@@ -109,7 +115,7 @@ export function TeacherAvailabilityHub({ commissionExempt = false, subjects, slo
     const start = atTime(selectedDay, schedule.from), availableUntil = availabilityEnd(selectedDay, schedule.from, schedule.to);
     if (start < Date.now() - 60000) { setLocalError(t('كل المواعيد يجب أن تبدأ بعد الوقت الحالي.')); return; }
     if (availableUntil - start < Math.max(...offerings.map(item => item.minutes)) * 60000) { setLocalError(t('الفترة المتاحة يجب أن تتسع لأطول مدة حصة اخترتها.')); return; }
-    if (activeSlots.some(slot => start < (slot.available_until || slot.start + slot.minutes * 60000) && availableUntil > slot.start)) { setLocalError(t('الموعد يتعارض مع موعد آخر.')); return; }
+    if (activeSlots.some(slot => slot.status === 'open' && start < (slot.available_until || slot.start + slot.minutes * 60000) && availableUntil > slot.start) || activeBookings.some(booking => start < booking.start + booking.minutes * 60000 && availableUntil > booking.start)) { setLocalError(t('الموعد يتعارض مع موعد آخر.')); return; }
     const subject = 'كل المواد المختارة'; setLocalError('');
     const defaultOffering = offerings[0];
     if (!await onPublish([{ subject, subjects: [...subjects], start, availableUntil, minutes: defaultOffering.minutes, price: defaultOffering.price, offerings }])) return;
@@ -123,6 +129,7 @@ export function TeacherAvailabilityHub({ commissionExempt = false, subjects, slo
       <div className="availability-orbit orbit-one" aria-hidden="true" /><div className="availability-orbit orbit-two" aria-hidden="true" />
       <header className="availability-showcase-head"><div className="availability-tabs" role="tablist" aria-label={t('أقسام المواعيد')}><button type="button" role="tab" aria-selected={tab === 'publish'} className={tab === 'publish' ? 'active' : ''} onClick={() => setTab('publish')}><CalendarPlus size={18} />{t('نشر مواعيد')}</button><button type="button" role="tab" aria-selected={tab === 'calendar'} className={`${tab === 'calendar' ? 'active' : ''} ${launching ? 'electric-target' : ''}`} onClick={() => setTab('calendar')}><CalendarCheck size={18} />{t('جدولي والمحجوز')}</button></div></header>
       {launching && <div className="availability-electric-path" aria-hidden="true"><i /><i /><i /></div>}
+      {unavailableSlots.length > 0 && <div className="unavailable-slot-list">{unavailableSlots.map(slot => <article key={slot.id}><div><strong>{t('غير متاح للطلاب')} · {catalogText(slot.subject)}</strong><small>{availabilityRangeLabel(slot.start, slot.available_until || slot.start + slot.minutes * 60000)}</small><p>{t(slot.availabilityReason)}</p></div><button type="button" disabled={busy} onClick={() => onDelete(slot.id)} title={t('حذف الموعد')}><Trash2 size={17} /></button></article>)}</div>}
       {tab === 'publish' && !subjects.length && <div className="availability-lock"><span><CalendarDays size={34} /></span><h3>{t('لتتمكن من إضافة مواعيدك، اختر مادتك أولاً من الصفحة الرئيسية.')}</h3><p>{t('بعد حفظ المادة ستظهر هنا تلقائياً وتقدر تبني جدولك خلال خطوات بسيطة.')}</p><button className="availability-light-button" type="button" onClick={onHome}>{t('الذهاب للرئيسية')}<ArrowLeft size={17} /></button></div>}
       {tab === 'publish' && subjects.length > 0 && <div className="availability-simple-publisher">
         <div className="availability-date-picker"><div className="availability-date-head"><strong>{new Date(selectedDay ?? today).toLocaleDateString(locale(), { month: 'long', year: 'numeric' })}</strong><div><button type="button" title={t('تمرير الأيام للخلف')} onClick={() => dayStripRef.current?.scrollBy({ left: -260, behavior: 'smooth' })}><ChevronRight size={17} /></button><button type="button" title={t('تمرير الأيام للأمام')} onClick={() => dayStripRef.current?.scrollBy({ left: 260, behavior: 'smooth' })}><ChevronLeft size={17} /></button></div></div><div className="availability-day-strip" ref={dayStripRef}>{publishDays.map(value => <button type="button" key={value} aria-pressed={selectedDay === value} className={selectedDay === value ? 'selected' : ''} onClick={() => chooseDay(value)}><span>{new Date(value).toLocaleDateString(locale(), { weekday: 'short' })}</span><strong>{new Date(value).toLocaleDateString(locale(), { day: '2-digit' })}</strong><small>{new Date(value).toLocaleDateString(locale(), { month: 'short' })}</small></button>)}</div></div>

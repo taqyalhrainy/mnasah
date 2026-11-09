@@ -6,12 +6,56 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { BringToFront, Camera, CameraOff, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileUp, Grid2X2, Hand, Highlighter, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
+import { apiMediaUrl, requestFile } from '../../services/platformApi';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
 const MAX_WHITEBOARD_ZOOM = 5;
 const MIN_STROKE_POINT_DISTANCE = 1.5;
 const MAX_STROKE_POINTS = 1200;
 const LIVE_STROKE_BROADCAST_INTERVAL_MS = 32;
+
+function splitDocumentText(text: string) {
+  const canvas = document.createElement('canvas'), context = canvas.getContext('2d')!; context.font = '24px Arial';
+  const lines: string[] = [];
+  for (const paragraph of text.split('\n')) {
+    let line = '';
+    for (const character of paragraph) {
+      if (context.measureText(line + character).width > 860) { lines.push(line); line = ''; }
+      line += character;
+    }
+    lines.push(line);
+  }
+  const pages: string[] = [];
+  for (let index = 0; index < lines.length; index += 31) pages.push(lines.slice(index, index + 31).join('\n'));
+  return pages.length ? pages : [''];
+}
+
+function textDocumentPage(text: string, title = '') {
+  const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 1400;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = '#fff'; context.fillRect(0, 0, 1000, 1400);
+  context.fillStyle = '#24212b'; context.font = '24px Arial';
+  let y = 65;
+  for (const paragraph of `${title ? `${title}\n\n` : ''}${text}`.split('\n')) {
+    const rtl = /[\u0600-\u06ff]/.test(paragraph); context.direction = rtl ? 'rtl' : 'ltr'; context.textAlign = rtl ? 'right' : 'left';
+    let line = '';
+    for (const word of paragraph.split(' ')) {
+      if (context.measureText(`${line} ${word}`).width > 870 && line) { context.fillText(line, rtl ? 940 : 60, y); y += 38; line = word; }
+      else line = line ? `${line} ${word}` : word;
+    }
+    context.fillText(line, rtl ? 940 : 60, y); y += 38;
+  }
+  const src = canvas.toDataURL('image/webp', .9); canvas.width = 1; canvas.height = 1; return src;
+}
+
+async function rasterizeSlide(src: string) {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error(t('تعذر فتح صفحة الملف.'))); image.src = src; });
+  const canvas = document.createElement('canvas');
+  const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext('2d')!; context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const output = canvas.toDataURL('image/webp', .9); canvas.width = 1; canvas.height = 1; return output;
+}
 
 type WakeLockSentinelLike = { release: () => Promise<void>; addEventListener: (type: 'release', listener: () => void) => void };
 type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> } };
@@ -22,7 +66,7 @@ type WhiteboardBaseItem = { id: string; x: number; y: number; width: number; hei
 type WhiteboardTextItem = WhiteboardBaseItem & { type: 'text'; text: string; color: string; fontSize: number; fontFamily?: string; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textAlign?: 'start' | 'center' | 'end'; background?: string };
 type WhiteboardImageItem = WhiteboardBaseItem & { type: 'image'; src: string; fit?: 'contain' | 'cover'; borderRadius?: number; documentName?: string; documentPage?: number; documentPages?: number };
 type WhiteboardItem = WhiteboardTextItem | WhiteboardImageItem;
-type SharedDocument = { name: string; page: number; pages: number; src: string; format: 'pdf' | 'presentation' | 'image' | 'text' };
+type SharedDocument = { name: string; page: number; pages: number; src: string; fileUrl?: string; format: 'pdf' | 'presentation' | 'image' | 'text' | 'file' };
 type DocumentPoint = { x: number; y: number };
 type DocumentAnnotation = { id: string; page: number; kind: 'pen' | 'highlight'; color: string; size: number; points: DocumentPoint[] } | { id: string; page: number; kind: 'text'; color: string; x: number; y: number; text: string };
 type SharedPointer = { x: number; y: number; space: 'whiteboard' | 'document'; page?: number };
@@ -60,6 +104,9 @@ type VideoRoomProps = {
   compact?: boolean;
   onExpand?: () => void;
   currentUserId?: string;
+  lessonId?: string;
+  displayName?: string;
+  avatarUrl?: string;
   scheduledEnd?: number;
   onGraceExpired?: () => Promise<void> | void;
 };
@@ -71,7 +118,7 @@ const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { st
 
 declare global { interface Window { mansahCallActive?: boolean } }
 
-export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, onLeave, navigationItems = [], onNavigate, compact = false, onExpand, currentUserId, scheduledEnd, onGraceExpired }: VideoRoomProps) {
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, onLeave, navigationItems = [], onNavigate, compact = false, onExpand, currentUserId, lessonId, displayName, avatarUrl, scheduledEnd, onGraceExpired }: VideoRoomProps) {
   usePreferences();
   const [status, setStatus] = useState(t("جاهز للانضمام"));
   const [isConnected, setIsConnected] = useState(false);
@@ -125,6 +172,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const documentPageRef = useRef<HTMLDivElement>(null);
   const [documentSize, setDocumentSize] = useState({ width: 1, height: 1 });
   const [documentRatio, setDocumentRatio] = useState(1);
+  const [remoteProfile, setRemoteProfile] = useState<{ name: string; avatar?: string } | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [slidesOpen, setSlidesOpen] = useState(false);
+  const sharedFileUrlRef = useRef('');
+  const sharedPageCacheRef = useRef(new Map<number, string>());
   const [documentView, setDocumentView] = useState(fitDocumentView);
   const documentViewRef = useRef(documentView);
   documentViewRef.current = documentView;
@@ -158,6 +210,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const connectionRef = useRef<VideoConnection | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const callGenerationRef = useRef(0);
+  const cameraToggleBusyRef = useRef(false);
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
   const whiteboardItemsRef = useRef<WhiteboardItem[]>([]);
   const activeStrokeRef = useRef<WhiteboardStroke | null>(null);
@@ -186,8 +239,36 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const documentDrawingRef = useRef<DocumentAnnotation | null>(null);
   const documentBroadcastFrameRef = useRef<number | null>(null);
   const graceExpiredRef = useRef(false);
-  const localName = role === 'teacher' ? t("الأستاذ") : t("الطالب");
-  const remoteName = role === 'teacher' ? t("الطالب") : t("الأستاذ");
+  const localName = displayName || (role === 'teacher' ? t("الأستاذ") : t("الطالب"));
+  const remoteName = remoteProfile?.name || (role === 'teacher' ? t("الطالب") : t("الأستاذ"));
+  const lessonFileUrl = (url: string) => url.startsWith('/api/') ? apiMediaUrl(url.replace(/^\/api\/(?:teachers|students)\//, `/api/${role === 'teacher' ? 'teachers' : 'students'}/`)) : url;
+
+  const playCallSound = useCallback((kind: 'join' | 'leave' | 'mute' | 'unmute') => {
+    try {
+      const context = notificationAudioRef.current || new AudioContext();
+      notificationAudioRef.current = context;
+      void context.resume().then(() => {
+        const tones = kind === 'join' ? [520, 780] : kind === 'leave' ? [540, 340] : kind === 'mute' ? [330] : [660];
+        tones.forEach((frequency, index) => {
+          const oscillator = context.createOscillator(), gain = context.createGain(), start = context.currentTime + index * .11;
+          oscillator.type = 'sine'; oscillator.frequency.value = frequency;
+          gain.gain.setValueAtTime(.0001, start); gain.gain.exponentialRampToValueAtTime(.09, start + .015); gain.gain.exponentialRampToValueAtTime(.0001, start + .16);
+          oscillator.connect(gain); gain.connect(context.destination); oscillator.start(start); oscillator.stop(start + .17);
+        });
+      }).catch(() => undefined);
+    } catch { /* Playback may need a user gesture. */ }
+  }, []);
+  const remotePresentRef = useRef(false);
+  const remoteAudioStateRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (hasRemoteStream !== remotePresentRef.current) playCallSound(hasRemoteStream ? 'join' : 'leave');
+    remotePresentRef.current = hasRemoteStream;
+  }, [hasRemoteStream, playCallSound]);
+  useEffect(() => {
+    if (!hasRemoteStream) { remoteAudioStateRef.current = null; return; }
+    if (remoteAudioStateRef.current !== null && remoteAudioStateRef.current !== remoteAudioEnabled) playCallSound(remoteAudioEnabled ? 'unmute' : 'mute');
+    remoteAudioStateRef.current = remoteAudioEnabled;
+  }, [hasRemoteStream, remoteAudioEnabled, playCallSound]);
 
   useEffect(() => { presenceRef.current = onPresenceChange; }, [onPresenceChange]);
   useEffect(() => { sharedDocumentRef.current = sharedDocument; }, [sharedDocument]);
@@ -239,8 +320,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (element.srcObject !== stream) element.srcObject = stream;
     try {
       element.volume = 1;
-      element.muted = true;
-      await element.play();
       element.muted = false;
       await element.play();
       setRemoteAudioBlocked(false);
@@ -288,6 +367,41 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   useEffect(() => {
     if (sidePanel === 'chat') setUnreadCallMessages(0);
   }, [sidePanel]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    let previousFrames = -1, stalled = 0, repairing = false;
+    let lastFrameAt = performance.now(), frameCallback: number | undefined, alive = true;
+    const watchedVideo = localVideoRef.current;
+    const watchFrame = () => {
+      if (!alive || !watchedVideo?.requestVideoFrameCallback) return;
+      frameCallback = watchedVideo.requestVideoFrameCallback(() => { lastFrameAt = performance.now(); watchFrame(); });
+    };
+    watchFrame();
+    const recover = async () => {
+      if (document.visibilityState !== 'visible' || repairing) return;
+      const local = localVideoRef.current;
+      const remote = remoteVideoRef.current;
+      if (remote?.srcObject && remote.paused) void remote.play().catch(() => undefined);
+      if (!videoEnabled || isScreenSharing || !local) { stalled = 0; return; }
+      repairing = true;
+      try {
+        await connectionRef.current?.repairVideo();
+        if (local.paused) await local.play().catch(() => undefined);
+        const frames = local.getVideoPlaybackQuality?.().totalVideoFrames ?? -1;
+        const frozen = typeof local.requestVideoFrameCallback === 'function' ? performance.now() - lastFrameAt > 4500 : frames > 0 && frames === previousFrames;
+        stalled = frozen ? stalled + 1 : 0;
+        previousFrames = frames;
+        if (stalled === 2 && localStreamRef.current) { local.srcObject = new MediaStream(localStreamRef.current.getVideoTracks()); await local.play().catch(() => undefined); }
+        if (stalled >= 4) { await connectionRef.current?.repairVideo(true); stalled = 0; }
+      } catch { setStatus(t('تعذر استعادة الكاميرا. اضغط زر الكاميرا لإعادة تشغيلها.')); }
+      finally { repairing = false; }
+    };
+    const timer = window.setInterval(() => void recover(), 3000);
+    const visible = () => { if (document.visibilityState === 'visible') { stalled = 0; lastFrameAt = performance.now(); void recover(); } };
+    document.addEventListener('visibilitychange', visible); window.addEventListener('focus', visible); window.addEventListener('pageshow', visible);
+    return () => { alive = false; if (frameCallback !== undefined) watchedVideo?.cancelVideoFrameCallback?.(frameCallback); clearInterval(timer); document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); window.removeEventListener('pageshow', visible); };
+  }, [isConnected, videoEnabled, isScreenSharing]);
 
   useEffect(() => {
     if (!scheduledEnd || !isConnected) { setRemainingGrace(null); graceExpiredRef.current = false; return; }
@@ -471,6 +585,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         },
         onRemoteVideoEnabled: setRemoteVideoEnabled,
         onRemoteAudioEnabled: setRemoteAudioEnabled,
+        onRemoteProfile: setRemoteProfile,
+        onLocalStreamChange: stream => {
+          localStreamRef.current = stream;
+          if (localVideoRef.current) { localVideoRef.current.srcObject = new MediaStream(stream.getVideoTracks()); void localVideoRef.current.play().catch(() => undefined); }
+        },
         onWhiteboardMessage: handleWhiteboardMessage,
         onRemoteTyping: (typing) => {
           if (remoteTypingTimerRef.current !== null) window.clearTimeout(remoteTypingTimerRef.current);
@@ -506,6 +625,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         onStatus: setStatus,
       });
       connectionRef.current = connection;
+      connection.sendProfile({ name: localName, avatar: avatarUrl });
       const localStream = await connection.start();
       if (generation !== callGenerationRef.current) { connection.close(); return; }
       localStreamRef.current = localStream;
@@ -547,7 +667,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         if (stableSpeaking !== speakingRef.current) {
           speakingRef.current = stableSpeaking;
           setLocalSpeaking(stableSpeaking);
-          connectionRef.current?.sendSpeaking(stableSpeaking);
+          connectionRef.current?.sendSpeaking(stableSpeaking && sourceTrack.enabled);
         }
         if (speaking && !sourceTrack.enabled) {
           setMutedSpeechWarning(true);
@@ -562,6 +682,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const endCall = () => {
+    playCallSound('leave');
     callGenerationRef.current++;
     connectionRef.current?.sendTyping(false);
     connectionRef.current?.close();
@@ -618,13 +739,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const nextValue = !audioEnabled;
     setAudioEnabled(nextValue);
     connectionRef.current?.toggleAudio(nextValue);
+    playCallSound(nextValue ? 'unmute' : 'mute');
+    if (nextValue) { setLocalSpeaking(speakingRef.current); connectionRef.current?.sendSpeaking(speakingRef.current); }
+    if (!nextValue) { setLocalSpeaking(false); connectionRef.current?.sendSpeaking(false); }
     if (nextValue) setMutedSpeechWarning(false);
     void audioMonitorRef.current?.context.resume().catch(() => undefined);
   };
 
   const handleVideoToggle = async () => {
     const connection = connectionRef.current;
-    if (!connection) return;
+    if (!connection || cameraToggleBusyRef.current) return;
+    cameraToggleBusyRef.current = true;
     const nextValue = !videoEnabled;
     try {
       const stream = await connection.toggleVideo(nextValue);
@@ -637,7 +762,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     } catch (error) {
       setVideoEnabled(false);
       setStatus(error instanceof Error ? error.message : t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
-    }
+    } finally { cameraToggleBusyRef.current = false; }
   };
 
   const enterPictureInPicture = async (reportError = true) => {
@@ -700,7 +825,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const bindLocalVideo = useCallback((element: HTMLVideoElement | null) => {
     localVideoRef.current = element;
     if (element && localStreamRef.current) {
-      if (element.srcObject !== localStreamRef.current) element.srcObject = localStreamRef.current;
+      element.srcObject = new MediaStream(localStreamRef.current.getVideoTracks());
       void element.play().catch(() => undefined);
       updateVideoRatio('local', element);
     }
@@ -1107,7 +1232,16 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const selectedPage = Math.min(source.pages, Math.max(1, page));
     setWhiteboardDocumentBusy(true);
     try {
-      const document = { name: source.name, page: selectedPage, pages: source.pages, src: await source.render(selectedPage), format: source.format } satisfies SharedDocument;
+      const cached = sharedPageCacheRef.current.get(selectedPage);
+      let src = cached || await source.render(selectedPage);
+      if (!cached && src.startsWith('data:image/svg+xml')) src = await rasterizeSlide(src);
+      if (!cached && lessonId && src.startsWith('data:')) {
+        const blob = await (await fetch(src)).blob();
+        const result = await requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, new File([blob], `page-${selectedPage}.${blob.type.includes('svg') ? 'svg' : 'webp'}`, { type: blob.type }), {});
+        src = `${result.url}?preview=1`;
+      }
+      sharedPageCacheRef.current.set(selectedPage, src);
+      const document = { name: source.name, page: selectedPage, pages: source.pages, src, fileUrl: sharedFileUrlRef.current, format: source.format } satisfies SharedDocument;
       setSharedDocument(document);
       setStageMode('document');
       sendWhiteboard({ kind: 'document', document });
@@ -1118,9 +1252,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const loadSharedDocument = async (file: File) => {
     if (!file.size) throw new Error(t('اختر ملفاً غير فارغ.'));
-    if (file.size > 50 * 1024 * 1024) throw new Error(t('الملف أكبر من 50 ميغابايت.'));
+    if (file.size > 100 * 1024 * 1024) throw new Error(t('الحد الأقصى للملف 100 ميغابايت.'));
     const extension = file.name.toLowerCase().split('.').pop() || '';
-    await sharedDocumentSourceRef.current?.destroy?.();
+    const previous = sharedDocumentSourceRef.current;
+    sharedFileUrlRef.current = lessonId ? (await requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, file, {})).url : URL.createObjectURL(file);
     let source: typeof sharedDocumentSourceRef.current;
     if (file.type === 'application/pdf' || extension === 'pdf') {
       const pdfjs = await import('pdfjs-dist');
@@ -1133,39 +1268,59 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         render: async (pageNumber) => {
           const page = await pdf.getPage(pageNumber);
           const base = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: Math.min(3, 2400 / base.width, 2400 / base.height) });
+          const viewport = page.getViewport({ scale: Math.min(2, 1600 / base.width, 1600 / base.height) });
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(viewport.width)); canvas.height = Math.max(1, Math.round(viewport.height));
           const context = canvas.getContext('2d', { alpha: false });
           if (!context) throw new Error(t('تعذر تجهيز صفحة الملف.'));
           await page.render({ canvasContext: context, viewport }).promise;
-          return canvas.toDataURL('image/webp', .92);
+          const src = canvas.toDataURL('image/webp', .88);
+          page.cleanup(); canvas.width = 1; canvas.height = 1;
+          return src;
         },
         destroy: () => pdf.destroy(),
       };
     } else if (['ppt', 'pptx'].includes(extension)) {
-      const { parse, renderSlideToSvg } = await import('@web-ppt/core');
-      const presentation = await parse(file);
+      const worker = new Worker(new URL('./presentationWorker.ts', import.meta.url), { type: 'module' });
+      let sequence = 0;
+      const work = (data: { file?: File; page?: number }) => new Promise<{ pages: number; src: string }>((resolve, reject) => {
+        const id = ++sequence;
+        const timer = window.setTimeout(() => { worker.terminate(); reject(new Error(t('تعذر تجهيز الملف. حاول ملفاً أصغر أو نسخة PDF.'))); }, 90000);
+        const received = (event: MessageEvent) => { if (event.data.id !== id) return; clearTimeout(timer); worker.removeEventListener('message', received); event.data.error ? reject(new Error(event.data.error)) : resolve(event.data); };
+        worker.addEventListener('message', received); worker.onerror = () => { clearTimeout(timer); reject(new Error(t('تعذر تجهيز الملف. حاول ملفاً أصغر أو نسخة PDF.'))); };
+        worker.postMessage({ id, ...data });
+      });
+      const presentation = await work({ file }).catch(error => { worker.terminate(); throw error; });
       source = {
         name: file.name,
-        pages: presentation.slides.length,
+        pages: presentation.pages,
         format: 'presentation',
-        render: async (pageNumber) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderSlideToSvg(presentation, presentation.slides[pageNumber - 1]))}`,
-        destroy: () => presentation.dispose?.(),
+        render: async (pageNumber) => (await work({ page: pageNumber })).src,
+        destroy: () => worker.terminate(),
       };
+    } else if (extension === 'docx') {
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+      const chunks = splitDocumentText(result.value);
+      source = { name: file.name, pages: chunks.length, format: 'text', render: async page => textDocumentPage(chunks[page - 1]) };
     } else if (file.type.startsWith('image/')) {
-      const src = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file); });
+      const url = URL.createObjectURL(file);
+      let src: string;
+      try { src = await rasterizeSlide(url); } finally { URL.revokeObjectURL(url); }
       source = { name: file.name, pages: 1, format: 'image', render: async () => src };
     } else if (file.type.startsWith('text/') || ['txt', 'md', 'csv', 'json'].includes(extension)) {
-      const raw = (await file.text()).slice(0, 20000);
-      const escaped = raw.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="100%" height="100%" fill="white"/><foreignObject x="70" y="60" width="1460" height="780"><pre xmlns="http://www.w3.org/1999/xhtml" style="font:24px Tajawal,Arial;white-space:pre-wrap;direction:auto;color:#17151b">${escaped}</pre></foreignObject></svg>`;
-      source = { name: file.name, pages: 1, format: 'text', render: async () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` };
+      const raw = await file.text();
+      const chunks = splitDocumentText(raw);
+      source = { name: file.name, pages: chunks.length, format: 'text', render: async page => textDocumentPage(chunks[page - 1]) };
     } else {
-      throw new Error(t('الصيغ المدعومة للعرض: PDF وPowerPoint والصور والملفات النصية.'));
+      source = { name: file.name, pages: 1, format: 'file', render: async () => textDocumentPage(t('الملف متاح للتنزيل من الزر أعلاه'), file.name) };
     }
     if (!source?.pages) throw new Error(t('الملف لا يحتوي على صفحات قابلة للعرض.'));
     sharedDocumentSourceRef.current = source;
+    sharedPageCacheRef.current.clear();
+    await previous?.destroy?.();
+    setDocumentAnnotations([]); documentAnnotationsRef.current = [];
+    sendWhiteboard({ kind: 'document-annotations', annotations: [] });
     await publishSharedDocumentPage(1);
   };
 
@@ -1178,6 +1333,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setSharedDocument(null);
     setStageMode('video');
     sendWhiteboard({ kind: 'document', document: null });
+    void sharedDocumentSourceRef.current?.destroy?.(); sharedDocumentSourceRef.current = null;
+    sharedPageCacheRef.current.clear();
+    if (sharedFileUrlRef.current.startsWith('blob:')) URL.revokeObjectURL(sharedFileUrlRef.current);
   };
 
   const handleWhiteboardFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1185,7 +1343,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     event.target.value = '';
     if (!file) return;
     setFocusedParticipant(null); setSidePanel(null); setShowMore(false);
-    void loadSharedDocument(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر فتح الملف.')));
+    setDocumentLoading(true);
+    void loadSharedDocument(file).catch((error) => setStatus(error instanceof Error ? error.message : t('تعذر فتح الملف.'))).finally(() => { setDocumentLoading(false); connectionRef.current?.resumeAfterBackground(); });
   };
 
   useEffect(() => {
@@ -1610,11 +1769,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const renderDocumentControls = () => <div className="document-annotation-tools" aria-label={t('أدوات التعليق على الملف')}>
+    <button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || !sharedDocument || sharedDocument.page <= 1} onClick={() => changeSharedDocumentPage(-1)} title={t('الصفحة السابقة')}><ChevronRight size={17} /></button>
+    <div className="document-page-picker"><button type="button" aria-expanded={slidesOpen} onClick={() => setSlidesOpen(open => !open)} title={t('صفحات الملف')}>{sharedDocument?.page} / {sharedDocument?.pages}<ChevronLeft size={14} /></button>{slidesOpen && <div role="listbox" aria-label={t('صفحات الملف')}>{Array.from({ length: sharedDocument?.pages || 0 }, (_, index) => index + 1).map(page => <button type="button" role="option" aria-selected={page === sharedDocument?.page} className={page === sharedDocument?.page ? 'active' : ''} disabled={role !== 'teacher' || whiteboardDocumentBusy} key={page} onClick={() => { setSlidesOpen(false); void publishSharedDocumentPage(page).catch(error => setStatus(error.message)); }}>{t('صفحة {v0}', { v0: page })}</button>)}</div>}</div>
+    <button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || !sharedDocument || sharedDocument.page >= sharedDocument.pages} onClick={() => changeSharedDocumentPage(1)} title={t('الصفحة التالية')}><ChevronLeft size={17} /></button>
     <button type="button" className={documentTool === 'pan' ? 'active' : ''} aria-pressed={documentTool === 'pan'} onClick={() => setDocumentTool('pan')} title={t('تحريك الصفحة')}><Hand size={17} /></button>
     <button type="button" className={documentTool === 'pen' ? 'active' : ''} aria-pressed={documentTool === 'pen'} onClick={() => setDocumentTool('pen')} title={t('قلم')}><Pencil size={17} /></button>
     <button type="button" className={documentTool === 'highlight' ? 'active' : ''} aria-pressed={documentTool === 'highlight'} onClick={() => setDocumentTool('highlight')} title={t('هايلايتر')}><Highlighter size={17} /></button>
     <label title={t('لون الأداة')}><span style={{ background: documentColor }} /><input type="color" value={documentColor} onChange={event => setDocumentColor(event.target.value)} /></label>
     <button type="button" onClick={undoDocumentAnnotation} title={t('تراجع')}><Undo2 size={17} /></button>
+    {sharedDocument?.fileUrl && <a href={lessonFileUrl(sharedDocument.fileUrl)} target="_blank" rel="noreferrer" download title={t('تنزيل الملف')}><Download size={17} /></a>}
     <div className="document-zoom-controls" role="group" aria-label={t('تكبير وتحريك الملف')}>
       <button type="button" disabled={documentView.zoom <= 1} onClick={() => zoomDocument(1 / 1.25)} title={t('تصغير الملف')}>−</button>
       <button type="button" className="document-zoom-percent" onClick={() => setDocumentView(fitDocumentView)} title={t('عرض الصفحة كاملة')}>{Math.round(documentView.zoom * 100)}%</button>
@@ -1721,9 +1884,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const micMuted = isLocal ? !audioEnabled : hasStream && !remoteAudioEnabled;
     const ratio = videoRatios[id];
     return (
-      <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${(isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
+      <button className={`participant-tile ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${!micMuted && (isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
         <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={source === 'camera' ? 'mirrored-video' : undefined} />
-        {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
+        {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}{(isLocal ? avatarUrl : remoteProfile?.avatar) ? <img src={apiMediaUrl((isLocal ? avatarUrl : remoteProfile?.avatar)!)} alt="" onError={event => { event.currentTarget.style.display = 'none'; }} /> : null}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
         {micMuted && <span className="participant-mic-state" role="status" aria-label={t("المايك مغلق")}><MicOff size={18} /></span>}
         <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{micMuted && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
       </button>
@@ -1749,7 +1912,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
       {remoteAudioBlocked && <button type="button" className="remote-audio-unlock" onClick={() => void resumeRemoteAudio()}><Mic size={18} />{t('اضغط لتشغيل صوت المكالمة')}</button>}
-      {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file" accept="application/pdf,.pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,.ppt,.pptx,image/jpeg,image/png,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json" onChange={handleWhiteboardFileChange} />}
+      {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file"  onChange={handleWhiteboardFileChange} />}
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}
       {compact && <div className="compact-call-header"><button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button></div>}
 
@@ -1759,22 +1922,25 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       </div>
       {showScreenShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('المشاركة أو النافذة العائمة غير متاحة على هذا المتصفح')}</strong><p>{t('حدّث المتصفح أو جرّب Chrome. إذا كان هاتفك يدعم المشاركة والنافذة العائمة ستبقى الحصة ظاهرة أثناء انتقالك بين التطبيقات.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowScreenShareNotice(false)}>{t('حسناً')}</button></div>}
 
+      {documentLoading && <div className="call-document-loading" role="status"><RefreshCw size={18} />{t('جارٍ رفع وتجهيز الملف…')}</div>}
+      {/^تعذر|error|failed/i.test(status) && <p className="call-media-error" role="alert">{status}</p>}
       <div className="call-stage">
-        {stageMode === 'whiteboard' ? (
-          <div className="whiteboard-stage">
-            <aside className="whiteboard-side-rail"><div className="call-video-strip whiteboard-dock">{renderTile('local', 'pip')}{renderTile('remote', 'pip')}</div>{renderWhiteboardTools()}</aside>
-            {renderWhiteboard()}
-          </div>
-        ) : stageMode === 'document' && sharedDocument ? (
-          <div className="document-stage">
-            <aside className="document-side-rail"><div className="call-video-strip whiteboard-dock">{renderTile('local', 'pip')}{renderTile('remote', 'pip')}</div><div className="document-slide-list" aria-label={t('صفحات الملف')}>{Array.from({ length: sharedDocument.pages }, (_, index) => index + 1).map(page => <button type="button" key={page} className={page === sharedDocument.page ? 'active' : ''} disabled={role !== 'teacher' || whiteboardDocumentBusy} onClick={() => void publishSharedDocumentPage(page)}><span>{page}</span></button>)}</div></aside>
-            <section className="document-viewer" aria-label={t('عارض الملف')}><header><div><FileUp size={20} /><strong title={sharedDocument.name}>{sharedDocument.name}</strong><span>{t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })}</span></div>{renderDocumentControls()}<nav><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page <= 1} onClick={() => changeSharedDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={20} /></button><button type="button" disabled={role !== 'teacher' || whiteboardDocumentBusy || sharedDocument.page >= sharedDocument.pages} onClick={() => changeSharedDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={20} /></button>{role === 'teacher' && <button type="button" className="document-close" onClick={closeSharedDocument} aria-label={t('إغلاق الملف')}>×</button>}</nav></header><div className={`document-page ${documentTool === 'pan' ? 'pan-tool' : ''}`} ref={documentPageRef} onWheel={wheelDocument} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}><div className="document-page-canvas" style={{ width: documentSize.width * documentView.zoom, height: documentSize.height * documentView.zoom, transform: `translate(${documentView.x}px, ${documentView.y}px)` }}><img onLoad={event => { const image = event.currentTarget; setDocumentRatio(image.naturalWidth / image.naturalHeight || 1); }} draggable={false} src={sharedDocument.src} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} /><svg ref={documentOverlayRef} viewBox="0 0 1000 1400" preserveAspectRatio="none">{documentAnnotations.filter(item => item.page === sharedDocument.page).map(item => item.kind === 'text' ? <text key={item.id} x={item.x} y={item.y} fill={item.color} fontSize="34" fontWeight="700" paintOrder="stroke" stroke="#fff" strokeWidth="3">{item.text}</text> : <path key={item.id} d={documentPath(item)} fill="none" stroke={item.color} strokeWidth={item.size} strokeLinecap="round" strokeLinejoin="round" opacity={item.kind === 'highlight' ? .42 : 1} />)}{renderPointer(localPointer, 'document')}{renderPointer(remotePointer, 'document', true)}</svg></div></div></section>
-          </div>
-        ) : (
-          <div className="video-grid" aria-label={t("المشاركون")}>
-            {focusedParticipant ? <>{renderTile(focusedParticipant, 'focus')}<div className="floating-preview" style={{ '--video-ratio': String(videoRatios[focusedParticipant === 'local' ? 'remote' : 'local']) } as CSSProperties}>{renderTile(focusedParticipant === 'local' ? 'remote' : 'local', 'pip')}</div></> : <>{renderTile('remote')}{renderTile('local')}</>}
-          </div>
-        )}
+        <div className={`video-grid stable-media-grid ${focusedParticipant ? `${focusedParticipant}-focused` : ''} ${sharedDocument ? 'with-document' : ''}`} aria-label={t("المشاركون")}>
+          {renderTile('remote')}{renderTile('local')}
+          {sharedDocument && <button type="button" className="shared-document-tile" onClick={() => { setStageMode('document'); setFocusedParticipant(null); }} aria-label={t('تكبير الملف المشترك')}><img src={lessonFileUrl(sharedDocument.src)} alt="" /><span><FileUp size={15} />{t('الملف المشترك')}</span></button>}
+        </div>
+        {stageMode === 'whiteboard' && <div className="whiteboard-stage"><aside className="whiteboard-side-rail">{renderWhiteboardTools()}</aside>{renderWhiteboard()}</div>}
+        {stageMode === 'document' && sharedDocument && <div className="document-stage">
+          <section className="document-viewer" aria-label={t('عارض الملف')}>
+            <header>{renderDocumentControls()}</header>
+            <div className={`document-page ${documentTool === 'pan' ? 'pan-tool' : ''}`} ref={documentPageRef} onWheel={wheelDocument} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>
+              <div className="document-page-canvas" style={{ width: documentSize.width * documentView.zoom, height: documentSize.height * documentView.zoom, transform: `translate(${documentView.x}px, ${documentView.y}px)` }}>
+                <img onLoad={event => { const image = event.currentTarget; setDocumentRatio(image.naturalWidth / image.naturalHeight || 1); }} draggable={false} src={lessonFileUrl(sharedDocument.src)} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} />
+                <svg ref={documentOverlayRef} viewBox="0 0 1000 1400" preserveAspectRatio="none">{documentAnnotations.filter(item => item.page === sharedDocument.page).map(item => item.kind === 'text' ? <text key={item.id} x={item.x} y={item.y} fill={item.color} fontSize="34" fontWeight="700" paintOrder="stroke" stroke="#fff" strokeWidth="3">{item.text}</text> : <path key={item.id} d={documentPath(item)} fill="none" stroke={item.color} strokeWidth={item.size} strokeLinecap="round" strokeLinejoin="round" opacity={item.kind === 'highlight' ? .42 : 1} />)}{renderPointer(localPointer, 'document')}{renderPointer(remotePointer, 'document', true)}</svg>
+              </div>
+            </div>
+          </section>
+        </div>}
         {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}{!audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span><span>{hasRemoteStream ? remoteName : t("{v0} بانتظار الدخول", { v0: remoteName })}{hasRemoteStream && !remoteAudioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span></div></aside>}
       </div>
 
@@ -1782,7 +1948,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button className={audioEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleAudioToggle} title={audioEnabled ? t("إيقاف المايك") : t("تشغيل المايك")} type="button">{audioEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button>
         <button className={videoEnabled ? 'tool-button' : 'tool-button muted'} disabled={!isConnected} onClick={handleVideoToggle} title={videoEnabled ? t("إيقاف الكاميرا") : t("تشغيل الكاميرا")} type="button">{videoEnabled ? <Camera size={20} /> : <CameraOff size={20} />}</button>
         <button className={isScreenSharing ? 'tool-button active-share' : 'tool-button'} disabled={!isConnected} onClick={handleScreenShareToggle} title={isScreenSharing ? t("إيقاف مشاركة الشاشة") : t("مشاركة الشاشة")} type="button">{isScreenSharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}</button>
-        <button className={stageMode === 'document' ? 'tool-button file-share-button active-share' : 'tool-button file-share-button'} disabled={role !== 'teacher' || whiteboardDocumentBusy} onClick={() => whiteboardFileInputRef.current?.click()} title={role === 'teacher' ? t('عرض ملف كشرائح') : t('رفع الملف بتحكم الأستاذ')} type="button"><FileUp size={20} /><span>{t('ملف')}</span></button>
+        <button className={sharedDocument ? 'tool-button file-share-button active-share' : 'tool-button file-share-button'} disabled={documentLoading || whiteboardDocumentBusy || (!sharedDocument && role !== 'teacher')} onClick={() => { if (sharedDocument) { setStageMode('document'); setFocusedParticipant(null); } else whiteboardFileInputRef.current?.click(); }} title={t('عرض ملف كشرائح')} type="button"><FileUp size={20} /><span>{t('ملف')}</span></button>{sharedDocument && role === 'teacher' && <button className="tool-button file-stop-button" type="button" onClick={closeSharedDocument} title={t('إنهاء مشاركة الملف')}>{t('إنهاء')}</button>}
         <button className={stageMode === 'whiteboard' ? 'tool-button active-share' : 'tool-button'} disabled={role !== 'teacher'} onClick={toggleWhiteboard} title={role === 'teacher' ? t("اللوح المشترك") : t("اللوح بتحكم الأستاذ")} type="button"><Grid2X2 size={20} /></button>
         <button className={sidePanel === 'chat' ? 'tool-button active-share call-chat-tool' : 'tool-button call-chat-tool'} onClick={() => { if (sidePanel === 'chat') updateLocalTyping(false); setSidePanel(sidePanel === 'chat' ? null : 'chat'); setUnreadCallMessages(0); setShowMore(false); }} title={t("المحادثة")} type="button"><MessageSquare size={20} />{unreadCallMessages > 0 && <span className="call-unread-badge" aria-label={t('{v0} رسائل جديدة', { v0: unreadCallMessages })}>{unreadCallMessages > 9 ? '9+' : unreadCallMessages}</span>}</button>
         {installPrompt && <button className="tool-button" onClick={handleInstallApp} title={t("تثبيت كتطبيق")} type="button"><Download size={20} /></button>}
@@ -1791,7 +1957,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {showMore && <div className="call-more-menu"><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />{t("المشاركون")}</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />{t("عرض الفيديو")}</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? t('ملء إطار الفيديو') : t('احتواء الفيديو')}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />{t("نافذة عائمة")}</button></div>}
       </div>
 
-      {mutedSpeechWarning && <button type="button" className="muted-speaking-warning" onClick={handleAudioToggle}><MicOff size={18} /><span><strong>{t('يبدو أنك تتحدث والمايك مغلق')}</strong><small>{t('اضغط هنا لفك الميوت')}</small></span></button>}
+      {mutedSpeechWarning && !audioEnabled && <button type="button" className="muted-speaking-warning" onClick={handleAudioToggle}><MicOff size={18} /><span><strong>{t('يبدو أنك تتحدث والمايك مغلق')}</strong><small>{t('اضغط هنا لفك الميوت')}</small></span></button>}
       {remainingGrace !== null && remainingGrace > 0 && <div className="lesson-grace-countdown" role="alert"><Clock3 size={18} /><span>{t('انتهى وقت الحصة. سيتم إغلاق الغرفة خلال')}</span><strong dir="ltr">{String(Math.floor(remainingGrace / 60000)).padStart(2, '0')}:{String(Math.floor(remainingGrace / 1000) % 60).padStart(2, '0')}</strong></div>}
 
       {sidePanel === 'chat' && <aside className="call-chat-drawer" aria-label={t("المحادثة")}>

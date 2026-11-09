@@ -48,8 +48,11 @@ export async function devicePushEnabled(portal: Portal) {
   const registration = await readyPushWorker();
   const subscription = await registration.pushManager.getSubscription();
   if (!subscription) return false;
-  const result = await request<{ enabled: boolean }>(`${portal}/push/status`, { endpoint: subscription.endpoint });
-  return result.enabled;
+  // The local subscription is authoritative for the permission prompt. A temporary
+  // server/network failure must not tell an already subscribed device to allow again.
+  const result = await request<{ enabled: boolean }>(`${portal}/push/status`, { endpoint: subscription.endpoint }).catch(() => null);
+  if (result && !result.enabled) await request(`${portal}/push/subscribe`, { subscription: subscription.toJSON() });
+  return true;
 }
 
 export async function testDevicePush(portal: Portal) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { devicePushEnabled, ensureDevicePush, removeDevicePush, testDevicePush } from './pushNotifications';
 import type { Portal } from './platformApi';
 const notificationError = (error: unknown) => {
@@ -11,6 +11,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
   const [checked, setChecked] = useState(false);
+  const syncVersion = useRef(0);
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported');
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -20,9 +21,14 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     let alive = true;
     setEnabled(false); setHint(''); setChecked(false);
     if (!userId) return;
-    const sync = () => {
+    const sync = async () => {
+      const version = ++syncVersion.current;
       setPermission('Notification' in window ? Notification.permission : 'unsupported');
-      void devicePushEnabled(portal).then(value => { if (alive) setEnabled(value); }).catch(() => undefined).finally(() => { if (alive) setChecked(true); });
+      try {
+        let value = await devicePushEnabled(portal);
+        if (!value && 'Notification' in window && Notification.permission === 'granted') value = await ensureDevicePush(portal);
+        if (alive && version === syncVersion.current) { setEnabled(value); setChecked(true); }
+      } catch { /* Keep the last known state; an offline device has not revoked permission. */ }
     };
     const visible = () => { if (document.visibilityState === 'visible') sync(); };
     sync(); document.addEventListener('visibilitychange', visible);
@@ -31,6 +37,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   async function toggle() {
     if (!userId || busy) return;
     setBusy(true); setHint('');
+    ++syncVersion.current;
     try {
       if (enabled) {
         await removeDevicePush(portal); setEnabled(false); setHint('تم إيقاف تنبيهات هذا الجهاز.'); return;
@@ -53,5 +60,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, toggle, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, needsPermission: checked && !enabled && permission !== 'granted', toggle, test };
 }

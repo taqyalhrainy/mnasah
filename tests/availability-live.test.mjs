@@ -1,0 +1,52 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
+import { io as socketClient } from 'socket.io-client';
+import { slotAvailability, bookingStarts } from '../shared/slot-availability.js';
+import { startPlatformServer } from '../server/index.js';
+import { memoryMongo } from './helpers/memory-mongo.mjs';
+
+test('expired windows, real slot IDs, live updates, booking races and lesson file access', async t => {
+  const now = Date.now(), hour = 3600000;
+  const users = ['teacher', 'student', 'other'].map(id => ({ id, name: id, role: id === 'teacher' ? 'teachers' : 'students', status: 'active', subject: 'رياضيات' }));
+  const token = id => `${id}-availability-token`;
+  const db = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(token(user.id)).digest('hex'), expires: now + hour })), catalog: [{ id: 'math', kind: 'category', subjects: ['رياضيات'], levels: [] }], slots: [{ id: 'short', teacher_id: 'teacher', status: 'open', start: now - 60000, available_until: now + hour - 60000, minutes: 60, price: 1000 }], wallet_accounts: [{ user_id: 'student', balance: 5000 }, { user_id: 'other', balance: 5000 }] });
+  const stored = new Map();
+  const attachmentStore = { async write(id, name, source) { const chunks = []; for await (const chunk of source) chunks.push(Buffer.from(chunk)); stored.set(id, Buffer.concat(chunks)); }, read: id => Readable.from([stored.get(id)]), async remove(id) { stored.delete(id); } };
+  const { httpServer, io } = await startPlatformServer({ database: db, attachmentStore, port: 0 });
+  const base = `http://127.0.0.1:${httpServer.address().port}`;
+  const cookie = id => `mansah_session_${id === 'teacher' ? 'teachers' : 'students'}=${token(id)}`;
+  const socket = socketClient(base, { auth: { portal: 'students' }, extraHeaders: { cookie: cookie('student') }, transports: ['websocket'], reconnection: false });
+  t.after(() => { socket.disconnect(); return new Promise(resolve => io.close(() => httpServer.close(resolve))); });
+  await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
+  async function call(id, path, body, expected = 200) {
+    const response = await fetch(`${base}/api/${id === 'teacher' ? 'teachers' : 'students'}/${path}`, { headers: { cookie: cookie(id), origin: base, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
+    const result = await response.json(); assert.equal(response.status, expected, JSON.stringify(result)); return result;
+  }
+  assert.equal(slotAvailability((await call('teacher', 'slots')).slots[0]).available, false);
+  assert.equal((await call('student', 'slots')).slots.length, 0);
+  const changed = new Promise(resolve => socket.once('availability:changed', resolve));
+  const created = await call('teacher', 'slots', { subjects: ['رياضيات'], start: now + 10000, available_until: now + 2 * hour, offerings: [{ minutes: 60, price: 1000 }] });
+  assert.equal((await changed).id, created.slot.id);
+  assert.ok(created.slot.id);
+  assert.equal((await call('student', 'slots')).slots[0].id, created.slot.id);
+  await call('teacher', `slots/${created.slot.id}`, {});
+  await call('teacher', `slots/${created.slot.id}`, {});
+  assert.equal((await call('student', 'slots')).slots.length, 0);
+  const future = await call('teacher', 'slots', { subjects: ['رياضيات'], start: now + 3 * hour, available_until: now + 5 * hour, offerings: [{ minutes: 60, price: 1000 }] });
+  const starts = bookingStarts(future.slot, 60);
+  const booking = await call('student', `slots/${future.slot.id}`, { subject: 'رياضيات', minutes: 60, start: starts[0] });
+  assert.match((await call('other', `slots/${future.slot.id}`, { subject: 'رياضيات', minutes: 60, start: starts[0] }, 409)).error, /حجزها طالب قبلك/);
+  const remaining = (await call('other', 'slots')).slots.find(slot => slot.id === future.slot.id);
+  assert.ok(bookingStarts(remaining, 60).length, 'remaining hour must stay visible to other students');
+  const file = Buffer.alloc(2 * 1024 * 1024, 7);
+  const query = new URLSearchParams({ size: String(file.length), name: 'lesson.any-extension', type: 'application/octet-stream' });
+  const uploaded = await fetch(`${base}/api/teachers/bookings/${booking.id}/files?${query}`, { method: 'POST', headers: { cookie: cookie('teacher'), origin: base, 'content-type': 'application/octet-stream' }, body: file });
+  assert.equal(uploaded.status, 200);
+  const { url } = await uploaded.json();
+  const studentUrl = url.replace('/teachers/', '/students/');
+  const download = await fetch(base + studentUrl, { headers: { cookie: cookie('student') } });
+  assert.equal(download.status, 200); assert.deepEqual(Buffer.from(await download.arrayBuffer()), file);
+  assert.equal((await fetch(base + studentUrl, { headers: { cookie: cookie('other') } })).status, 404);
+});
