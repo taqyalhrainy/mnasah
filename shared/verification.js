@@ -1,3 +1,4 @@
+import { normalizePhone } from './phone.js';
 export const qualificationOptions = [
   'دبلوم متوسط', 'بكالوريوس', 'دبلوم عالٍ', 'ماجستير', 'دكتوراه',
   'رخصة مزاولة تعليم', 'شهادة تدريب مهني', 'إجازة في القرآن الكريم', 'أخرى',
@@ -12,10 +13,9 @@ const clean = (value, max = 100, min = 1) => {
 };
 
 export function jordanPhone(value) {
-  const digits = String(value || '').replace(/[^0-9]/g, '');
-  if (/^07[789]\d{7}$/.test(digits)) return `+962${digits.slice(1)}`;
-  if (/^9627[789]\d{7}$/.test(digits)) return `+${digits}`;
-  fail('أدخل رقم هاتف أردني صحيح يبدأ بـ 077 أو 078 أو 079.');
+  const phone = normalizePhone(value);
+  if (phone) return phone;
+  fail('أدخل رقم هاتف صحيحاً مع رمز الدولة.');
 }
 
 export function ageFromBirthDate(value, now = new Date()) {

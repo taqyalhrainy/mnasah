@@ -1,9 +1,9 @@
-import { Phone } from 'lucide-react';
+import { InternationalPhoneField } from '../auth/InternationalPhoneField';
 import { t } from '../../i18n/preferences';
 
 export function VerifiedPhoneField({ initialValue = '' }: { initialValue?: string }) {
-  return <label>{t('رقم الهاتف')}
-    <span className="field-with-icon"><Phone size={17} /><input name="phone" dir="ltr" inputMode="tel" autoComplete="tel" defaultValue={initialValue} placeholder="079 123 4567" required /></span>
+  return <div className="profile-phone-field">
+    <InternationalPhoneField initialValue={initialValue} />
     <small>{t('يمكنك تعديل رقم التواصل وحفظه مباشرة.')}</small>
-  </label>;
+  </div>;
 }

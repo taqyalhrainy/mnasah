@@ -84,6 +84,7 @@ type WhiteboardMessage =
   | { kind: 'mode'; mode: StageMode }
   | { kind: 'board-session'; open: boolean }
   | { kind: 'document'; document: SharedDocument | null }
+  | { kind: 'document-view'; id?: string; name: string; page: number; view: { zoom: number; x: number; y: number } }
   | { kind: 'document-preload'; id: string; page: number; src: string }
   | { kind: 'document-annotations'; annotations: DocumentAnnotation[] }
   | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; annotations?: DocumentAnnotation[] };
@@ -203,6 +204,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const pointerTimerRef = useRef<number | null>(null);
   const documentPageRef = useRef<HTMLDivElement>(null);
   const [documentSize, setDocumentSize] = useState({ width: 1, height: 1 });
+  const documentSizeRef = useRef(documentSize);
+  documentSizeRef.current = documentSize;
   const [documentRatio, setDocumentRatio] = useState(1);
   const [remoteProfile, setRemoteProfile] = useState<{ name: string; avatar?: string } | null>(null);
   const [documentLoading, setDocumentLoading] = useState(false);
@@ -217,15 +220,30 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [documentView, setDocumentView] = useState(fitDocumentView);
   const documentViewRef = useRef(documentView);
   documentViewRef.current = documentView;
+  const followedDocumentViewRef = useRef<Extract<WhiteboardMessage, { kind: 'document-view' }> | null>(null);
   const documentOverlayRef = useRef<SVGSVGElement>(null);
   const documentPanRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const documentPointersRef = useRef(new Map<number, { x: number; y: number }>());
   const documentPinchRef = useRef<{ distance: number; center: { x: number; y: number } } | null>(null);
-  useEffect(() => { setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.name, sharedDocument?.page]);
+  const applyFollowedDocumentView = () => {
+    const saved = followedDocumentViewRef.current, doc = sharedDocumentRef.current;
+    if (!saved || !doc || saved.id !== doc.id || saved.name !== doc.name || saved.page !== doc.page) return false;
+    const size = documentSizeRef.current;
+    setDocumentView(constrainDocumentView({ zoom: saved.view.zoom, x: saved.view.x * size.width * saved.view.zoom, y: saved.view.y * size.height * saved.view.zoom }, size, documentSurface()));
+    return true;
+  };
+  useEffect(() => { if (role !== 'student' || !applyFollowedDocumentView()) setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.name, sharedDocument?.page]);
   useEffect(() => {
     const area = documentPageRef.current;
+    if (role === 'student' && applyFollowedDocumentView()) return;
     if (area) setDocumentView(view => constrainDocumentView(view, documentSize, { width: area.clientWidth, height: area.clientHeight }));
   }, [documentSize]);
+  useEffect(() => {
+    if (role === 'student') return;
+    if (!sharedDocument || !documentSize.width || !documentSize.height) return;
+    const timer = setTimeout(() => connectionRef.current?.sendWhiteboard({ kind: 'document-view', id: sharedDocument.id, name: sharedDocument.name, page: sharedDocument.page, view: { zoom: documentView.zoom, x: documentView.x / (documentSize.width * documentView.zoom), y: documentView.y / (documentSize.height * documentView.zoom) } }), 35);
+    return () => clearTimeout(timer);
+  }, [documentView, documentSize, sharedDocument?.id, sharedDocument?.page, stageMode, isConnected]);
   const longPressRef = useRef<{ timer: number; x: number; y: number; point: WhiteboardPoint; item: WhiteboardItem } | null>(null);
   useEffect(() => {
     const page = documentPageRef.current;
@@ -267,6 +285,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const whiteboardItemInteractionRef = useRef<WhiteboardItemInteraction | null>(null);
   const whiteboardPointersRef = useRef(new Map<number, { clientX: number; clientY: number }>());
   const whiteboardPinchRef = useRef<WhiteboardPinch | null>(null);
+  // A cancelled touch or a stage switch can lose pointerup when SVG is removed.
+  // Never let an old finger turn the student's next pen stroke into a pinch.
+  useEffect(() => {
+    whiteboardPointersRef.current.clear(); whiteboardPinchRef.current = null;
+    panStartRef.current = null; whiteboardItemInteractionRef.current = null;
+    activeStrokeRef.current = null; setActiveStroke(null);
+  }, [stageMode]);
   const whiteboardDocumentRef = useRef<WhiteboardDocument | null>(null);
   const sharedDocumentSourceRef = useRef<{ name: string; pages: number; format: SharedDocument['format']; render: (page: number) => Promise<string>; destroy?: () => void | Promise<void> } | null>(null);
   const sharedDocumentRef = useRef<SharedDocument | null>(null);
@@ -981,7 +1006,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
+    return kind === 'document-view' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -1018,6 +1043,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
+    if (message.kind === 'document-view') {
+      if (role !== 'student' || !message.view || ![message.view.zoom, message.view.x, message.view.y].every(Number.isFinite) || message.view.zoom < 1 || message.view.zoom > 6 || Math.abs(message.view.x) > 2 || Math.abs(message.view.y) > 2) return;
+      followedDocumentViewRef.current = message;
+      applyFollowedDocumentView();
+      return;
+    }
     if (message.kind === 'sync-request') {
       if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
       return;
@@ -1627,6 +1658,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     longPressRef.current = { timer, x: event.clientX, y: event.clientY, point, item };
   };
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    if (event.pointerType !== 'touch') { whiteboardPointersRef.current.clear(); whiteboardPinchRef.current = null; }
     whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
     if (whiteboardPointersRef.current.size >= 2) {
@@ -1949,7 +1981,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem} aria-label={t('نسخ')}><Copy size={16} /><span>{t('نسخ')}</span></button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)} aria-label={t('حذف العنصر')}><Trash2 size={16} /></button></div>
         <button className="whiteboard-image-options-close" type="button" onClick={() => setSelectedWhiteboardItem(null)} aria-label={t('إغلاق تنسيق الصورة')}><X size={16} /></button>
       </div>}
-      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas tool-${whiteboardTool} ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDownCapture={startTextLongPress} onContextMenu={event => event.preventDefault()} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
+      <svg ref={whiteboardSvgRef} className={`whiteboard-canvas tool-${whiteboardTool} ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDownCapture={startTextLongPress} onContextMenu={event => event.preventDefault()} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke} onLostPointerCapture={finishWhiteboardStroke}>
         {whiteboardItems.map(renderWhiteboardItem)}
         {[...whiteboardStrokes, ...(activeStroke ? [activeStroke] : [])].map((stroke) => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}
       {renderPointer(localPointer, 'whiteboard')}{renderPointer(remotePointer, 'whiteboard', true)}</svg>

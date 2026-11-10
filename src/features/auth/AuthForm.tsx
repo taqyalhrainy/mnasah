@@ -91,6 +91,10 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
         <div className="auth-portal-label">{t("منصّة تعليم خصوصي")}</div>
         <h1>{setupToken ? t("إنشاء حساب الأونر") : register ? t("انضم إلى منصّة") : t("تسجيل الدخول")}</h1>
         <p className="auth-welcome">{register ? t("أهلاً في منصّة.") : t("أهلاً بعودتك.")}</p>
+        {portal !== 'admin' && !setupToken && !recovery && <div className="auth-account-choice" aria-label={t('اختر طريقة البدء')}>
+          <button type="button" className="current" aria-pressed="true"><LogIn size={20} /><span><strong>{t('لدي حساب')}</strong><small>{t('سجّل دخولك للمتابعة')}</small></span></button>
+          <button type="button" onClick={() => { setRegister(true); setError(''); }}><UserPlus size={20} /><span><strong>{t('إنشاء حساب جديد')}</strong><small>{t('أول زيارة؟ ابدأ من هنا')}</small></span></button>
+        </div>}
         {portal !== 'admin' && !setupToken && <nav className="auth-role-tabs" aria-label={t("بوابات المنصة")}><a href={`${base}students`} aria-current={portal === 'students' ? 'page' : undefined}><GraduationCap size={18} />{t("طالب")}</a><a href={`${base}teachers`} aria-current={portal === 'teachers' ? 'page' : undefined}><Users size={18} />{t("أستاذ")}</a></nav>}
         {recovery ? <div className="password-recovery" aria-live="polite">
           <div className="password-recovery-icon"><KeyRound size={24} /></div>

@@ -19,6 +19,7 @@ import { ensureCardIndexes, cardSettings, publicCardOrder, processCardCallback, 
 import { attachmentHeaders } from '../shared/chat-attachments.js';
 import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification, registrationProfile } from '../shared/verification.js';
+import { normalizePhone } from '../shared/phone.js';
 import { paymentSettings, publicTopup } from '../shared/wallet-topups.js';
 import { GOOGLE_WEB_CLIENT_ID } from '../shared/google.js';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
@@ -404,10 +405,8 @@ async function googleIdentity(credential) {
   return { email: String(profile.email).toLowerCase(), name: String(profile.name || '').trim(), sub: String(profile.sub || '') };
 }
 const normalizeJordanPhone = value => {
-  const digits = String(value || '').replace(/\D/g, '');
-  if (/^07[789]\d{7}$/.test(digits)) return digits;
-  if (/^9627[789]\d{7}$/.test(digits)) return `0${digits.slice(3)}`;
-  return '';
+  const international = normalizePhone(value);
+  return international.startsWith('+962') ? `0${international.slice(4)}` : international;
 };
 function normalizeSupportPhone(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -943,7 +942,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path === 'profile') {
       if (write) {
         const requestedPhone = body.phone === undefined ? user.phone || '' : normalizeJordanPhone(body.phone);
-        if (body.phone !== undefined && !requestedPhone) fail(400, 'أدخل رقم هاتف أردنياً صحيحاً يبدأ بـ 077 أو 078 أو 079.');
+        if (body.phone !== undefined && !requestedPhone) fail(400, 'أدخل رقم هاتف صحيحاً مع رمز الدولة.');
         const currentPhone = normalizeJordanPhone(user.phone || '');
         const phoneChanged = body.phone !== undefined && requestedPhone !== currentPhone;
         let verification = parseVerification(user.verification);
