@@ -175,9 +175,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [selectedWhiteboardItem, setSelectedWhiteboardItem] = useState<string | null>(null);
   const [editingWhiteboardText, setEditingWhiteboardText] = useState<string | null>(null);
   const [mobileTextDraft, setMobileTextDraft] = useState('');
+  const mobileTextDialogRef = useRef<HTMLDialogElement | null>(null);
   const ignoreEditorOpeningClickRef = useRef(false);
   const [imageOptionsOpen, setImageOptionsOpen] = useState(false);
   const mobileWhiteboard = window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+  useEffect(() => {
+    if (!mobileWhiteboard || !editingWhiteboardText) return;
+    const viewport = window.visualViewport;
+    const resize = () => { const node = mobileTextDialogRef.current; if (!node) return; const height = viewport?.height || window.innerHeight; node.style.setProperty('--wb-editor-height', `${height}px`); node.style.setProperty('--wb-editor-top', `${(viewport?.offsetTop || 0) + height / 2}px`); };
+    resize(); viewport?.addEventListener('resize', resize); viewport?.addEventListener('scroll', resize);
+    return () => { viewport?.removeEventListener('resize', resize); viewport?.removeEventListener('scroll', resize); };
+  }, [mobileWhiteboard, editingWhiteboardText]);
   const pendingTextPointRef = useRef<WhiteboardPoint | null>(null);
   const desktopTextEditTimerRef = useRef<number | null>(null);
   useEffect(() => setImageOptionsOpen(false), [selectedWhiteboardItem]);
@@ -2122,7 +2130,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
-      {mobileWhiteboard && editingWhiteboardText && <dialog className="mobile-whiteboard-text-dialog" aria-label={t('إضافة أو تعديل النص')} ref={node => { if (node && !node.open) { node.showModal(); node.querySelector('textarea')?.focus(); } }} onPointerDownCapture={() => { ignoreEditorOpeningClickRef.current = false; }} onClickCapture={event => { if (ignoreEditorOpeningClickRef.current) { ignoreEditorOpeningClickRef.current = false; event.preventDefault(); event.stopPropagation(); } }} onCancel={event => { event.preventDefault(); cancelMobileTextEdit(); }}><form onSubmit={event => { event.preventDefault(); saveMobileTextEdit(); }}><h2>{t('إضافة أو تعديل النص')}</h2><textarea className="mobile-whiteboard-text-input" autoFocus dir="auto" aria-label={t('نص البورد')} value={mobileTextDraft} onChange={event => setMobileTextDraft(event.target.value)} placeholder={t('اكتب هنا')} /><div><button type="button" onClick={cancelMobileTextEdit}>{t('إلغاء')}</button><button type="submit" disabled={!mobileTextDraft.trim()}>{t('حفظ النص')}</button></div></form></dialog>}
+      {mobileWhiteboard && editingWhiteboardText && <dialog className="mobile-whiteboard-text-dialog" aria-label={t('إضافة أو تعديل النص')} ref={node => { mobileTextDialogRef.current = node; if (node && !node.open) { node.showModal(); node.querySelector('textarea')?.focus(); } }} onPointerDownCapture={() => { ignoreEditorOpeningClickRef.current = false; }} onClickCapture={event => { if (ignoreEditorOpeningClickRef.current) { ignoreEditorOpeningClickRef.current = false; event.preventDefault(); event.stopPropagation(); } }} onCancel={event => { event.preventDefault(); cancelMobileTextEdit(); }}><form onSubmit={event => { event.preventDefault(); saveMobileTextEdit(); }}><h2>{t('إضافة أو تعديل النص')}</h2><textarea className="mobile-whiteboard-text-input" autoFocus dir="auto" aria-label={t('نص البورد')} value={mobileTextDraft} onChange={event => setMobileTextDraft(event.target.value)} placeholder={t('اكتب هنا')} /><div><button type="button" onClick={cancelMobileTextEdit}>{t('إلغاء')}</button><button type="submit" disabled={!mobileTextDraft.trim()}>{t('حفظ النص')}</button></div></form></dialog>}
       {remoteAudioBlocked && <button type="button" className="remote-audio-unlock" onClick={() => void resumeRemoteAudio()}><Mic size={18} />{t('اضغط لتشغيل صوت المكالمة')}</button>}
       {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file"  onChange={handleWhiteboardFileChange} />}
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}

@@ -1434,11 +1434,11 @@ button.day-event { font: inherit; }
 .whiteboard-canvas.tool-select .whiteboard-item-hitbox { pointer-events: all; }
 .whiteboard-canvas:not(.tool-select) .whiteboard-item-hitbox { pointer-events: none; }
 .whiteboard-resize-handle { touch-action: none; }
-.mobile-whiteboard-text-dialog { width: min(500px,calc(100vw - 24px)); max-height: calc(100dvh - 24px); margin: auto; padding: 20px; border: 1px solid #ac8ac2; border-radius: 18px; color: #271b30; background: #fff; overflow: auto; box-shadow: 0 24px 80px #0008; }
+.mobile-whiteboard-text-dialog { position: fixed; inset: auto; top: var(--wb-editor-top,50dvh); left: 50%; transform: translate(-50%,-50%); width: min(500px,calc(100vw - 24px)); max-height: calc(var(--wb-editor-height,100dvh) - 24px); margin: 0; padding: 20px; border: 1px solid #ac8ac2; border-radius: 18px; color: #271b30; background: #fff; overflow: auto; box-shadow: 0 24px 80px #0008; }
 .mobile-whiteboard-text-dialog::backdrop { background: #100819b8; }
 .mobile-whiteboard-text-dialog form { display: grid; gap: 15px; }
 .mobile-whiteboard-text-dialog h2 { margin: 0; font-size: 18px; }
-.call-experience .mobile-whiteboard-text-dialog .mobile-whiteboard-text-input { width: 100%; height: clamp(140px,28dvh,260px); min-height: 100px; padding: 14px; border: 1px solid #c5b3d0; border-radius: 12px; background: #faf8fc; color: #24172d; -webkit-text-fill-color: #24172d; font: 500 20px/1.6 'Tajawal',sans-serif !important; resize: vertical; touch-action: auto; user-select: text; -webkit-user-select: text; }
+.call-experience .mobile-whiteboard-text-dialog .mobile-whiteboard-text-input { width: 100%; height: clamp(90px,calc(var(--wb-editor-height,100dvh) * .28),260px); min-height: 80px; padding: 14px; border: 1px solid #c5b3d0; border-radius: 12px; background: #faf8fc; color: #24172d; -webkit-text-fill-color: #24172d; font: 500 20px/1.6 'Tajawal',sans-serif !important; resize: vertical; touch-action: auto; user-select: text; -webkit-user-select: text; }
 .mobile-whiteboard-text-dialog form > div { display: flex; gap: 10px; }
 .mobile-whiteboard-text-dialog form > div button { flex: 1; min-height: 44px; padding: 9px 14px; border: 1px solid #c7b5d2; border-radius: 11px; color: #412750; background: #f1ebf6; font: inherit; font-weight: 700; }
 .mobile-whiteboard-text-dialog button[type=submit] { background: #684080; color: #fff; border-color: #684080; }

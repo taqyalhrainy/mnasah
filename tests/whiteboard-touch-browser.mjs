@@ -17,8 +17,8 @@ try {
     const teacher = await context.newPage(), student = await context.newPage(), errors = [];
     for (const page of [teacher, student]) { page.setDefaultTimeout(12000); page.on('pageerror', e => errors.push(e.message)); }
     const room = `touch-${device}-${Date.now()}`;
-    await teacher.goto(`${base}/video-test?room=${room}&role=teacher`);
-    await student.goto(`${base}/video-test?room=${room}&role=student`);
+    await teacher.goto(`${base}/video-test?room=${room}&role=teacher`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await student.goto(`${base}/video-test?room=${room}&role=student`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     for (const page of [teacher, student]) await page.waitForFunction(() => [...document.querySelectorAll('.participant-tile video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 25000 });
     await teacher.getByTitle('اللوح المشترك', { exact: true }).tap();
     await student.locator('.whiteboard-canvas').waitFor();
@@ -30,6 +30,10 @@ try {
     await editor.waitFor();
     assert.equal(await editor.evaluate(el => document.activeElement === el), true);
     assert.ok(await editor.evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 20));
+    await teacher.evaluate(() => { Object.defineProperty(visualViewport,'height',{configurable:true,value:400}); visualViewport.dispatchEvent(new Event('resize')); });
+    const dialogBox = await teacher.locator('.mobile-whiteboard-text-dialog').boundingBox();
+    assert.ok(dialogBox.y >= 0 && dialogBox.y + dialogBox.height <= 401, 'editor stays above the virtual keyboard');
+    await teacher.evaluate(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event('resize')); });
     await editor.fill('مرحبا من الهاتف');
     await editor.evaluate(el => el.blur());
     assert.equal(await editor.isVisible(), true, 'keyboard blur does not discard text');
