@@ -32,7 +32,11 @@ try {
       await page.evaluate(() => window.scrollTo(0,0));
       await page.screenshot({ path: `.private/wallet-${width}-${theme}-cliq.png`, fullPage: true });
       await page.locator('.wallet-payment-methods > button').last().click();
-      assert.match(await page.locator('.paypal-charge-summary').innerText(), /14\.11 USD/);
+      assert.doesNotMatch(await page.locator('.paypal-charge-summary').innerText(), /USD/);
+      assert.equal(await page.locator('.paypal-currency-details > strong').isVisible(), false);
+      await page.locator('.paypal-currency-details summary').click();
+      assert.match(await page.locator('.paypal-currency-details').innerText(), /14\.11 USD/);
+      await page.locator('.paypal-currency-details summary').click();
       assert.equal(await page.locator('.paypal-pay-button').isEnabled(), true);
       const inputStyle = await page.locator('#wallet-topup-amount').evaluate(el => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
       if (theme === 'dark') assert.notEqual(inputStyle.color, 'rgb(16, 24, 40)', 'dark input text stays readable');
@@ -41,7 +45,8 @@ try {
     }
   }
   await page.locator('#wallet-topup-amount').fill('20');
-  assert.match(await page.locator('.paypal-charge-summary').innerText(), /28\.21 USD/);
+  await page.locator('.paypal-currency-details summary').click();
+  assert.match(await page.locator('.paypal-currency-details').innerText(), /28\.21 USD/);
   await page.locator('#wallet-topup-amount').fill('0');
   assert.equal(await page.locator('.paypal-pay-button').isDisabled(), true);
   await page.locator('#wallet-topup-amount').fill('10');

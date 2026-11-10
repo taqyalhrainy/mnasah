@@ -53,6 +53,10 @@
 .paypal-charge-summary { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .paypal-charge-summary > span { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
 .paypal-charge-summary strong { color: var(--ink); font-size: 21px; width: fit-content; }
+.paypal-charge-summary.jod-primary { grid-template-columns: minmax(0,1fr); }
+.paypal-currency-details { margin-top: 12px; color: var(--muted); font-size: 12px; }
+.paypal-currency-details summary { padding: 7px 0; cursor: pointer; }
+.paypal-currency-details > strong { display: block; width: fit-content; margin-top: 8px; color: var(--ink); font-size: 17px; }
 .paypal-checkout-panel p { margin: 12px 0; color: var(--muted); line-height: 1.7; font-size: 13px; }
 .paypal-checkout-panel .wallet-card-note { font-size: 12px; }
 .wallet-payment-notice { display: flex; align-items: center; gap: 10px; margin: 0; padding: 15px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface); font-size: 13px; }

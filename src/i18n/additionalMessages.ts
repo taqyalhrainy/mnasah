@@ -1,4 +1,6 @@
 export const additionalMessages: Record<string, string> = {
+  "تفاصيل الدفع وعملة الخصم": "Payment details and charge currency",
+  "اختر الدفع ببطاقة كضيف في PayPal إذا ظهر الخيار، دون تسجيل الدخول إلى حساب PayPal.": "Choose PayPal's guest card checkout when offered, without logging in to a PayPal account.",
   "تعذر فتح صفحة الدفع. حاول مجدداً.": "Unable to open checkout. Please try again.",
   "طلبات بانتظار التأكيد: {v0}": "Awaiting confirmation: {v0}",
   "المبلغ الناقص لإتمام الحجز": "Amount needed to complete your booking",
