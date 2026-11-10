@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v35';
+const CACHE_NAME = 'imtidad-shell-v36';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -6,7 +6,13 @@ const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-fina
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(SHELL_FILES);
+    await cache.addAll(SHELL_FILES.map(url => new Request(url, { cache: 'reload' })));
+    // Install the entry JS/CSS with its HTML, before retiring the previous build.
+    const html = await (await cache.match(INDEX_URL)).text();
+    const entryAssets = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+      .map(match => new URL(match[1], INDEX_URL))
+      .filter(url => url.origin === self.location.origin && url.pathname.includes('/assets/'));
+    await cache.addAll([...new Set(entryAssets.map(url => url.href))]);
     await self.skipWaiting();
   })());
 });
@@ -14,7 +20,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)));
+    await Promise.all(keys.filter(key => key.startsWith('imtidad-shell-') && key !== CACHE_NAME).map(key => caches.delete(key)));
     await self.clients.claim();
   })());
 });
@@ -35,31 +41,38 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    const network = fetch(request).then(async response => {
+    const network = fetch(new Request(request, { cache: 'no-store' })).then(response => {
       if (!response.ok) throw new Error('Navigation unavailable');
-      const cache = await caches.open(CACHE_NAME);
-      await cache.put(INDEX_URL, response.clone());
+      // Storage/quota failures must not turn a successful load into an error.
+      const copy = response.clone();
+      event.waitUntil(Promise.resolve().then(() => caches.open(CACHE_NAME)).then(cache => cache.put(INDEX_URL, copy)).catch(() => undefined));
       return response;
     });
     event.waitUntil(network.catch(() => undefined));
     event.respondWith((async () => {
-      const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(INDEX_URL);
-      if (cached) return cached;
-      try { return await network; }
-      catch { return Response.error(); }
+      // A recovery navigation must bypass stale HTML, even if a cache exists.
+      if (url.searchParams.has('__app_reload')) return network.catch(() => Response.error());
+      let cached;
+      try { cached = await (await caches.open(CACHE_NAME)).match(INDEX_URL); } catch { /* Restricted storage. */ }
+      if (!cached) return network.catch(() => Response.error());
+      let timer;
+      try {
+        return await Promise.race([network.catch(() => cached), new Promise(resolve => { timer = setTimeout(() => resolve(cached), 1500); })]);
+      } finally { clearTimeout(timer); }
     })());
     return;
   }
 
   if (url.origin === self.location.origin && (url.pathname.includes('/assets/') || /\.(?:js|css|svg|png|jpg|webp|woff2|ico|webmanifest)$/.test(url.pathname))) {
     event.respondWith((async () => {
-      const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(request);
+      let cache, cached;
+      try { cache = await caches.open(CACHE_NAME); cached = await cache.match(request); } catch { /* Storage is optional. */ }
+      if (cached && url.pathname.includes('/assets/')) return cached;
       const network = fetch(request).then(response => {
-        if (response.ok) cache.put(request, response.clone());
+        if (response.ok && cache) event.waitUntil(cache.put(request, response.clone()).catch(() => undefined));
         return response;
-      }).catch(() => cached);
+      }).catch(() => cached || Response.error());
+      event.waitUntil(network.catch(() => undefined));
       return cached || network;
     })());
   }

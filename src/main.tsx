@@ -13,6 +13,13 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+// Recovery is a one-shot network navigation, not a permanent application URL.
+const launchUrl = new URL(location.href);
+if (launchUrl.searchParams.has('__app_reload')) {
+  launchUrl.searchParams.delete('__app_reload');
+  history.replaceState(history.state, '', `${launchUrl.pathname}${launchUrl.search}${launchUrl.hash}`);
+}
+
 if ('serviceWorker' in navigator) {
   void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`, { updateViaCache: 'none' }).catch(() => undefined);
 }

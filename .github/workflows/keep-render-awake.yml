@@ -16,6 +16,9 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    strategy:
+      matrix:
+        host: [emtidad-alelm.onrender.com, emtidad-alelm-owner.onrender.com]
     steps:
-      - name: Wake Mansah API
-        run: curl --fail --silent --show-error --max-time 120 --retry 2 --retry-delay 5 https://mnasah.onrender.com/health
+      - name: Check current platform health
+        run: curl --fail --silent --show-error --max-time 60 --retry 1 --retry-delay 5 https://${{ matrix.host }}/health

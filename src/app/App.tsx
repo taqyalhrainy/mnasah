@@ -51,7 +51,7 @@ export function App() {
   return <PortalApp />;
 }
 
-const wakeRetryDelays = [2500, 4000, 6000, 8000, 10000, 12000];
+const wakeRetryDelays = [1000, 2000];
 
 function WakeLoading({ slow, attempt }: { slow: boolean; attempt: number }) {
   usePreferences();
@@ -149,9 +149,10 @@ function PortalApp() {
   useEffect(() => {
     let alive = true;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     const slowTimer = setTimeout(() => { if (alive) setSlowWake(true); }, 1800);
     setLoading(true); setError('');
-    request<{ user: User | null }>(`auth/me?portal=${portal}${routePath() === '/' ? '&discover=1' : ''}`).then(result => {
+    request<{ user: User | null }>(`auth/me?portal=${portal}${routePath() === '/' ? '&discover=1' : ''}`, undefined, controller.signal, 10000).then(result => {
       if (!alive) return;
       setUser(result.user);
       if (result.user) {
@@ -178,6 +179,7 @@ function PortalApp() {
       alive = false;
       clearTimeout(slowTimer);
       clearTimeout(retryTimer);
+      controller.abort();
     };
   }, [retry, portal, wakeAttempt]);
   async function logout() {

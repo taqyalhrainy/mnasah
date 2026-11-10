@@ -7,6 +7,15 @@ test('public about page and discovery files work without a session', async () =>
   const { httpServer, io } = await startPlatformServer({ database: memoryMongo({}), port: 0, portalMode: 'public' });
   const base = `http://127.0.0.1:${httpServer.address().port}`;
   try {
+    for (const pathname of ['/', '/students', '/teachers', '/index.html']) {
+      const response = await fetch(base + pathname);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store', pathname);
+    }
+    const missingChunk = await fetch(base + '/assets/removed-old-build.js');
+    assert.equal(missingChunk.status, 404);
+    assert.equal(missingChunk.headers.get('cache-control'), 'no-store');
+    assert.doesNotMatch(await missingChunk.text(), /<!doctype html>/i);
     const page = await fetch(base + '/about/');
     assert.equal(page.status, 200);
     assert.match(page.headers.get('content-type'), /text\/html/);

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
+const navigation = url => Object.defineProperty(new Request(url), 'mode', { value: 'navigate' });
+
 test('public discovery documents bypass the cached portal shell', async () => {
   const handlers = {};
   const origin = 'https://emtidad-alelm.onrender.com';
@@ -26,26 +28,45 @@ test('navigation falls back to the platform shell on a temporary server error', 
   const origin = 'https://emtidad-alelm.onrender.com';
   const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
   const cached = new Response('platform shell');
-  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), { self, URL, Response, setTimeout, fetch: async () => new Response('server error', { status: 503 }), caches: { open: async () => ({ match: async () => cached }) } });
+  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), { self, URL, Request, Response, setTimeout, clearTimeout, fetch: async () => new Response('server error', { status: 503 }), caches: { open: async () => ({ match: async () => cached }) } });
   let result;
-  handlers.fetch({ request: { method: 'GET', mode: 'navigate', url: origin + '/students' }, waitUntil: promise => promise.catch(() => {}), respondWith: promise => { result = promise; } });
+  handlers.fetch({ request: navigation(origin + '/students'), waitUntil: promise => promise.catch(() => {}), respondWith: promise => { result = promise; } });
   assert.equal(await (await result).text(), 'platform shell');
 });
 
-test('repeat navigation returns the cached shell without waiting for a slow server', async () => {
+test('a slow server falls back to cached HTML within a bounded delay', async () => {
   const handlers = {};
   const origin = 'https://emtidad-alelm.onrender.com';
   const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
   const cached = new Response('instant shell');
   vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
-    self, URL, Response,
+    self, URL, Request, Response, setTimeout: callback => setTimeout(callback, 5), clearTimeout,
     fetch: () => new Promise(() => {}),
     caches: { open: async () => ({ match: async () => cached }) },
   });
   let result;
-  handlers.fetch({ request: { method: 'GET', mode: 'navigate', url: origin + '/students' }, waitUntil: () => {}, respondWith: promise => { result = promise; } });
+  handlers.fetch({ request: navigation(origin + '/students'), waitUntil: () => {}, respondWith: promise => { result = promise; } });
   const response = await Promise.race([result, new Promise((_, reject) => setTimeout(() => reject(new Error('cached navigation waited for the server')), 100))]);
   assert.equal(await response.text(), 'instant shell');
+});
+
+test('fresh HTML wins over stale cache and recovery bypasses it; cache failures do not break loads', async () => {
+  for (const storageFails of [false, true]) {
+    const handlers = {}, work = [];
+    const origin = 'https://emtidad-alelm.onrender.com';
+    const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
+    vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
+      self, URL, Request, Response, setTimeout, clearTimeout,
+      fetch: async request => { assert.equal(request.cache, 'no-store'); return new Response('fresh build'); },
+      caches: { open: async () => { if (storageFails) throw new Error('storage unavailable'); return { match: async () => new Response('old build'), put: async () => { throw new Error('quota full'); } }; } },
+    });
+    for (const path of ['/students', '/students?__app_reload=123']) {
+      let result;
+      handlers.fetch({ request: navigation(origin + path), waitUntil: promise => work.push(promise), respondWith: promise => { result = promise; } });
+      assert.equal(await (await result).text(), 'fresh build');
+    }
+    await Promise.all(work);
+  }
 });
 
 test('background worker shows owner notifications without an open page and opens the target section', async () => {

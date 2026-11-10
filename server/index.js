@@ -1706,14 +1706,16 @@ app.use(express.static(path.join(root, 'dist/client'), {
       if (filePath.endsWith('robots.txt') || filePath.endsWith('sitemap.xml') || /google[a-f0-9]+\.html$/.test(filePath)) {
         res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       } else if (filePath.endsWith('index.html')) {
-        res.setHeader('Cache-Control', 'public, max-age=0, stale-while-revalidate=86400, stale-if-error=604800');
+        res.setHeader('Cache-Control', 'no-store');
       } else if (filePath.endsWith('service-worker.js') || filePath.endsWith('manifest.webmanifest')) {
       res.setHeader('Cache-Control', 'no-cache');
     }
   },
 }));
+// Never return (and cache) the portal HTML as a missing JavaScript build chunk.
+app.use('/assets', (_req, res) => res.status(404).set('Cache-Control', 'no-store').end());
 app.get('*path', (_req, res) => {
-    res.setHeader('Cache-Control', 'public, max-age=0, stale-while-revalidate=86400, stale-if-error=604800');
+    res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(root, 'dist/client/index.html'));
 });
 app.use((error, _req, res, _next) => {
