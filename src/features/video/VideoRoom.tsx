@@ -174,6 +174,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardTool, setWhiteboardTool] = useState<WhiteboardTool>('draw');
   const [selectedWhiteboardItem, setSelectedWhiteboardItem] = useState<string | null>(null);
   const [editingWhiteboardText, setEditingWhiteboardText] = useState<string | null>(null);
+  const [mobileTextDraft, setMobileTextDraft] = useState('');
+  const ignoreEditorOpeningClickRef = useRef(false);
+  const [imageOptionsOpen, setImageOptionsOpen] = useState(false);
+  const mobileWhiteboard = window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+  const pendingTextPointRef = useRef<WhiteboardPoint | null>(null);
+  const desktopTextEditTimerRef = useRef<number | null>(null);
+  useEffect(() => setImageOptionsOpen(false), [selectedWhiteboardItem]);
   const [whiteboardDocument, setWhiteboardDocument] = useState<WhiteboardDocument | null>(null);
   const [whiteboardDocumentBusy, setWhiteboardDocumentBusy] = useState(false);
   const [sharedDocument, setSharedDocument] = useState<SharedDocument | null>(null);
@@ -209,7 +216,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const area = documentPageRef.current;
     if (area) setDocumentView(view => constrainDocumentView(view, documentSize, { width: area.clientWidth, height: area.clientHeight }));
   }, [documentSize]);
-  const longPressRef = useRef<{ timer: number; x: number; y: number; item: WhiteboardItem } | null>(null);
+  const longPressRef = useRef<{ timer: number; x: number; y: number; point: WhiteboardPoint; item: WhiteboardItem } | null>(null);
   useEffect(() => {
     const page = documentPageRef.current;
     if (!page) return;
@@ -217,12 +224,19 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const observer = new ResizeObserver(resize); observer.observe(page); resize();
     return () => observer.disconnect();
   }, [stageMode, boardOpen, sharedDocument?.src, documentRatio]);
-  useEffect(() => () => { if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current); if (longPressRef.current) clearTimeout(longPressRef.current.timer); }, []);
+  useEffect(() => () => { if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current); if (longPressRef.current) clearTimeout(longPressRef.current.timer); if (desktopTextEditTimerRef.current !== null) clearTimeout(desktopTextEditTimerRef.current); }, []);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const notificationAudioRef = useRef<AudioContext | null>(null);
   const whiteboardSvgRef = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    const svg = whiteboardSvgRef.current;
+    if (!svg) return;
+    const resize = () => { const rect = svg.getBoundingClientRect(); if (rect.width && rect.height) setWhiteboardAspect(rect.width / rect.height); };
+    const observer = new ResizeObserver(resize); observer.observe(svg); resize();
+    return () => observer.disconnect();
+  }, [stageMode, boardOpen]);
   const whiteboardImageInputRef = useRef<HTMLInputElement>(null);
   const whiteboardFileInputRef = useRef<HTMLInputElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -1152,9 +1166,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const startWhiteboardItemInteraction = (event: PointerEvent<SVGGElement | SVGCircleElement>, item: WhiteboardItem, mode: 'move' | 'resize') => {
+    if ((event.target as Element).closest('textarea,input,[contenteditable=true]')) return;
     if (whiteboardTool !== 'select') return;
+    if (event.pointerType === 'touch' && whiteboardPointersRef.current.size > 0 && !whiteboardPointersRef.current.has(event.pointerId)) return;
     event.preventDefault();
     event.stopPropagation();
+    whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
     const svg = whiteboardSvgRef.current;
     if (!svg) return;
@@ -1165,17 +1182,28 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setWhiteboardTool('select');
   };
 
+  const beginWhiteboardTextEdit = (item: WhiteboardItem) => {
+    if (item.type !== 'text') return;
+    whiteboardPointersRef.current.clear(); whiteboardPinchRef.current = null;
+    whiteboardItemInteractionRef.current = null; pendingTextPointRef.current = null;
+    setSelectedWhiteboardItem(item.id);
+    ignoreEditorOpeningClickRef.current = mobileWhiteboard;
+    setMobileTextDraft(item.text);
+    setEditingWhiteboardText(item.id);
+  };
+
   const addWhiteboardText = (point: WhiteboardPoint) => {
+    const screenScale = (whiteboardSvgRef.current?.getBoundingClientRect().width || 1000) / (1000 / whiteboardViewport.zoom);
     const item: WhiteboardTextItem = {
       id: createWhiteboardId('text'),
       type: 'text',
       x: point.x,
       y: point.y,
-      width: 300 / whiteboardViewport.zoom,
-      height: 100 / whiteboardViewport.zoom,
+      width: (mobileWhiteboard ? 620 : 300) / whiteboardViewport.zoom,
+      height: (mobileWhiteboard ? 200 : 100) / whiteboardViewport.zoom,
       text: '',
       color: '#18171c',
-      fontSize: 34 / whiteboardViewport.zoom,
+      fontSize: mobileWhiteboard ? 24 / screenScale : 34 / whiteboardViewport.zoom,
       fontFamily: 'Tajawal, sans-serif',
       fontWeight: 700,
       fontStyle: 'normal',
@@ -1183,11 +1211,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       background: 'transparent',
       opacity: 1,
     };
+    if (mobileWhiteboard) {
+      item.x = Math.max(whiteboardViewport.x, Math.min(point.x, whiteboardViewport.x + 1000 / whiteboardViewport.zoom - item.width));
+      item.y = Math.max(whiteboardViewport.y, Math.min(point.y, whiteboardViewport.y + 1000 / whiteboardViewport.zoom / getLiveWhiteboardAspect() - item.height));
+    }
     upsertWhiteboardItem(item, true);
     setSelectedWhiteboardItem(item.id);
-    setEditingWhiteboardText(null);
     setWhiteboardTool('select');
-    window.setTimeout(() => setEditingWhiteboardText(item.id), 0);
+    if (mobileWhiteboard) beginWhiteboardTextEdit(item);
+    else { setEditingWhiteboardText(null); if (desktopTextEditTimerRef.current !== null) clearTimeout(desktopTextEditTimerRef.current); desktopTextEditTimerRef.current = window.setTimeout(() => { desktopTextEditTimerRef.current = null; beginWhiteboardTextEdit(item); }, 0); }
   };
 
   const addRasterToWhiteboard = (src: string, pixelWidth: number, pixelHeight: number, documentMeta?: { name: string; page: number; pages: number }) => {
@@ -1560,23 +1592,27 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   useEffect(() => { publishPointer(null, true); setRemotePointer(null); }, [stageMode, sharedDocument?.page]);
   const renderPointer = (pointer: SharedPointer | null, space: SharedPointer['space'], remote = false) => pointer?.space === space && (space !== 'document' || pointer.page === sharedDocument?.page) ? <circle className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} r={space === 'whiteboard' ? 7 / whiteboardViewport.zoom : 9 / documentView.zoom} fill="#ef4444" fillOpacity=".6" stroke="#fff" strokeWidth={space === 'whiteboard' ? 1.5 / whiteboardViewport.zoom : 2 / documentView.zoom} pointerEvents="none" /> : null;
   const startTextLongPress = (event: PointerEvent<SVGSVGElement>) => {
-    if (event.pointerType !== 'touch' || role !== 'teacher') return;
+    if (event.pointerType !== 'touch' || !['select', 'text'].includes(whiteboardTool) || (event.target as Element).closest('textarea,input,[contenteditable=true],.whiteboard-resize-handle')) return;
+    if (whiteboardPointersRef.current.size > 0) return;
     const point = whiteboardPoint(event);
-    const item = [...whiteboardItemsRef.current].reverse().find(item => item.type === 'text' && point.x >= item.x && point.x <= item.x + item.width && point.y >= item.y && point.y <= item.y + item.height);
-    if (!item) return;
+    const item = [...whiteboardItemsRef.current].reverse().find(item => point.x >= item.x && point.x <= item.x + item.width && point.y >= item.y && point.y <= item.y + item.height);
+    if (!item || item.type !== 'text') return;
     event.preventDefault(); event.stopPropagation();
+    whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
     const timer = window.setTimeout(() => {
       longPressRef.current = null;
       setEditingWhiteboardText(null); setSelectedWhiteboardItem(item.id); setWhiteboardTool('select');
       whiteboardItemInteractionRef.current = { id: item.id, mode: 'move', start: point, item: { ...item }, moved: true };
     }, 450);
-    longPressRef.current = { timer, x: event.clientX, y: event.clientY, item };
+    longPressRef.current = { timer, x: event.clientX, y: event.clientY, point, item };
   };
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
     whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
     if (whiteboardPointersRef.current.size >= 2) {
+      pendingTextPointRef.current = null;
+      if (longPressRef.current) { clearTimeout(longPressRef.current.timer); longPressRef.current = null; }
       event.preventDefault();
       const points = [...whiteboardPointersRef.current.values()];
       const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
@@ -1591,7 +1627,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (whiteboardTool === 'text') {
-      addWhiteboardText(whiteboardPoint(event));
+      if (event.pointerType === 'touch') { event.preventDefault(); pendingTextPointRef.current = whiteboardPoint(event); }
+      else addWhiteboardText(whiteboardPoint(event));
       return;
     }
     if (whiteboardTool === 'select') {
@@ -1614,8 +1651,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     publishPointer({ ...whiteboardPoint(event), space: 'whiteboard' });
     if (longPressRef.current) {
       const press = longPressRef.current;
-      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 9) { clearTimeout(press.timer); longPressRef.current = null; }
-      return;
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 9) return;
+      clearTimeout(press.timer); longPressRef.current = null;
+      setSelectedWhiteboardItem(press.item.id); setWhiteboardTool('select');
+      whiteboardItemInteractionRef.current = { id: press.item.id, mode: 'move', start: press.point, item: { ...press.item }, moved: true };
     }
     if (whiteboardPointersRef.current.has(event.pointerId)) whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     if (whiteboardPointersRef.current.size >= 2) {
@@ -1674,10 +1713,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const finishWhiteboardStroke = (event?: PointerEvent<SVGSVGElement>) => {
-    if (longPressRef.current) { const press = longPressRef.current; clearTimeout(press.timer); longPressRef.current = null; setSelectedWhiteboardItem(press.item.id); setEditingWhiteboardText(press.item.id); return; }
+    const cancelled = event?.type === 'pointercancel';
     const wasPinching = whiteboardPinchRef.current !== null;
-    if (event) whiteboardPointersRef.current.delete(event.pointerId);
+    if (event) { whiteboardPointersRef.current.delete(event.pointerId); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }
     if (whiteboardPointersRef.current.size < 2) whiteboardPinchRef.current = null;
+    if (longPressRef.current) { const press = longPressRef.current; clearTimeout(press.timer); longPressRef.current = null; if (!cancelled && !wasPinching) beginWhiteboardTextEdit(press.item); return; }
+    if (pendingTextPointRef.current) { const point = pendingTextPointRef.current; pendingTextPointRef.current = null; if (!cancelled && !wasPinching) addWhiteboardText(point); return; }
     if (wasPinching) return;
     const itemInteraction = whiteboardItemInteractionRef.current;
     if (itemInteraction) {
@@ -1685,7 +1726,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       const item = whiteboardItemsRef.current.find((candidate) => candidate.id === itemInteraction.id);
       if (item) {
         sendWhiteboard({ kind: 'item-upsert', item });
-        if (item.type === 'text' && itemInteraction.mode === 'move' && !itemInteraction.moved) setEditingWhiteboardText(item.id);
+        if (!cancelled && item.type === 'text' && itemInteraction.mode === 'move' && !itemInteraction.moved) beginWhiteboardTextEdit(item);
       }
       return;
     }
@@ -1823,14 +1864,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       onPointerDown: (event: PointerEvent<SVGGElement>) => startWhiteboardItemInteraction(event, item, 'move'),
     };
     return (
-      <g key={item.id} {...commonProps} onDoubleClick={() => item.type === 'text' && setEditingWhiteboardText(item.id)}>
+      <g key={item.id} data-whiteboard-item-id={item.id} {...commonProps} onDoubleClick={() => beginWhiteboardTextEdit(item)}>
         {item.type === 'image' ? (
           <foreignObject x={item.x} y={item.y} width={item.width} height={item.height} opacity={item.opacity ?? 1}>
             <img className="whiteboard-board-image" draggable={false} src={item.src} alt="" style={{ objectFit: item.fit || 'contain', borderRadius: item.borderRadius || 0 }} />
           </foreignObject>
         ) : (
           <foreignObject x={item.x} y={item.y} width={item.width} height={item.height}>
-            {editingWhiteboardText === item.id ? <textarea
+            {editingWhiteboardText === item.id && !mobileWhiteboard ? <textarea
               autoFocus
               className="whiteboard-text-editor"
               dir="auto"
@@ -1839,13 +1880,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
               placeholder={t('اكتب هنا')}
               onPointerDown={(event) => event.stopPropagation()}
               onChange={(event) => upsertWhiteboardItem({ ...item, text: event.target.value }, true)}
-              onBlur={() => { if (!item.text.trim()) deleteWhiteboardItem(item.id); else setEditingWhiteboardText(null); }}
+              onBlur={() => { const current = whiteboardItemsRef.current.find(row => row.id === item.id); if (current?.type === 'text' && !current.text.trim()) deleteWhiteboardItem(item.id); else setEditingWhiteboardText(null); }}
             /> : <div className="whiteboard-text-content" dir="auto" style={{ color: item.color, fontSize: item.fontSize, fontFamily: item.fontFamily, fontWeight: item.fontWeight, fontStyle: item.fontStyle, textAlign: item.textAlign, background: item.background, opacity: item.opacity ?? 1 }}>{item.text || t('اكتب هنا')}</div>}
           </foreignObject>
         )}
+        {!(editingWhiteboardText === item.id && !mobileWhiteboard) && <rect className="whiteboard-item-hitbox" x={item.x} y={item.y} width={item.width} height={item.height} fill="transparent" />}
         {selected && <>
           <rect className="whiteboard-selection-box" x={item.x} y={item.y} width={item.width} height={item.height} />
-          <circle className="whiteboard-resize-handle" cx={item.x + item.width} cy={item.y + item.height} r={10 / whiteboardViewport.zoom} onPointerDown={(event) => startWhiteboardItemInteraction(event, item, 'resize')} />
+          <circle className="whiteboard-resize-handle" cx={item.x + item.width} cy={item.y + item.height} r={mobileWhiteboard ? 18 * viewWidth / (whiteboardSvgRef.current?.clientWidth || 370) : 10 / whiteboardViewport.zoom} onPointerDown={(event) => startWhiteboardItemInteraction(event, item, 'resize')} />
         </>}
       </g>
     );
@@ -1854,10 +1896,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const renderWhiteboardTools = () => (
       <div className="whiteboard-tools" aria-label={t('أدوات اللوح')}>
         <span className="whiteboard-tool-heading">{t('أدوات اللوح')}</span>
-        <button data-whiteboard-tool="select" className={whiteboardTool === 'select' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('select')} aria-label={t('تحديد وتحريك العناصر')} title={t('تحديد وتحريك العناصر')}><MousePointer2 size={17} /></button>
-        <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={t('الرسم بالقلم')}><Pencil size={17} /></button>
-        <button data-whiteboard-tool="pan" className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('pan')} aria-label={t("تحريك اللوح")} title={t("تحريك اللوح")}><Hand size={17} /></button>
-        <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
+        <button data-whiteboard-tool="select" className={whiteboardTool === 'select' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('select'); }} onClick={() => setWhiteboardTool('select')} aria-label={t('تحديد وتحريك العناصر')} title={t('تحديد وتحريك العناصر')}><MousePointer2 size={17} /></button>
+        <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('draw'); }} onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={t('الرسم بالقلم')}><Pencil size={17} /></button>
+        <button data-whiteboard-tool="pan" className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('pan'); }} onClick={() => setWhiteboardTool('pan')} aria-label={t("تحريك اللوح")} title={t("تحريك اللوح")}><Hand size={17} /></button>
+        <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('text'); }} onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
         <button data-whiteboard-tool="image" className="tool-mode" type="button" onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}><ImagePlus size={17} /></button>
         <input ref={whiteboardImageInputRef} className="whiteboard-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardImageChange} />
         <button className="tool-mode" type="button" onClick={undoWhiteboardAction} aria-label={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")} title={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")}><Undo2 size={17} /></button>
@@ -1875,14 +1917,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const renderWhiteboard = () => (
     <div className="whiteboard-panel" aria-label={t('اللوح المشترك. يمكنك لصق صورة مباشرة باستخدام Ctrl+V')}>
-      {selectedWhiteboardObject?.type === 'image' && <div className="whiteboard-inspector" onPointerDown={event => event.stopPropagation()}>
+      {selectedWhiteboardObject?.type === 'image' && <div className="whiteboard-inspector" data-expanded={imageOptionsOpen} onPointerDown={event => event.stopPropagation()}>
         <div className="whiteboard-inspector-title"><strong>{t('تنسيق الصورة')}</strong><small>{t('التغييرات تظهر للطرفين مباشرة')}</small></div>
+        <button className="whiteboard-image-options-toggle" type="button" aria-expanded={imageOptionsOpen} onClick={() => setImageOptionsOpen(open => !open)}>{t('تنسيق الصورة')}</button>
+        <div className="whiteboard-image-options">
           {selectedWhiteboardObject.documentPages && <div className="whiteboard-document-pages"><strong>{selectedWhiteboardObject.documentName}</strong><span>{t('صفحة {v0} من {v1}', { v0: selectedWhiteboardObject.documentPage || 1, v1: selectedWhiteboardObject.documentPages })}</span>{whiteboardDocument?.itemId === selectedWhiteboardObject.id && <div><button type="button" disabled={whiteboardDocumentBusy || whiteboardDocument.page <= 1} onClick={() => void changeWhiteboardDocumentPage(-1)} aria-label={t('الصفحة السابقة')}><ChevronRight size={16} /></button><button type="button" disabled={whiteboardDocumentBusy || whiteboardDocument.page >= whiteboardDocument.pages} onClick={() => void changeWhiteboardDocumentPage(1)} aria-label={t('الصفحة التالية')}><ChevronLeft size={16} /></button></div>}</div>}
           <div className="whiteboard-inspector-buttons"><button type="button" className={(selectedWhiteboardObject.fit || 'contain') === 'contain' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'contain' })}>{t('احتواء')}</button><button type="button" className={selectedWhiteboardObject.fit === 'cover' ? 'selected' : ''} onClick={() => updateSelectedWhiteboardItem({ fit: 'cover' })}>{t('ملء الإطار')}</button></div>
           <label className="whiteboard-range-field"><span>{t('استدارة الحواف')}</span><input type="range" min="0" max="80" value={selectedWhiteboardObject.borderRadius || 0} onChange={event => updateSelectedWhiteboardItem({ borderRadius: Number(event.target.value) })} /></label>
           <button type="button" onClick={() => whiteboardImageInputRef.current?.click()}><ImagePlus size={16} />{t('إضافة صورة أخرى')}</button>
         <label className="whiteboard-range-field"><span>{t('الشفافية')}</span><input type="range" min="20" max="100" value={Math.round((selectedWhiteboardObject.opacity ?? 1) * 100)} onChange={event => updateSelectedWhiteboardItem({ opacity: Number(event.target.value) / 100 })} /></label>
-        <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem}><Copy size={16} />{t('نسخ')}</button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)}><Trash2 size={16} /></button></div>
+        </div>
+        <div className="whiteboard-inspector-actions"><button type="button" onClick={duplicateWhiteboardItem} aria-label={t('نسخ')}><Copy size={16} /><span>{t('نسخ')}</span></button><button type="button" onClick={() => moveWhiteboardLayer('front')} title={t('إلى الأمام')}><BringToFront size={16} /></button><button type="button" onClick={() => moveWhiteboardLayer('back')} title={t('إلى الخلف')}><SendToBack size={16} /></button><button className="danger" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardObject.id)} aria-label={t('حذف العنصر')}><Trash2 size={16} /></button></div>
+        <button className="whiteboard-image-options-close" type="button" onClick={() => setSelectedWhiteboardItem(null)} aria-label={t('إغلاق تنسيق الصورة')}><X size={16} /></button>
       </div>}
       <svg ref={whiteboardSvgRef} className={`whiteboard-canvas tool-${whiteboardTool} ${whiteboardTool === 'pan' ? 'panning' : ''}`} viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`} preserveAspectRatio="none" onWheel={handleWhiteboardWheel} onPointerDownCapture={startTextLongPress} onContextMenu={event => event.preventDefault()} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startWhiteboardStroke} onPointerMove={moveWhiteboardStroke} onPointerUp={finishWhiteboardStroke} onPointerCancel={finishWhiteboardStroke}>
         {whiteboardItems.map(renderWhiteboardItem)}
@@ -2058,10 +2104,25 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (stageModeRef.current === 'whiteboard') setStageMode(sharedDocumentRef.current ? 'document' : 'video');
     sendWhiteboard({ kind: 'board-session', open: false });
   };
+  const cancelMobileTextEdit = () => {
+    const item = whiteboardItemsRef.current.find(row => row.id === editingWhiteboardText);
+    if (item?.type === 'text' && !item.text.trim()) deleteWhiteboardItem(item.id);
+    setEditingWhiteboardText(null);
+  };
+  const saveMobileTextEdit = () => {
+    const item = whiteboardItemsRef.current.find(row => row.id === editingWhiteboardText);
+    if (item?.type === 'text' && mobileTextDraft.trim()) {
+      const charsPerLine = Math.max(1, Math.floor(item.width / (item.fontSize * .6)));
+      const lines = mobileTextDraft.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
+      upsertWhiteboardItem({ ...item, text: mobileTextDraft, height: Math.max(item.height, lines * item.fontSize * 1.35 + 16) }, true);
+    }
+    setEditingWhiteboardText(null);
+  };
   const isWindowsDevice = /Windows/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
   return (
     <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
+      {mobileWhiteboard && editingWhiteboardText && <dialog className="mobile-whiteboard-text-dialog" aria-label={t('إضافة أو تعديل النص')} ref={node => { if (node && !node.open) { node.showModal(); node.querySelector('textarea')?.focus(); } }} onPointerDownCapture={() => { ignoreEditorOpeningClickRef.current = false; }} onClickCapture={event => { if (ignoreEditorOpeningClickRef.current) { ignoreEditorOpeningClickRef.current = false; event.preventDefault(); event.stopPropagation(); } }} onCancel={event => { event.preventDefault(); cancelMobileTextEdit(); }}><form onSubmit={event => { event.preventDefault(); saveMobileTextEdit(); }}><h2>{t('إضافة أو تعديل النص')}</h2><textarea className="mobile-whiteboard-text-input" autoFocus dir="auto" aria-label={t('نص البورد')} value={mobileTextDraft} onChange={event => setMobileTextDraft(event.target.value)} placeholder={t('اكتب هنا')} /><div><button type="button" onClick={cancelMobileTextEdit}>{t('إلغاء')}</button><button type="submit" disabled={!mobileTextDraft.trim()}>{t('حفظ النص')}</button></div></form></dialog>}
       {remoteAudioBlocked && <button type="button" className="remote-audio-unlock" onClick={() => void resumeRemoteAudio()}><Mic size={18} />{t('اضغط لتشغيل صوت المكالمة')}</button>}
       {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file"  onChange={handleWhiteboardFileChange} />}
       {!compact && navigationItems.length > 0 && <div className={`call-site-navigation ${siteMenuOpen ? 'open' : ''}`} onMouseLeave={() => setSiteMenuOpen(false)}><button className="call-menu-trigger" type="button" aria-label={t("فتح صفحات المنصة")} aria-expanded={siteMenuOpen} onMouseEnter={() => setSiteMenuOpen(true)} onClick={() => setSiteMenuOpen(value => !value)}><Menu size={22} /></button><nav aria-label={t("صفحات المنصة")}><strong>{t("تصفح المنصة")}</strong><PreferenceControls />{navigationItems.map(item => <button type="button" key={item.id} onClick={() => { setSiteMenuOpen(false); onNavigate?.(item.id); }}>{item.label}</button>)}</nav></div>}

@@ -1,4 +1,8 @@
 export const additionalMessages: Record<string, string> = {
+  "إضافة أو تعديل النص": "Add or edit text",
+  "نص البورد": "Board text",
+  "حفظ النص": "Save text",
+  "إغلاق تنسيق الصورة": "Close image settings",
   "تفاصيل الدفع وعملة الخصم": "Payment details and charge currency",
   "اختر الدفع ببطاقة كضيف في PayPal إذا ظهر الخيار، دون تسجيل الدخول إلى حساب PayPal.": "Choose PayPal's guest card checkout when offered, without logging in to a PayPal account.",
   "تعذر فتح صفحة الدفع. حاول مجدداً.": "Unable to open checkout. Please try again.",
