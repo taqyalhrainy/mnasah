@@ -82,6 +82,8 @@ export class VideoConnection {
   private videoRepair?: Promise<void>;
   private audioRepair?: Promise<void>;
   private cameraAcquisition?: Promise<MediaStreamTrack | undefined>;
+  private cameraFacing: 'user' | 'environment' = 'user';
+  private cameraSwitch?: Promise<{ stream?: MediaStream; facing: 'user' | 'environment' }>;
   private startPromise?: Promise<MediaStream>;
   private generation = 0;
   private remoteStream?: MediaStream;
@@ -126,7 +128,7 @@ export class VideoConnection {
     let stream: MediaStream | undefined;
     try {
       try {
-        stream = await this.acquireUserMedia({ audio: audioConstraints, video: video ? videoConstraints : false }, generation);
+        stream = await this.acquireUserMedia({ audio: audioConstraints, video: video ? { ...videoConstraints, facingMode: { ideal: this.cameraFacing } } : false }, generation);
       } catch (cause) {
         const name = (cause as { name?: string } | null)?.name;
         // Hardware/camera constraints must not block an otherwise usable mic.
@@ -219,7 +221,7 @@ export class VideoConnection {
     // Muting is often temporary on mobile; reuse a live track on a normal toggle.
     if (!force && this.cameraTrack?.readyState === 'live') return Promise.resolve(this.cameraTrack);
     const generation = this.generation;
-    const pending = this.acquireUserMedia({ audio: false, video: videoConstraints }, generation).then(stream => {
+    const pending = this.acquireUserMedia({ audio: false, video: { ...videoConstraints, facingMode: { ideal: this.cameraFacing } } }, generation).then(stream => {
       if (!stream) return;
       if (this.closed || generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); return; }
       const track = stream.getVideoTracks()[0];
@@ -263,7 +265,38 @@ export class VideoConnection {
     return this.localStream;
   }
 
+  getCameraFacing() { return this.cameraFacing; }
+
+  switchCamera() {
+    if (this.cameraSwitch) return this.cameraSwitch;
+    const generation = this.generation;
+    const pending = (async () => {
+      await this.cameraAcquisition;
+      if (this.closed || generation !== this.generation || !this.localStream || !this.videoEnabled || this.videoSource !== 'camera') return { stream: this.localStream, facing: this.cameraFacing };
+      const previous = this.cameraFacing;
+      this.cameraFacing = previous === 'user' ? 'environment' : 'user';
+      // Mobile devices often cannot keep front and rear cameras active together.
+      // Release only video; microphone and the existing call stay connected.
+      this.cameraTrack?.stop(); this.cameraTrack = undefined;
+      try {
+        const stream = await this.toggleVideo(true);
+        const actual = stream?.getVideoTracks()[0]?.getSettings?.().facingMode;
+        if (actual === 'user' || actual === 'environment') this.cameraFacing = actual;
+        return { stream, facing: this.cameraFacing };
+      } catch (error) {
+        this.cameraFacing = previous;
+        if (!this.closed && generation === this.generation) {
+          try { await this.toggleVideo(true); } catch { /* Audio continues if both cameras fail. */ }
+        }
+        throw error;
+      }
+    })().finally(() => { if (this.cameraSwitch === pending) this.cameraSwitch = undefined; });
+    this.cameraSwitch = pending;
+    return pending;
+  }
+
   async repairVideo(force = false) {
+    if (this.cameraSwitch) return;
     if (this.closed || !this.localStream || !this.videoEnabled || this.videoSource !== 'camera') return;
     if (this.videoRepair) return this.videoRepair;
     const current = this.cameraTrack;

@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { BringToFront, Camera, CameraOff, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileUp, Grid2X2, Hand, Highlighter, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users, X } from 'lucide-react';
+import { BringToFront, Camera, CameraOff, SwitchCamera, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileUp, Grid2X2, Hand, Highlighter, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users, X } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 import { apiMediaUrl, requestFile } from '../../services/platformApi';
 
@@ -164,6 +164,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [siteMenuOpen, setSiteMenuOpen] = useState(false);
   const [fitMode, setFitMode] = useState<'fit' | 'fill'>('fit');
   const [videoRatios, setVideoRatios] = useState({ local: 16 / 9, remote: 16 / 9 });
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
+  const [cameraSwitching, setCameraSwitching] = useState(false);
   const [whiteboardStrokes, setWhiteboardStrokes] = useState<WhiteboardStroke[]>([]);
   const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
   const [activeStroke, setActiveStroke] = useState<WhiteboardStroke | null>(null);
@@ -864,6 +866,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setVideoEnabled(false);
       setStatus(error instanceof Error ? error.message : t('تعذر تشغيل الكاميرا على هذا الجهاز.'));
     } finally { cameraToggleBusyRef.current = false; }
+  };
+
+  const handleCameraSwitch = async () => {
+    const connection = connectionRef.current;
+    if (!connection || cameraToggleBusyRef.current) return;
+    cameraToggleBusyRef.current = true; setCameraSwitching(true);
+    try { const result = await connection.switchCamera(); setCameraFacing(result.facing); setVideoEnabled(Boolean(result.stream?.getVideoTracks().some(track => track.readyState === 'live' && track.enabled))); }
+    catch { setVideoEnabled(Boolean(localStreamRef.current?.getVideoTracks().some(track => track.readyState === 'live' && track.enabled))); setStatus(t('تعذر تبديل الكاميرا. حاول مجدداً.')); }
+    finally { cameraToggleBusyRef.current = false; setCameraSwitching(false); }
   };
 
   const enterPictureInPicture = async (reportError = true) => {
@@ -2083,12 +2094,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const micMuted = isLocal ? !audioEnabled : hasStream && !remoteAudioEnabled;
     const ratio = videoRatios[id];
     return (
-      <button data-tile={id} className={`participant-tile ${focusedParticipant === id ? 'is-focused' : ''} ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${!micMuted && (isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} type="button" onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
-        <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={source === 'camera' ? 'mirrored-video' : undefined} />
+      <div role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); } }} data-tile={id} className={`participant-tile ${focusedParticipant === id ? 'is-focused' : ''} ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${!micMuted && (isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
+        <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={isLocal && source === 'camera' && cameraFacing === 'user' ? 'mirrored-video' : undefined} />
+        {isLocal && showVideo && source === 'camera' && <button type="button" className="camera-switch-button" disabled={cameraSwitching} aria-label={t('تبديل الكاميرا الأمامية والخلفية')} title={t('تبديل الكاميرا الأمامية والخلفية')} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); void handleCameraSwitch(); }}><SwitchCamera size={20} /></button>}
         {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}{(isLocal ? avatarUrl : remoteProfile?.avatar) ? <img src={apiMediaUrl((isLocal ? avatarUrl : remoteProfile?.avatar)!)} alt="" onError={event => { event.currentTarget.style.display = 'none'; }} /> : null}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
         {micMuted && <span className="participant-mic-state" role="status" aria-label={t("المايك مغلق")}><MicOff size={18} /></span>}
         <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{micMuted && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
-      </button>
+      </div>
     );
   };
 

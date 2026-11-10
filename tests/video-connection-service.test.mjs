@@ -18,6 +18,31 @@ const bundle = await build({
 });
 const createService = new Function('module', 'exports', 'testPeer', 'navigator', 'window', 'document', 'MediaStream', `${bundle.outputFiles[0].text}; return module.exports.VideoConnection;`);
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+test('camera flip replaces only video, preserves microphone and retains the selected camera on toggles', async () => {
+  const h = harness();
+  const stream = await h.service.start({ video: true });
+  const microphone = stream.getAudioTracks()[0], front = stream.getVideoTracks()[0];
+  const rear = new Track('video'); rear.getSettings = () => ({ facingMode: 'environment' });
+  h.devices.acquire = async constraints => { assert.equal(constraints.audio, false); assert.equal(constraints.video.facingMode.ideal, 'environment'); return new Stream([rear]); };
+  const result = await h.service.switchCamera();
+  assert.equal(result.facing, 'environment'); assert.equal(result.stream, stream);
+  assert.equal(front.readyState, 'ended'); assert.equal(stream.getVideoTracks()[0], rear);
+  assert.equal(stream.getAudioTracks()[0], microphone); assert.equal(microphone.readyState, 'live');
+  const count = h.acquisitions.length;
+  await h.service.toggleVideo(false); await h.service.toggleVideo(true);
+  assert.equal(h.acquisitions.length, count); assert.equal(stream.getVideoTracks()[0], rear);
+  h.service.close();
+});
+
+test('failed rear-camera switch restores the front camera without stopping audio', async () => {
+  const h = harness(); const stream = await h.service.start({ video: true });
+  const microphone = stream.getAudioTracks()[0], restored = new Track('video');
+  h.devices.acquire = async constraints => { if (constraints.video.facingMode.ideal === 'environment') throw Object.assign(new Error('no rear camera'), { name: 'NotFoundError' }); return new Stream([restored]); };
+  await assert.rejects(h.service.switchCamera());
+  assert.equal(h.service.getCameraFacing(), 'user'); assert.equal(stream.getVideoTracks()[0], restored);
+  assert.equal(stream.getAudioTracks()[0], microphone); assert.equal(microphone.readyState, 'live');
+  h.service.close();
+});
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
 class Track extends EventTarget {

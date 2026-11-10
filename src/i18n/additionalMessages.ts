@@ -1,4 +1,6 @@
 export const additionalMessages: Record<string, string> = {
+  "تبديل الكاميرا الأمامية والخلفية": "Switch front and rear cameras",
+  "تعذر تبديل الكاميرا. حاول مجدداً.": "Unable to switch cameras. Please try again.",
   "إضافة أو تعديل النص": "Add or edit text",
   "نص البورد": "Board text",
   "حفظ النص": "Save text",
