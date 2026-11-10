@@ -753,7 +753,22 @@ app.all('/api/auth/:action', async (req, res, next) => {
     const body = req.body || {};
     const requestedRole = req.query.portal || body.role;
     if (action === 'me') {
-      const account = await getUser(req, requestedRole);
+      let account = await getUser(req, requestedRole);
+      if (account && requestedRole && account.role !== requestedRole) account = null;
+      if (!account && req.query.discover === '1' && requestedRole !== 'admin' && portalMode() !== 'owner') {
+        for (const role of ['students', 'teachers']) {
+          const candidate = await getUser(req, role);
+          if (candidate?.role === role) { account = candidate; break; }
+        }
+      }
+      if (account) {
+        const token = cookie(req, sessionCookie(account.role)) || cookie(req, 'mansah_session');
+        if (token) {
+          const expires = Date.now() + (account.role === 'admin' ? 7 : 30) * 86400000;
+          const renewed = await db.collection('sessions').updateOne({ token: digest(token), user_id: account.id, expires: { $gt: Date.now() } }, { $set: { expires } });
+          if (renewed.modifiedCount) setSession(res, account.role, token, expires);
+        }
+      }
       const visible = publicUser(account);
       if (account?.role === 'teachers') Object.assign(visible, (await teacherRatingMap([account.id])).get(account.id));
       return res.json({ user: visible });
@@ -875,7 +890,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
     }
     if (accountCreated) await audit(user.id, 'account:created', user.id);
     const token = random();
-    const expires = Date.now() + 604800000;
+    const expires = Date.now() + (role === 'admin' ? 7 : 30) * 86400000;
     await db.collection('sessions').deleteMany({ expires: { $lt: Date.now() } });
     await db.collection('sessions').insertOne({ token: digest(token), user_id: user.id, expires });
     setSession(res, role, token, expires);

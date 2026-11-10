@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/max';
 import { normalizePhone } from '../../../shared/phone.js';
 import { t, usePreferences } from '../../i18n/preferences';
+import { Check, ChevronDown } from 'lucide-react';
 
 export function InternationalPhoneField({ initialValue = '', onChange, name = 'phone' }: { initialValue?: string; onChange?: (value: string) => void; name?: string }) {
   usePreferences();
@@ -14,6 +15,7 @@ export function InternationalPhoneField({ initialValue = '', onChange, name = 'p
     return getCountries().map(code => ({ code, title: display.of(code) || code })).sort((a, b) => a.title.localeCompare(b.title, language));
   }, [language]);
   function combined(value: string, code: CountryCode) {
+    if (value && !/^[+\d\s().٠-٩۰-۹-]+$/.test(value)) return value;
     const phone = parsePhoneNumberFromString(value.replace(/^00/, '+'), code);
     return phone?.number || (value ? `+${getCountryCallingCode(code)}${value.replace(/\D/g, '').replace(code === 'IT' ? /^$/ : /^0/, '')}` : '');
   }
@@ -24,10 +26,12 @@ export function InternationalPhoneField({ initialValue = '', onChange, name = 'p
     else setNational(value);
     onChange?.(combined(value, code));
   }
-  return <div className="international-phone" role="group" aria-label={t('رقم الهاتف')}>
-    <label><span>{t('الدولة ورمز الاتصال')}</span><select aria-label={t('الدولة ورمز الاتصال')} value={country} onChange={event => { const code = event.target.value as CountryCode; setCountry(code); onChange?.(combined(national, code)); }}>{countries.map(item => <option key={item.code} value={item.code}>{item.title} (+{getCountryCallingCode(item.code)})</option>)}</select></label>
-    <label><span>{t('رقم الهاتف')}</span><input aria-label={t('رقم الهاتف')} type="tel" dir="ltr" inputMode="tel" autoComplete="tel-national" value={national} maxLength={40} required onChange={event => edit(event.target.value)} placeholder={country === 'JO' ? '079 123 4567' : country === 'SE' ? '070 123 45 67' : t('رقم الهاتف')} /></label>
+  const flag = String.fromCodePoint(...[...country].map(letter => 127397 + letter.charCodeAt(0)));
+  return <div className="international-phone phone-field-v2" role="group" aria-label={t('رقم الهاتف')}>
+    <span className="phone-field-label">{t('رقم الهاتف')}</span>
+    <div className="phone-entry"><div className="phone-country-selector"><span aria-hidden="true">{flag}</span><b dir="ltr">+{getCountryCallingCode(country)}</b><ChevronDown size={14} /><select aria-label={t('الدولة ورمز الاتصال')} value={country} onChange={event => { const code = event.target.value as CountryCode; setCountry(code); onChange?.(combined(national, code)); }}>{countries.map(item => <option key={item.code} value={item.code}>{item.title} (+{getCountryCallingCode(item.code)})</option>)}</select></div>
+    <input aria-label={t('رقم الهاتف')} type="tel" dir="ltr" inputMode="tel" autoComplete="tel-national" value={national} maxLength={40} required onChange={event => edit(event.target.value)} placeholder={country === 'JO' ? '079 123 4567' : country === 'SE' ? '070 123 45 67' : t('رقم الهاتف')} /></div>
     <input type="hidden" name={name} value={valid || raw} />
-    <small className="phone-international-preview" dir="ltr">+{getCountryCallingCode(country)}{valid ? ` · ${valid}` : ''}</small>
+    {valid && <small className="phone-international-preview" dir="ltr"><Check size={13} />{parsePhoneNumberFromString(valid)?.formatInternational()}</small>}
   </div>;
 }

@@ -5,8 +5,11 @@ import { PreferenceControls, direction, t, usePreferences } from '../../i18n/pre
 import { RegistrationFlow } from './RegistrationFlow';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
-export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: User) => void }) {
+export function AuthForm({ portal: initialPortal, onLogin }: { portal: Portal; onLogin: (user: User) => void }) {
   usePreferences();
+  const [portal, setPortal] = useState(initialPortal);
+  const [entry, setEntry] = useState<'choice' | 'role' | 'form'>(initialPortal === 'admin' ? 'form' : 'choice');
+  const [intent, setIntent] = useState<'login' | 'register'>('login');
   const [setupToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get('setup') || '');
   const [register, setRegister] = useState(Boolean(setupToken));
   const [showPassword, setShowPassword] = useState(false);
@@ -79,9 +82,23 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }, [onLogin, portal]);
+  if (portal !== 'admin' && !setupToken && entry !== 'form') return <main className="auth-page redesigned-auth auth-entry-page" dir={direction()}>
+    <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/emtidad-alelm-final-logo-192.png`} width="48" height="48" alt={t('شعار امتداد العلم أكاديمي')} /><strong>{t('امتداد العلم')}</strong></div><PreferenceControls /></header>
+    <div className="auth-main"><section className="auth-form auth-entry-card">
+      <span className="auth-portal-label">{t('تعليم خصوصي، على طريقتك')}</span>
+      <h1>{entry === 'choice' ? t('أهلاً بك في امتداد العلم') : t('أنت طالب أم أستاذ؟')}</h1>
+      <p className="auth-welcome">{entry === 'choice' ? t('اختر كيف تحب تبدأ') : intent === 'register' ? t('اختر نوع حسابك لنجهز لك خطوات التسجيل') : t('اختر نوع حسابك لتسجيل الدخول')}</p>
+      {entry === 'choice' ? <div className="auth-account-choice">
+        <button type="button" onClick={() => { setIntent('login'); setEntry('role'); }}><LogIn size={22} /><span><strong>{t('لدي حساب')}</strong><small>{t('سجّل دخولك للمتابعة')}</small></span></button>
+        <button type="button" onClick={() => { setIntent('register'); setEntry('role'); }}><UserPlus size={22} /><span><strong>{t('إنشاء حساب جديد')}</strong><small>{t('أول زيارة؟ ابدأ من هنا')}</small></span></button>
+      </div> : <><div className="auth-role-choice">{(['students', 'teachers'] as const).map(role => <button key={role} type="button" onClick={() => { setPortal(role); setRegister(intent === 'register'); setEntry('form'); setError(''); }}>
+        {role === 'students' ? <GraduationCap size={32} /> : <Users size={32} />}<strong>{role === 'students' ? t('طالب') : t('أستاذ')}</strong><span>{role === 'students' ? t('أبحث عن حصتي الخصوصية') : t('أقدّم حصصاً خصوصية')}</span><ArrowLeft size={18} />
+      </button>)}</div><button className="text-button auth-entry-back" type="button" onClick={() => setEntry('choice')}>{t('رجوع')}</button></>}
+    </section></div><aside className="auth-visual" aria-label={t('مساحة تعلم')}><img src={`${base}images/learning-desk-v3.jpg`} alt={t('دفتر دراسة وقلم وسماعات على مكتب أصفر')} fetchPriority="high" /></aside>
+  </main>;
   if (register && portal !== 'admin' && !setupToken) return <main className={`auth-page redesigned-auth registration-page portal-${portal}`} dir={direction()}>
     <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/emtidad-alelm-final-logo-192.png`} width="48" height="48" alt={t('شعار امتداد العلم أكاديمي')} /><strong>{t('امتداد العلم')}<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
-    <div className="auth-main registration-main"><RegistrationFlow portal={portal} onLogin={onLogin} onCancel={() => { setRegister(false); setError(''); }} /></div>
+    <div className="auth-main registration-main"><RegistrationFlow portal={portal} onLogin={onLogin} onCancel={() => { setRegister(false); setEntry('role'); setError(''); }} /></div>
     <aside className="auth-visual" aria-label={t("مساحة تعلم")}><img src={`${base}images/learning-desk-v3.jpg`} alt={t("دفتر دراسة وقلم وسماعات على مكتب أصفر")} fetchPriority="high" /></aside>
   </main>;
   return <main className={`auth-page redesigned-auth portal-${portal}`} dir={direction()}>
@@ -91,11 +108,6 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
         <div className="auth-portal-label">{t("منصّة تعليم خصوصي")}</div>
         <h1>{setupToken ? t("إنشاء حساب الأونر") : register ? t("انضم إلى منصّة") : t("تسجيل الدخول")}</h1>
         <p className="auth-welcome">{register ? t("أهلاً في منصّة.") : t("أهلاً بعودتك.")}</p>
-        {portal !== 'admin' && !setupToken && !recovery && <div className="auth-account-choice" aria-label={t('اختر طريقة البدء')}>
-          <button type="button" className="current" aria-pressed="true"><LogIn size={20} /><span><strong>{t('لدي حساب')}</strong><small>{t('سجّل دخولك للمتابعة')}</small></span></button>
-          <button type="button" onClick={() => { setRegister(true); setError(''); }}><UserPlus size={20} /><span><strong>{t('إنشاء حساب جديد')}</strong><small>{t('أول زيارة؟ ابدأ من هنا')}</small></span></button>
-        </div>}
-        {portal !== 'admin' && !setupToken && <nav className="auth-role-tabs" aria-label={t("بوابات المنصة")}><a href={`${base}students`} aria-current={portal === 'students' ? 'page' : undefined}><GraduationCap size={18} />{t("طالب")}</a><a href={`${base}teachers`} aria-current={portal === 'teachers' ? 'page' : undefined}><Users size={18} />{t("أستاذ")}</a></nav>}
         {recovery ? <div className="password-recovery" aria-live="polite">
           <div className="password-recovery-icon"><KeyRound size={24} /></div>
           <h2>{recovery === 'done' ? t('تم تغيير كلمة المرور') : t('استعادة كلمة المرور')}</h2>
@@ -137,7 +149,7 @@ export function AuthForm({ portal, onLogin }: { portal: Portal; onLogin: (user: 
         </form>
         {!register && !setupToken && <button className="text-button forgot-password-link" type="button" onClick={() => { setRecovery('request'); setError(''); setRecoveryHint(''); }}>{t('نسيت كلمة المرور؟')}</button>}
         {portal !== 'admin' && !setupToken && !register && <div className="auth-google-option"><div className="registration-divider"><span>{t('أو')}</span></div><GoogleSignInButton onCredential={googleLogin} /></div>}
-        {portal !== 'admin' && <div className="auth-register"><span>{register ? t("لديك حساب؟") : t("أول مرة في منصّة؟")}</span><button className="text-button" onClick={() => { setRegister(!register); setError(''); }}><UserPlus size={17} />{register ? t("لدي حساب بالفعل") : t("إنشاء حساب جديد")}</button></div>}</>}
+        {portal !== 'admin' && <div className="auth-register"><span>{register ? t("لديك حساب؟") : t("أول مرة في منصّة؟")}</span><button className="text-button" onClick={() => { setRegister(false); setEntry('choice'); setError(''); }}><UserPlus size={17} />{register ? t("لدي حساب بالفعل") : t("إنشاء حساب جديد")}</button></div>}</>}
       </section>
       <footer className="auth-footer"><ShieldCheck size={15} /><span>{t(portalNames[portal])}</span><span>امتداد العلم © {new Date().getFullYear()}</span></footer>
     </div>

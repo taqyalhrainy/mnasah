@@ -1,5 +1,6 @@
 import { chromium } from '@playwright/test';
-import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -13,7 +14,7 @@ const logoUrl = `data:image/png;base64,${logo.toString('base64')}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const context = await browser.newContext({
   viewport: { width: 390, height: 844 },
-  recordVideo: { dir: recordingDir, size: { width: 390, height: 844 } },
+  deviceScaleFactor: 2,
 });
 const page = await context.newPage();
 await page.setContent(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
@@ -36,12 +37,22 @@ body[data-stage="share-tap"] .tap{left:18px;top:763px;opacity:1}body[data-stage=
 <script>
 const tap=()=>{const el=document.querySelector('.tap');el.classList.remove('pulse');void el.offsetWidth;el.classList.add('pulse')};
 const stage=(name,hit=false)=>{document.body.dataset.stage=name;if(hit)setTimeout(tap,180)};
-setTimeout(()=>stage('share-tap',true),1100);setTimeout(()=>stage('share-open'),1800);setTimeout(()=>stage('home-row',true),3300);setTimeout(()=>stage('confirm'),4200);setTimeout(()=>stage('confirm-tap',true),5200);setTimeout(()=>stage('installed'),6100);setTimeout(()=>stage('open-tap',true),7100);setTimeout(()=>stage('app-open'),7900);
+setTimeout(()=>stage('share-tap',true),1800);setTimeout(()=>stage('share-open'),4000);setTimeout(()=>stage('home-row',true),6500);setTimeout(()=>stage('confirm'),8000);setTimeout(()=>stage('confirm-tap',true),10500);setTimeout(()=>stage('installed'),12000);setTimeout(()=>stage('open-tap',true),14000);setTimeout(()=>stage('app-open'),15500);
 </script></body></html>`, { waitUntil: 'load' });
-await page.waitForTimeout(9000);
-const video = page.video();
+await page.addStyleTag({ content: '.guide-caption{position:absolute;z-index:60;top:58px;left:14px;right:14px;padding:14px 16px;border-radius:14px;background:#39204ff5;color:white;font-size:17px;font-weight:700;line-height:1.7;text-align:center;box-shadow:0 8px 28px #0003}.safari-pill{display:none}.share-row{font-size:17px}.share-row:nth-child(3){border:2px solid #8a55b1;border-radius:12px;background:#f1e6fa}.share-icon svg{width:28px;height:28px}.add-screen h2{font-size:18px}' });
+await page.evaluate(() => {
+  const caption = document.createElement('div'); caption.className = 'guide-caption'; document.body.append(caption);
+  const update = () => { const stage = document.body.dataset.stage || ''; caption.textContent = stage.includes('confirm') ? '٣ · اضغط «إضافة» أعلى الشاشة' : stage === 'installed' || stage === 'open-tap' || stage === 'app-open' ? '٤ · افتح المنصة من الأيقونة على شاشتك' : stage === 'share-open' || stage === 'home-row' ? '٢ · اختر «إضافة إلى الشاشة الرئيسية»' : '١ · افتح المنصة في Safari واضغط مشاركة'; };
+  new MutationObserver(update).observe(document.body, { attributes: true, attributeFilter: ['data-stage'] }); update();
+  document.querySelector('.share-icon').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5l4-4 4 4M12 1v14M7 8H4v14h16V8h-3"/></svg>';
+});
+const started = Date.now();
+for (let frame = 0; frame < 180; frame++) {
+  await page.screenshot({ path: path.join(recordingDir, `frame-${String(frame).padStart(3, '0')}.png`) });
+  await page.waitForTimeout(Math.max(0, (frame + 1) * 100 - (Date.now() - started)));
+}
 await context.close();
-const recordedPath = await video.path();
 await browser.close();
-await copyFile(recordedPath, path.join(outputDir, 'install-iphone-guide.webm'));
-console.log('Generated public/videos/install-iphone-guide.webm');
+const ffmpeg = process.env.FFMPEG_PATH || execFileSync('python', ['-c', 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())'], { encoding: 'utf8' }).trim();
+execFileSync(ffmpeg, ['-y', '-framerate', '10', '-i', path.join(recordingDir, 'frame-%03d.png'), '-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart', path.join(outputDir, 'install-iphone-guide-v2.mp4')], { stdio: 'ignore' });
+console.log('Generated full-frame 780x1688 MP4 iPhone guide');

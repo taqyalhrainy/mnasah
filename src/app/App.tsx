@@ -31,8 +31,10 @@ const whatsappHrefNumber = (value: string) => {
 
 function currentPortal(): Portal {
   const part = routePath().split('/')[1];
+  if (!part) { try { if (localStorage.getItem('emtidad-last-portal') === 'teachers') return 'teachers'; } catch {} }
   return part === 'owner' ? 'admin' : part === 'teachers' ? 'teachers' : 'students';
 }
+function rememberPortal(portal: Portal) { if (portal !== 'admin') try { localStorage.setItem('emtidad-last-portal', portal); } catch {} }
 const baseUrl = import.meta.env.BASE_URL;
 const basePath = baseUrl.replace(/\/$/, '');
 const assetUrl = (path: string) => `${baseUrl}${path.replace(/^\//, '')}`;
@@ -149,9 +151,13 @@ function PortalApp() {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const slowTimer = setTimeout(() => { if (alive) setSlowWake(true); }, 1800);
     setLoading(true); setError('');
-    request<{ user: User | null }>(`auth/me?portal=${portal}`).then(result => {
+    request<{ user: User | null }>(`auth/me?portal=${portal}${routePath() === '/' ? '&discover=1' : ''}`).then(result => {
       if (!alive) return;
       setUser(result.user);
+      if (result.user) {
+        rememberPortal(result.user.role);
+        if (result.user.role !== portal || routePath() === '/') { history.replaceState({}, '', `${appUrl(result.user.role)}${location.search}`); setPortal(result.user.role); }
+      }
       if (routePath() === '/video' && result.user) { history.replaceState({}, '', appUrl(result.user.role)); setPortal(result.user.role); }
       setWakeAttempt(0);
       setSlowWake(false);
@@ -204,7 +210,7 @@ function PortalApp() {
   }
   if (loading) return <WakeLoading slow={slowWake || wakeAttempt > 0} attempt={wakeAttempt} />;
   if (error && !user) return <main className="loading-page wake-page" dir={direction()}><div className="wake-card"><p role="alert">{t(error)}</p><button className="primary-button" onClick={() => { setWakeAttempt(0); setRetry(retry + 1); }}>{t("إعادة المحاولة")}</button></div></main>;
-  if (!user) return <AuthForm key={portal} portal={portal} onLogin={setUser} />;
+  if (!user) return <AuthForm key={portal} portal={portal} onLogin={account => { rememberPortal(account.role); history.replaceState({}, '', appUrl(account.role)); setPortal(account.role); setViewState(account.role === 'admin' ? 'bookings' : 'home'); setUser(account); }} />;
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir={direction()}><h1>{t("هذا القسم غير متاح لحسابك")}</h1><a className="primary-button" href={appUrl(user.role)}>{t("العودة إلى قسمك")}</a><button className="text-button" onClick={logout}>{t("تسجيل الخروج")}</button></main>;
   const nav = portal === 'students'

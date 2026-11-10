@@ -1182,6 +1182,43 @@ button.day-event { font: inherit; }
 .birth-date-selects select,.international-phone select,.international-phone input { width:100%; min-width:0; min-height:48px; padding:10px; border:1px solid var(--line,#cfc4db); border-radius:10px; font-size:16px; color:var(--ink,#22162c); background:var(--surface,#fff); }
 .international-phone { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); gap:10px; }
 .phone-international-preview { grid-column:1/-1; color:var(--muted,#786b80); text-align:start; }
+.auth-entry-page .auth-entry-card { max-width:540px; }
+.auth-entry-card h1 { font-size:clamp(27px,4vw,38px); line-height:1.5; }
+.auth-entry-card .auth-account-choice { margin-top:28px; }
+.auth-entry-card .auth-account-choice button { min-height:100px; padding:18px; }
+.auth-role-choice { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:26px 0; }
+.auth-role-choice button { display:grid; justify-items:start; gap:12px; padding:22px; border:1px solid #d9c9e4; border-radius:18px; color:var(--ink,#251634); background:var(--surface,#fff); text-align:start; cursor:pointer; }
+.auth-role-choice button:hover,.auth-role-choice button:focus-visible { outline:2px solid #754092; outline-offset:2px; }
+.auth-role-choice button>svg:first-child { color:#754092; }
+.auth-role-choice strong { font-size:21px; }.auth-role-choice span { font-size:13px; line-height:1.6; }
+.auth-entry-back { margin-top:10px; }
+.phone-field-v2 { display:grid; grid-template-columns:1fr; gap:8px; }
+.phone-field-v2 .phone-field-label { color:var(--ink,#251634); font-size:14px; font-weight:700; }
+.phone-field-v2 .phone-entry { display:flex; direction:ltr; align-items:stretch; min-width:0; min-height:56px; background:var(--surface,#fff); border:1px solid var(--line,#d8d2df); border-radius:14px; overflow:hidden; transition:border-color .15s,box-shadow .15s; }
+.phone-field-v2 .phone-entry:focus-within { border-color:#8754a2; box-shadow:0 0 0 3px #8754a21a; }
+.phone-field-v2 .phone-country-selector { position:relative; display:flex; gap:8px; align-items:center; padding:0 13px; border-right:1px solid var(--line,#d8d2df); background:var(--surface-soft,#f7f4fa); flex-shrink:0; color:var(--ink,#251634); }
+.phone-country-selector>span { font:22px/1 "Segoe UI Emoji","Apple Color Emoji",sans-serif; }.phone-country-selector>b { font-size:15px; font-family:system-ui,sans-serif; }
+.phone-field-v2 .phone-country-selector select { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.phone-field-v2 .phone-entry>input { flex:1; width:0; min-width:0; min-height:54px; border:0; border-radius:0; box-shadow:none; padding:12px 15px; background:transparent; font:500 17px/1.4 system-ui,sans-serif; letter-spacing:.4px; }
+.phone-field-v2 .phone-entry>input:focus { outline:0; box-shadow:none; }
+.international-phone.phone-field-v2 .phone-entry>input { border:0; border-radius:0; box-shadow:none; background:transparent; }
+.phone-field-v2 .phone-international-preview { display:flex; align-items:center; gap:5px; margin:0; font:12px/1.4 system-ui,sans-serif; color:var(--muted,#706379); }
+.ios-install-guide.ios-guide-v2 { position:fixed; inset:0; width:min(900px,94vw); height:fit-content; max-height:92dvh; margin:auto; padding:24px; border:1px solid var(--line,#dbd3e2); border-radius:24px; background:var(--surface,#fff); color:var(--ink,#261c31); overflow:auto; box-shadow:0 25px 100px #0005; }
+.ios-guide-v2::backdrop { background:#10091db8; backdrop-filter:blur(5px); }
+.ios-guide-v2 header { padding-inline-end:34px; margin-bottom:18px; }
+.ios-guide-v2 header small { color:var(--muted,#786a83); }
+.ios-guide-v2 .ios-video-close { top:15px; inset-inline-start:auto; inset-inline-end:15px; }
+.ios-guide-v2-layout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:24px; align-items:center; }
+.ios-guide-v2 .iphone-video-shell { height:min(64dvh,620px); width:auto; max-width:100%; aspect-ratio:390/844; padding:0; border-radius:20px; border:1px solid #d5cddd; box-shadow:0 12px 35px #0002; }
+.ios-guide-v2 .iphone-video-shell video { object-fit:contain; border-radius:18px; }
+.ios-guide-instructions ol { padding:0; margin:0; list-style:none; display:grid; gap:10px; }
+.ios-guide-instructions li button { width:100%; display:flex; align-items:center; gap:12px; text-align:start; padding:13px; border:1px solid var(--line,#e5ddea); border-radius:14px; background:var(--surface-soft,#f7f4fa); color:var(--ink,#2a1d33); cursor:pointer; font:inherit; line-height:1.7; }
+.ios-guide-instructions b { flex-shrink:0; display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:#684080; color:white; }
+.ios-guide-instructions p { display:flex; gap:8px; font-size:13px; line-height:1.8; color:var(--muted,#76667f); }.ios-guide-instructions p svg { flex-shrink:0; }
+.ios-guide-instructions a { color:var(--brand,#6d388c); font-size:13px; text-underline-offset:3px; }
+.redesigned-shell.ios-guide-active .workspace { margin-inline-end:0; }
+@media(max-width:620px) { .ios-install-guide.ios-guide-v2 { padding:18px; }.ios-guide-v2-layout { grid-template-columns:1fr; gap:16px; }.ios-guide-v2 .iphone-video-shell { justify-self:center; width:min(100%,300px); height:auto; }.ios-guide-instructions li button { padding:9px; font-size:13px; }.ios-guide-v2 h2 { font-size:19px; } }
+@media(max-width:420px) { .auth-entry-card .auth-account-choice { grid-template-columns:1fr; }.auth-entry-card .auth-account-choice button { min-height:88px; }.auth-entry-card .auth-account-choice button strong { font-size:17px; } }
 .registration-field { min-width:0; }
 @media(max-width:420px) { .auth-account-choice { gap:7px; }.auth-account-choice button { padding:12px 8px; gap:7px; }.auth-account-choice button strong { font-size:14px; }.international-phone { grid-template-columns:1fr; }.birth-date-selects { gap:6px; } }
 .participant-tile.screen video { object-fit: contain; background: #000; }
