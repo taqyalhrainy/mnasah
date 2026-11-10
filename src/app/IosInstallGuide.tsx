@@ -18,7 +18,7 @@ export function IosInstallGuide({ onClose }: { onClose: () => void }) {
         playsInline
         preload="metadata"
         aria-label={t('فيديو تثبيت التطبيق على الآيفون')}
-      ><source src={`${import.meta.env.BASE_URL}videos/install-iphone-guide-v2.mp4`} type="video/mp4" /></video>
+      ><source src={`${import.meta.env.BASE_URL}videos/install-iphone-guide-v3.mp4`} type="video/mp4" /></video>
     </div><div className="ios-guide-instructions"><ol>{steps.map((step, index) => <li key={step}><button type="button" onClick={() => { const video = videoRef.current; if (video) { video.currentTime = index * 4; void video.play().catch(() => undefined); } }}><b>{index + 1}</b><span>{step}</span></button></li>)}</ol><p><Share size={18} />{t('إذا لم يظهر زر المشاركة، افتح قائمة المزيد (…) في Safari.')}</p><p>{t('إذا لم يظهر خيار الإضافة، مرّر القائمة أو افتح تعديل الإجراءات.')}</p><a href="https://support.apple.com/en-eg/guide/iphone/iphea86e5236/ios" target="_blank" rel="noreferrer">{t('شرح Apple الرسمي')}</a></div></div>
   </dialog>;
 }

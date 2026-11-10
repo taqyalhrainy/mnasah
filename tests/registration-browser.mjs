@@ -39,6 +39,10 @@ try {
   await page.locator('.auth-role-choice button').nth(1).tap();
   assert.equal(await page.locator('input[type=email]').isVisible(), true);
   assert.equal(await page.locator('.auth-role-tabs').count(), 0);
+  await page.locator('.auth-form-back').tap();
+  await page.locator('.auth-role-choice').waitFor();
+  await page.locator('.auth-role-choice button').first().tap();
+  assert.equal(await page.locator('input[type=email]').isVisible(), true);
   await context.addCookies([{ name: 'mansah_session_teachers', value: 'saved-session', url: base, expires: Math.floor(Date.now() / 1000) + 3600 }]);
   await page.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('.learning-shell').waitFor();

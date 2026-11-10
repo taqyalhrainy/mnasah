@@ -1192,6 +1192,8 @@ button.day-event { font: inherit; }
 .auth-role-choice button>svg:first-child { color:#754092; }
 .auth-role-choice strong { font-size:21px; }.auth-role-choice span { font-size:13px; line-height:1.6; }
 .auth-entry-back { margin-top:10px; }
+.auth-form-back { display:inline-flex; align-items:center; gap:8px; min-height:42px; margin-bottom:18px; padding:9px 14px; border:1px solid #8a65a455; border-radius:12px; background:var(--surface,#fff); color:var(--ink,#291d35); font:inherit; font-weight:700; cursor:pointer; }
+[dir=ltr] .auth-form-back svg { transform:rotate(180deg); }
 .phone-field-v2 { display:grid; grid-template-columns:1fr; gap:8px; }
 .phone-field-v2 .phone-field-label { color:var(--ink,#251634); font-size:14px; font-weight:700; }
 .phone-field-v2 .phone-entry { display:flex; direction:ltr; align-items:stretch; min-width:0; min-height:56px; background:var(--surface,#fff); border:1px solid var(--line,#d8d2df); border-radius:14px; overflow:hidden; transition:border-color .15s,box-shadow .15s; }

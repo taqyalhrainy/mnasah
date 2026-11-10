@@ -1,4 +1,5 @@
 export const additionalMessages: Record<string, string> = {
+  "المؤشر الأحمر": "Red pointer",
   "تعليم خصوصي، على طريقتك": "Private tuition, your way",
   "أهلاً بك في امتداد العلم": "Welcome to Emtidad Al Elm",
   "اختر كيف تحب تبدأ": "Choose how to get started",

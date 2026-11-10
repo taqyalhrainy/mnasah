@@ -37,22 +37,43 @@ body[data-stage="share-tap"] .tap{left:18px;top:763px;opacity:1}body[data-stage=
 <script>
 const tap=()=>{const el=document.querySelector('.tap');el.classList.remove('pulse');void el.offsetWidth;el.classList.add('pulse')};
 const stage=(name,hit=false)=>{document.body.dataset.stage=name;if(hit)setTimeout(tap,180)};
-setTimeout(()=>stage('share-tap',true),1800);setTimeout(()=>stage('share-open'),4000);setTimeout(()=>stage('home-row',true),6500);setTimeout(()=>stage('confirm'),8000);setTimeout(()=>stage('confirm-tap',true),10500);setTimeout(()=>stage('installed'),12000);setTimeout(()=>stage('open-tap',true),14000);setTimeout(()=>stage('app-open'),15500);
+
 </script></body></html>`, { waitUntil: 'load' });
 await page.addStyleTag({ content: '.guide-caption{position:absolute;z-index:60;top:58px;left:14px;right:14px;padding:14px 16px;border-radius:14px;background:#39204ff5;color:white;font-size:17px;font-weight:700;line-height:1.7;text-align:center;box-shadow:0 8px 28px #0003}.safari-pill{display:none}.share-row{font-size:17px}.share-row:nth-child(3){border:2px solid #8a55b1;border-radius:12px;background:#f1e6fa}.share-icon svg{width:28px;height:28px}.add-screen h2{font-size:18px}' });
 await page.evaluate(() => {
+  document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr';
+  const text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
+  text('.browser-page h1', 'Emtidad Al Elm'); text('.browser-page p', 'Your private learning platform');
+  text('.share-title strong', 'Emtidad Al Elm');
+  ['Copy', 'Messages', 'WhatsApp', 'More'].forEach((value, i) => { const node = document.querySelectorAll('.share-actions span')[i]; node.lastChild.textContent = value; });
+  ['Add Bookmark', 'Add to Favorites', 'Add to Home Screen'].forEach((value, i) => text('.share-row:nth-child(' + (i + 1) + ') span', value));
+  text('.add-head button', 'Add'); text('.add-head strong', 'Add to Home Screen'); text('.add-head span', 'Cancel');
+  text('.app-preview strong', 'Emtidad Al Elm'); text('.name-field', 'Emtidad Al Elm');
+  text('.add-info', 'Add this website to your Home Screen to open it like an app.');
+  text('.installed span', 'Emtidad Al Elm'); text('.app-open h2', 'Emtidad Al Elm'); text('.app-open p', 'Welcome back');
+  document.querySelector('.add-head button').style.order = '3'; document.querySelector('.add-head strong').style.order = '2'; document.querySelector('.add-head span').style.order = '1';
   const caption = document.createElement('div'); caption.className = 'guide-caption'; document.body.append(caption);
-  const update = () => { const stage = document.body.dataset.stage || ''; caption.textContent = stage.includes('confirm') ? '٣ · اضغط «إضافة» أعلى الشاشة' : stage === 'installed' || stage === 'open-tap' || stage === 'app-open' ? '٤ · افتح المنصة من الأيقونة على شاشتك' : stage === 'share-open' || stage === 'home-row' ? '٢ · اختر «إضافة إلى الشاشة الرئيسية»' : '١ · افتح المنصة في Safari واضغط مشاركة'; };
+  const update = () => { const stage = document.body.dataset.stage || ''; const lower = stage.includes('confirm') || ['installed', 'open-tap', 'app-open'].includes(stage); caption.style.top = lower ? 'auto' : '58px'; caption.style.bottom = lower ? '125px' : 'auto'; caption.textContent = stage.includes('confirm') ? '3 · Tap Add to confirm' : stage === 'installed' || stage === 'open-tap' || stage === 'app-open' ? '4 · Open the app from your Home Screen' : stage === 'share-open' || stage === 'home-row' ? '2 · Choose Add to Home Screen' : '1 · Open in Safari, then tap Share'; };
   new MutationObserver(update).observe(document.body, { attributes: true, attributeFilter: ['data-stage'] }); update();
   document.querySelector('.share-icon').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5l4-4 4 4M12 1v14M7 8H4v14h16V8h-3"/></svg>';
+  window.positionGuideTap = () => {
+    const selector = { 'share-tap': '.share-icon', 'home-row': '.share-row:nth-child(3) b', 'confirm-tap': '.add-head button', 'open-tap': '.installed img' }[document.body.dataset.stage];
+    const tap = document.querySelector('.tap'); tap.style.transition = 'opacity .12s ease'; tap.style.opacity = selector ? '1' : '0';
+    if (!selector) return;
+    const target = document.querySelector(selector).getBoundingClientRect();
+    tap.style.left = (target.left + target.width / 2 - 20) + 'px'; tap.style.top = (target.top + target.height / 2 - 20) + 'px'; tap.style.right = 'auto'; tap.style.bottom = 'auto';
+    const marker = tap.getBoundingClientRect();
+    if (Math.abs(marker.left + marker.width / 2 - target.left - target.width / 2) > 1 || Math.abs(marker.top + marker.height / 2 - target.top - target.height / 2) > 1) throw new Error('Tutorial indicator is not aligned with its target');
+  };
 });
 const started = Date.now();
 for (let frame = 0; frame < 180; frame++) {
+  await page.evaluate(frame => { const next = frame >= 155 ? 'app-open' : frame >= 140 ? 'open-tap' : frame >= 120 ? 'installed' : frame >= 105 ? 'confirm-tap' : frame >= 80 ? 'confirm' : frame >= 65 ? 'home-row' : frame >= 40 ? 'share-open' : frame >= 18 ? 'share-tap' : ''; if (document.body.dataset.stage !== next) { document.body.dataset.stage = next; const ring = document.querySelector('.tap'); ring.classList.remove('pulse'); void ring.offsetWidth; ring.classList.add('pulse'); } window.positionGuideTap(); }, frame);
   await page.screenshot({ path: path.join(recordingDir, `frame-${String(frame).padStart(3, '0')}.png`) });
   await page.waitForTimeout(Math.max(0, (frame + 1) * 100 - (Date.now() - started)));
 }
 await context.close();
 await browser.close();
 const ffmpeg = process.env.FFMPEG_PATH || execFileSync('python', ['-c', 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())'], { encoding: 'utf8' }).trim();
-execFileSync(ffmpeg, ['-y', '-framerate', '10', '-i', path.join(recordingDir, 'frame-%03d.png'), '-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart', path.join(outputDir, 'install-iphone-guide-v2.mp4')], { stdio: 'ignore' });
-console.log('Generated full-frame 780x1688 MP4 iPhone guide');
+execFileSync(ffmpeg, ['-y', '-framerate', '10', '-i', path.join(recordingDir, 'frame-%03d.png'), '-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart', path.join(outputDir, 'install-iphone-guide-v3.mp4')], { stdio: 'ignore' });
+console.log('Generated English iPhone guide with element-aligned indicators');

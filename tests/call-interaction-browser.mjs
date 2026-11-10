@@ -32,11 +32,23 @@ try {
   await teacher.locator('[data-whiteboard-file-input]').setInputFiles({ name: 'lesson.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
   for (const page of [teacher, student]) await page.locator('.document-zoom-percent').waitFor();
   await teacher.getByTitle('تكبير الملف', { exact: true }).tap();
-  await student.waitForFunction(() => document.querySelector('.document-zoom-percent')?.textContent === '125%');
+  await teacher.waitForFunction(() => document.querySelector('.document-zoom-percent')?.textContent === '125%');
+  await student.waitForTimeout(150);
+  assert.equal(await student.locator('.document-zoom-percent').innerText(), '100%');
   await teacher.getByTitle('تكبير الملف', { exact: true }).tap();
-  await student.waitForFunction(() => document.querySelector('.document-zoom-percent')?.textContent === '156%');
+  await teacher.waitForFunction(() => document.querySelector('.document-zoom-percent')?.textContent === '156%');
+  await student.getByTitle('تكبير الملف', { exact: true }).tap();
+  assert.equal(await teacher.locator('.document-zoom-percent').innerText(), '156%');
+  assert.equal(await student.locator('.document-zoom-percent').innerText(), '125%');
+  await teacher.getByTitle('المؤشر الأحمر', { exact: true }).tap();
+  const surface = await teacher.locator('.document-page-canvas').boundingBox();
+  const annotations = await teacher.locator('.document-page-canvas path').count();
+  await teacher.touchscreen.tap(surface.x + surface.width / 2, surface.y + surface.height / 2);
+  await student.locator('.document-page-canvas .shared-pointer.remote').waitFor();
+  assert.equal(await teacher.locator('.document-page-canvas path').count(), annotations, 'pointer adds no drawing');
   await teacher.getByTitle('عرض الصفحة كاملة', { exact: true }).first().tap();
-  await student.waitForFunction(() => document.querySelector('.document-zoom-percent')?.textContent === '100%');
+  assert.equal(await teacher.locator('.document-zoom-percent').innerText(), '100%');
+  assert.equal(await student.locator('.document-zoom-percent').innerText(), '125%');
   assert.equal(errors.length, 0, errors.join('\n'));
-  console.log('Both peers draw by touch; front camera is mirrored; teacher document zoom/reset follows on student.');
+  console.log('Both peers draw; front camera is mirrored; file zoom stays independent and pointer synchronizes without drawing.');
 } finally { await browser.close(); await new Promise(resolve => io.close(() => httpServer.close(resolve))); }

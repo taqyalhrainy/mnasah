@@ -84,7 +84,6 @@ type WhiteboardMessage =
   | { kind: 'mode'; mode: StageMode }
   | { kind: 'board-session'; open: boolean }
   | { kind: 'document'; document: SharedDocument | null }
-  | { kind: 'document-view'; id?: string; name: string; page: number; view: { zoom: number; x: number; y: number } }
   | { kind: 'document-preload'; id: string; page: number; src: string }
   | { kind: 'document-annotations'; annotations: DocumentAnnotation[] }
   | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; annotations?: DocumentAnnotation[] };
@@ -195,7 +194,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardDocument, setWhiteboardDocument] = useState<WhiteboardDocument | null>(null);
   const [whiteboardDocumentBusy, setWhiteboardDocumentBusy] = useState(false);
   const [sharedDocument, setSharedDocument] = useState<SharedDocument | null>(null);
-  const [documentTool, setDocumentTool] = useState<'pen' | 'highlight' | 'pan'>('pen');
+  const [documentTool, setDocumentTool] = useState<'pen' | 'highlight' | 'pan' | 'pointer'>('pen');
   const [documentColor, setDocumentColor] = useState('#facc15');
   const [documentAnnotations, setDocumentAnnotations] = useState<DocumentAnnotation[]>([]);
   const [localPointer, setLocalPointer] = useState<SharedPointer | null>(null);
@@ -204,8 +203,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const pointerTimerRef = useRef<number | null>(null);
   const documentPageRef = useRef<HTMLDivElement>(null);
   const [documentSize, setDocumentSize] = useState({ width: 1, height: 1 });
-  const documentSizeRef = useRef(documentSize);
-  documentSizeRef.current = documentSize;
   const [documentRatio, setDocumentRatio] = useState(1);
   const [remoteProfile, setRemoteProfile] = useState<{ name: string; avatar?: string } | null>(null);
   const [documentLoading, setDocumentLoading] = useState(false);
@@ -220,30 +217,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [documentView, setDocumentView] = useState(fitDocumentView);
   const documentViewRef = useRef(documentView);
   documentViewRef.current = documentView;
-  const followedDocumentViewRef = useRef<Extract<WhiteboardMessage, { kind: 'document-view' }> | null>(null);
   const documentOverlayRef = useRef<SVGSVGElement>(null);
   const documentPanRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const documentPointersRef = useRef(new Map<number, { x: number; y: number }>());
   const documentPinchRef = useRef<{ distance: number; center: { x: number; y: number } } | null>(null);
-  const applyFollowedDocumentView = () => {
-    const saved = followedDocumentViewRef.current, doc = sharedDocumentRef.current;
-    if (!saved || !doc || saved.id !== doc.id || saved.name !== doc.name || saved.page !== doc.page) return false;
-    const size = documentSizeRef.current;
-    setDocumentView(constrainDocumentView({ zoom: saved.view.zoom, x: saved.view.x * size.width * saved.view.zoom, y: saved.view.y * size.height * saved.view.zoom }, size, documentSurface()));
-    return true;
-  };
-  useEffect(() => { if (role !== 'student' || !applyFollowedDocumentView()) setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.name, sharedDocument?.page]);
+  useEffect(() => { setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.name, sharedDocument?.page]);
   useEffect(() => {
     const area = documentPageRef.current;
-    if (role === 'student' && applyFollowedDocumentView()) return;
     if (area) setDocumentView(view => constrainDocumentView(view, documentSize, { width: area.clientWidth, height: area.clientHeight }));
   }, [documentSize]);
-  useEffect(() => {
-    if (role === 'student') return;
-    if (!sharedDocument || !documentSize.width || !documentSize.height) return;
-    const timer = setTimeout(() => connectionRef.current?.sendWhiteboard({ kind: 'document-view', id: sharedDocument.id, name: sharedDocument.name, page: sharedDocument.page, view: { zoom: documentView.zoom, x: documentView.x / (documentSize.width * documentView.zoom), y: documentView.y / (documentSize.height * documentView.zoom) } }), 35);
-    return () => clearTimeout(timer);
-  }, [documentView, documentSize, sharedDocument?.id, sharedDocument?.page, stageMode, isConnected]);
   const longPressRef = useRef<{ timer: number; x: number; y: number; point: WhiteboardPoint; item: WhiteboardItem } | null>(null);
   useEffect(() => {
     const page = documentPageRef.current;
@@ -1006,7 +988,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'document-view' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
+    return kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -1043,12 +1025,6 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
-    if (message.kind === 'document-view') {
-      if (role !== 'student' || !message.view || ![message.view.zoom, message.view.x, message.view.y].every(Number.isFinite) || message.view.zoom < 1 || message.view.zoom > 6 || Math.abs(message.view.x) > 2 || Math.abs(message.view.y) > 2) return;
-      followedDocumentViewRef.current = message;
-      applyFollowedDocumentView();
-      return;
-    }
     if (message.kind === 'sync-request') {
       if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
       return;
@@ -2014,6 +1990,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     </div>
     <div className="document-drawing-controls">
       <button type="button" className={documentTool === 'pan' ? 'active' : ''} aria-pressed={documentTool === 'pan'} onClick={() => setDocumentTool('pan')} title={t('تحريك الصفحة')}><Hand size={17} /></button>
+      <button type="button" className={documentTool === 'pointer' ? 'active' : ''} aria-pressed={documentTool === 'pointer'} onClick={() => { documentDrawingRef.current = null; setDocumentTool('pointer'); }} title={t('المؤشر الأحمر')}><MousePointer2 size={17} /></button>
       <button type="button" className={documentTool === 'pen' ? 'active' : ''} aria-pressed={documentTool === 'pen'} onClick={() => setDocumentTool('pen')} title={t('قلم')}><Pencil size={17} /></button>
       <button type="button" className={documentTool === 'highlight' ? 'active' : ''} aria-pressed={documentTool === 'highlight'} onClick={() => setDocumentTool('highlight')} title={t('هايلايتر')}><Highlighter size={17} /></button>
       <label title={t('لون الأداة')}><span style={{ background: documentColor }} /><input aria-label={t('لون الأداة')} type="color" value={documentColor} onChange={event => setDocumentColor(event.target.value)} /></label>
@@ -2056,6 +2033,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     }
     if (!documentOverlayRef.current?.contains(event.target as Node)) return;
     const point = documentPoint(event);
+    if (documentTool === 'pointer') { publishPointer({ ...point, space: 'document', page: sharedDocument.page }, true); return; }
     const annotation: DocumentAnnotation = { id: createWhiteboardId(`document-${documentTool}`), page: sharedDocument.page, kind: documentTool, color: documentColor, size: documentTool === 'highlight' ? 26 : 4, points: [point] };
     documentDrawingRef.current = annotation;
     publishDocumentAnnotations([...documentAnnotationsRef.current, annotation]);
@@ -2198,7 +2176,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {stageMode === 'document' && sharedDocument && <div className="document-stage">
           <section className="document-viewer" aria-label={t('عارض الملف')}>
             <header>{renderDocumentControls()}</header>
-            <div className={`document-page ${documentTool === 'pan' ? 'pan-tool' : ''}`} ref={documentPageRef} onWheel={wheelDocument} onPointerLeave={() => publishPointer(null, true)} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>
+            <div className={`document-page ${documentTool === 'pan' ? 'pan-tool' : ''}`} ref={documentPageRef} onWheel={wheelDocument} onPointerLeave={event => { if (event.pointerType !== 'touch') publishPointer(null, true); }} onPointerDown={startDocumentAnnotation} onPointerMove={moveDocumentAnnotation} onPointerUp={finishDocumentAnnotation} onPointerCancel={finishDocumentAnnotation}>
               {whiteboardDocumentBusy && <div className="document-page-loading" role="status"><RefreshCw size={15} />{t('جارٍ تجهيز الصفحة…')}</div>}
               <div className="document-page-canvas" style={{ width: documentSize.width * documentView.zoom, height: documentSize.height * documentView.zoom, transform: `translate(${documentView.x}px, ${documentView.y}px)` }}>
                 <img onLoad={event => { const image = event.currentTarget; setDocumentRatio(image.naturalWidth / image.naturalHeight || 1); }} draggable={false} src={lessonFileUrl(sharedDocument.src)} alt={t('صفحة {v0} من {v1}', { v0: sharedDocument.page, v1: sharedDocument.pages })} />

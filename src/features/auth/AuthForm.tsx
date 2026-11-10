@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { ArrowLeft, Eye, EyeOff, GraduationCap, KeyRound, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, GraduationCap, KeyRound, LockKeyhole, LogIn, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { request, portalNames, type Portal, type User } from '../../services/platformApi';
 import { PreferenceControls, direction, t, usePreferences } from '../../i18n/preferences';
 import { RegistrationFlow } from './RegistrationFlow';
@@ -105,6 +105,7 @@ export function AuthForm({ portal: initialPortal, onLogin }: { portal: Portal; o
     <header className="auth-masthead"><div className="auth-brand"><img className="brand-monogram" src={`${base}images/emtidad-alelm-final-logo-192.png`} width="48" height="48" alt={t('شعار امتداد العلم أكاديمي')} /><strong>{t('امتداد العلم')}<span className="brand-dot">.</span></strong></div><div className="auth-masthead-actions"><span className="auth-masthead-portal"><PortalIcon size={18} />{t(portalNames[portal])}</span><PreferenceControls /></div></header>
     <div className="auth-main">
       <section className="auth-form">
+        {portal !== 'admin' && !setupToken && <button type="button" className="auth-form-back" onClick={() => { if (recovery) setRecovery(null); else { setRegister(false); setEntry('role'); } setError(''); }}><ArrowRight size={19} />{t('رجوع')}</button>}
         <div className="auth-portal-label">{t("منصّة تعليم خصوصي")}</div>
         <h1>{setupToken ? t("إنشاء حساب الأونر") : register ? t("انضم إلى منصّة") : t("تسجيل الدخول")}</h1>
         <p className="auth-welcome">{register ? t("أهلاً في منصّة.") : t("أهلاً بعودتك.")}</p>
