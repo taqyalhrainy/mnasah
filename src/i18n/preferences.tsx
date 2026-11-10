@@ -7,6 +7,11 @@ Object.assign(messages, additionalMessages);
 export type Language = 'ar' | 'en';
 export type Theme = 'light' | 'dark';
 const sourceKeys = new Map(Object.entries(messages).map(([source, english]) => [english, source]));
+// Admin-entered catalogue labels can omit hamzas/diacritics or use a different
+// final ya/ta marbuta. Match the complete label before the phrase fallback, so
+// "تأسيس عربي" never becomes a mixed Arabic/English title.
+const normalizedKey = (value: string) => value.normalize('NFKC').replace(/[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim();
+const normalizedMessages = new Map(Object.entries(messages).map(([source, english]) => [normalizedKey(source), english]));
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const templates = Object.entries(messages).filter(([key]) => /\{\w+\}/.test(key)).map(([key, english]) => ({
   regex: new RegExp('^' + key.split(/(\{\w+\})/).map(part => /^\{\w+\}$/.test(part) ? '(.+?)' : escapeRegex(part)).join('') + '$'),
@@ -16,6 +21,8 @@ const phrases = Object.keys(messages).filter(key => /[\u0600-\u06ff]/.test(key) 
 const phrasePattern = new RegExp(phrases.map(escapeRegex).join('|'), 'g');
 function englishText(key: string): string {
   if (messages[key]) return messages[key];
+  const normalized = normalizedMessages.get(normalizedKey(key));
+  if (normalized) return normalized;
   for (const template of templates) {
     const match = key.match(template.regex);
     if (match) return template.english.replace(/\{(\w+)\}/g, (token, name: string) => match[template.names.indexOf(name) + 1] || token);

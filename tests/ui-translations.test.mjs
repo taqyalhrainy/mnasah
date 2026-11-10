@@ -5,6 +5,29 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
 import { registrationProfile } from '../shared/verification.js';
+
+test('runtime translates admin catalogue spelling variants as complete English labels', () => {
+  const modules = {};
+  for (const name of ['messages', 'additionalMessages']) {
+    const box = { exports: {} };
+    vm.runInNewContext(ts.transpile(fs.readFileSync(`src/i18n/${name}.ts`, 'utf8'), { module: ts.ModuleKind.CommonJS }), box);
+    modules[`./${name}`] = box.exports;
+  }
+  const document = { documentElement: { style: {}, dataset: {} }, querySelector: () => null };
+  const box = { exports: {}, require: name => modules[name] || {}, localStorage: { getItem: key => key === 'mansah-language' ? 'en' : 'light' }, matchMedia: () => ({ matches: false }), window: { addEventListener() {} }, document };
+  vm.runInNewContext(ts.transpile(fs.readFileSync('src/i18n/preferences.tsx', 'utf8'), { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX }), box);
+  for (const [source, expected] of [
+    ['القرآن الكريم', 'Holy Quran'], ['القران الكريم', 'Holy Quran'],
+    ['تأسيس عربي', 'Arabic foundations'], ['تاسيس عربي', 'Arabic foundations'],
+    ['تـأْسِيس عَرَبي', 'Arabic foundations'],
+    ['اللغة الانجليزية', 'English language'], ['اللغة الانجليزيه', 'English language'],
+    ['اللغة الإنجليزية', 'English language'],
+  ]) {
+    assert.equal(box.exports.t(source), expected, source);
+    assert.equal(box.exports.catalogText(source), expected, source);
+  }
+  assert.equal(box.exports.t('تقي الله فراس الهريني'), 'تقي الله فراس الهريني', 'personal names remain untouched');
+});
 test('new registrations accept male or female only', () => {
   const profile = { first_name: 'Test', father_name: 'Account', family_name: 'Student', birth_date: '2008-01-01', phone: '0791234567', accept_terms: true };
   for (const gender of ['male', 'female']) assert.equal(registrationProfile({ ...profile, gender }, 'students').gender, gender);

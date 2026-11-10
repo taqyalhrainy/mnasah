@@ -1,4 +1,12 @@
 export const additionalMessages: Record<string, string> = {
+  "القرآن الكريم": "Holy Quran",
+  "القرآن": "Quran",
+  "تأسيس عربي": "Arabic foundations",
+  "تأسيس العربية": "Arabic foundations",
+  "تأسيس اللغة العربية": "Arabic language foundations",
+  "تعليم اللغة الإنجليزية": "English language learning",
+  "تأسيس إنجليزي": "English foundations",
+  "اللغة الانجليزية": "English language",
   "المؤشر الأحمر": "Red pointer",
   "تعليم خصوصي، على طريقتك": "Private tuition, your way",
   "أهلاً بك في امتداد العلم": "Welcome to Emtidad Al Elm",
