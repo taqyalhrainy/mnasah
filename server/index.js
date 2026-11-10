@@ -15,6 +15,7 @@ import { serveChatAttachment } from './chat-attachments.js';
 import { serveVerificationFile, verificationBytes } from './verification-files.js';
 import { serveWalletTopup, walletProofBytes } from './wallet-topups.js';
 import { ensurePaypalIndexes, paypalSettings, paypalReviews, publicPaypalOrder, processPaypalIpn, resolvePaypalReview, servePaypalWallet } from './paypal-wallet.js';
+import { ensureCardIndexes, cardSettings, publicCardOrder, processCardCallback, serveCardWallet } from './card-wallet.js';
 import { attachmentHeaders } from '../shared/chat-attachments.js';
 import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification, registrationProfile } from '../shared/verification.js';
@@ -83,6 +84,25 @@ app.all('/api/payments/paypal/ipn', (req, res, next) => {
     await processPaypalIpn(req.body, { db, walletAccount, audit });
     res.status(200).send('OK');
   } catch (error) { next(error); }
+});
+
+app.all('/api/payments/card/callback', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!portalRequestAllowed(req.path, undefined, portalMode())) return res.sendStatus(404);
+  if (req.method !== 'POST') return res.sendStatus(405);
+  if (!req.is('application/json')) return res.sendStatus(415);
+  next();
+}, express.raw({ type: 'application/json', limit: '64kb', inflate: false }), async (req, res, next) => {
+  try { await connect(); await processCardCallback(req.body, req.get('signature'), { db, walletAccount, audit }); res.sendStatus(200); } catch (error) { next(error); }
+});
+// Browser return does not authenticate or credit payment; the wallet queries
+// the stored transaction or waits for the signed server callback.
+app.all('/api/payments/card/return', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!portalRequestAllowed(req.path, undefined, portalMode())) return res.sendStatus(404);
+  if (!['GET', 'POST'].includes(req.method)) return res.sendStatus(405);
+  const order = typeof req.query.order === 'string' && /^[a-f0-9-]{36}$/.test(req.query.order) ? req.query.order : '';
+  res.redirect(303, `/students?view=wallet&card=return&order=${order}`);
 });
 
 app.use((req, res, next) => {
@@ -172,6 +192,7 @@ async function connect() {
     db.collection('wallet_topups').createIndex({ proof_hash: 1 }, { unique: true }),
     db.collection('wallet_topups').createIndex({ status: 1, created: -1 }),
     ensurePaypalIndexes(db),
+    ensureCardIndexes(db),
     db.collection('lesson_packages').createIndex({ teacher_id: 1, status: 1 }),
     db.collection('package_purchases').createIndex({ student_id: 1, created: -1 }),
     db.collection('package_purchases').createIndex({ teacher_id: 1, status: 1 }),
@@ -523,6 +544,8 @@ async function audit(actor, action, target) {
     'booking:teacher-no-show': ['غياب أستاذ', `سُجّل غياب أستاذ عن حصة`, 'reports'],
     'wallet:topup-request': ['طلب شحن محفظة', `أرسل ${actorUser.name} طلب شحن جديداً للمراجعة`, 'topups'],
     'wallet:paypal-topup': ['شحن محفظة عبر PayPal', `تم شحن محفظة ${actorUser.name} عبر PayPal`, 'topups'],
+    'wallet:card-topup': ['شحن محفظة بالبطاقة', `تم شحن محفظة ${actorUser.name} بالبطاقة البنكية`, 'topups'],
+    'wallet:card-refund': ['استرداد دفعة بطاقة', `تم تسجيل استرداد دفعة بطاقة لمحفظة ${actorUser.name}`, 'topups'],
     'wallet:paypal-refund': ['استرداد PayPal', `تم تسجيل استرداد أو عكس دفعة PayPal لمحفظة ${actorUser.name}`, 'topups'],
     'wallet:paypal-review': ['مراجعة PayPal مطلوبة', `تم تجميد الصرف والشحن عبر PayPal لمحفظة ${actorUser.name} لحين مطابقة الدفعات والاستردادات`, 'topups'],
     'wallet:paypal-review-resolved': ['تمت مطابقة دفعات PayPal', 'تم تصحيح الرصيد وتوثيق المطابقة وإغلاق مراجعة PayPal', 'topups'],
@@ -883,6 +906,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
 
     if (await servePaypalWallet(req, res, { db, user, path, validOrigin: validChatOrigin(req.headers.origin) })) return;
+    if (await serveCardWallet(req, res, { db, user, path, validOrigin: validChatOrigin(req.headers.origin), walletAccount, audit })) return;
 
     if (path === 'video/ice' && !write && ['teachers', 'students'].includes(user.role)) {
       const fallback = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] }];
@@ -1142,7 +1166,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path === 'wallet' && user.role === 'students' && !write) {
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias), paypal: paypalSettings() }, paypal_orders: (await db.collection('paypal_orders').find({ user_id: user.id }).sort({ created: -1 }).limit(100).toArray()).map(publicPaypalOrder), topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
+      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias), paypal: paypalSettings(), card: cardSettings() }, card_orders: (await db.collection('card_orders').find({ user_id: user.id }).sort({ created: -1 }).limit(100).toArray()).map(publicCardOrder), paypal_orders: (await db.collection('paypal_orders').find({ user_id: user.id }).sort({ created: -1 }).limit(100).toArray()).map(publicPaypalOrder), topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
     }
     if (/^wallet\/paypal-review\/[^/]+$/.test(path) && user.role === 'admin') {
       if (req.method !== 'POST') fail(405, 'طريقة الطلب غير متاحة.');
