@@ -115,6 +115,7 @@ type VideoRoomProps = {
 };
 
 const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { stroke: WhiteboardStroke }) {
+  if (stroke.points.length === 1) return <circle className="whiteboard-dot" cx={stroke.points[0].x} cy={stroke.points[0].y} r={stroke.size} fill={stroke.color} pointerEvents="none" />;
   const path = stroke.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
   return <path d={path} fill="none" stroke={stroke.color} strokeWidth={stroke.size * 2} strokeLinecap="round" strokeLinejoin="round" />;
 });
@@ -1766,10 +1767,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const finishedStroke = activeStrokeRef.current ? { ...activeStrokeRef.current, points: [...activeStrokeRef.current.points] } : null;
     activeStrokeRef.current = null;
     if (!finishedStroke) return;
-    if (finishedStroke.points.length > 1) {
+    if (finishedStroke.points.length > 0 && !cancelled) {
       setSyncedWhiteboardStrokes((current) => [...current, finishedStroke]);
       sendWhiteboard({ kind: 'stroke', stroke: finishedStroke });
-    }
+    } else sendWhiteboard({ kind: 'erase', ids: [finishedStroke.id] });
     setActiveStroke(null);
   };
 

@@ -28,6 +28,14 @@ try {
     await cdp.detach();
   }
   for (const page of [teacher, student]) await page.waitForFunction(() => document.querySelectorAll('.whiteboard-canvas > path').length === 2);
+  for (const page of [teacher, student]) {
+    const box = await page.locator('.whiteboard-canvas').boundingBox();
+    await page.touchscreen.tap(box.x + box.width * .3, box.y + box.height * .3);
+  }
+  for (const page of [teacher, student]) await page.waitForFunction(() => document.querySelectorAll('.whiteboard-canvas > .whiteboard-dot').length === 2);
+  assert.ok(await student.locator('.whiteboard-canvas > .whiteboard-dot').first().evaluate(el => el.getBBox().width > 0));
+  await student.getByRole('button', { name: 'تراجع عن آخر إضافة لك', exact: true }).tap();
+  for (const page of [teacher, student]) await page.waitForFunction(() => document.querySelectorAll('.whiteboard-canvas > .whiteboard-dot').length === 1);
   const image = await teacher.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 900; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 600, 900); x.fillStyle = '#4b2071'; x.fillRect(100, 100, 200, 200); return c.toDataURL('image/png').split(',')[1]; });
   await teacher.locator('[data-whiteboard-file-input]').setInputFiles({ name: 'lesson.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
   for (const page of [teacher, student]) await page.locator('.document-zoom-percent').waitFor();
