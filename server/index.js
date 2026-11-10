@@ -14,6 +14,7 @@ import { cancellationQuote } from '../shared/cancellation.js';
 import { serveChatAttachment } from './chat-attachments.js';
 import { serveVerificationFile, verificationBytes } from './verification-files.js';
 import { serveWalletTopup, walletProofBytes } from './wallet-topups.js';
+import { ensurePaypalIndexes, paypalSettings, paypalReviews, publicPaypalOrder, processPaypalIpn, resolvePaypalReview, servePaypalWallet } from './paypal-wallet.js';
 import { attachmentHeaders } from '../shared/chat-attachments.js';
 import { parseCustomPackages, serializeCustomPackages } from '../shared/custom-packages.js';
 import { parseVerification, registrationProfile } from '../shared/verification.js';
@@ -66,6 +67,23 @@ function validChatOrigin(origin, req) {
 if (!MONGODB_URI) {
   console.warn('MONGODB_URI is not set. Add it to .env before using the backend with real data.');
 }
+
+// Own the callback before redirects, JSON parsing, origin checks and portal auth.
+// PayPal posts urlencoded raw bytes without cookies or a browser Origin header.
+app.all('/api/payments/paypal/ipn', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (!portalRequestAllowed(req.path, undefined, portalMode())) return res.sendStatus(404);
+  if (req.method !== 'POST') return res.sendStatus(405);
+  if (!req.is('application/x-www-form-urlencoded')) return res.sendStatus(415);
+  next();
+}, express.raw({ type: 'application/x-www-form-urlencoded', limit: '64kb', inflate: false }), async (req, res, next) => {
+  try {
+    await connect();
+    await processPaypalIpn(req.body, { db, walletAccount, audit });
+    res.status(200).send('OK');
+  } catch (error) { next(error); }
+});
 
 app.use((req, res, next) => {
   const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
@@ -153,6 +171,7 @@ async function connect() {
     db.collection('wallet_transactions').createIndex({ reference: 1 }, { unique: true, sparse: true }),
     db.collection('wallet_topups').createIndex({ proof_hash: 1 }, { unique: true }),
     db.collection('wallet_topups').createIndex({ status: 1, created: -1 }),
+    ensurePaypalIndexes(db),
     db.collection('lesson_packages').createIndex({ teacher_id: 1, status: 1 }),
     db.collection('package_purchases').createIndex({ student_id: 1, created: -1 }),
     db.collection('package_purchases').createIndex({ teacher_id: 1, status: 1 }),
@@ -503,6 +522,10 @@ async function audit(actor, action, target) {
     'booking:report': ['شكوى جديدة', `أرسل ${actorUser.name} شكوى عن حصة`, 'reports'],
     'booking:teacher-no-show': ['غياب أستاذ', `سُجّل غياب أستاذ عن حصة`, 'reports'],
     'wallet:topup-request': ['طلب شحن محفظة', `أرسل ${actorUser.name} طلب شحن جديداً للمراجعة`, 'topups'],
+    'wallet:paypal-topup': ['شحن محفظة عبر PayPal', `تم شحن محفظة ${actorUser.name} عبر PayPal`, 'topups'],
+    'wallet:paypal-refund': ['استرداد PayPal', `تم تسجيل استرداد أو عكس دفعة PayPal لمحفظة ${actorUser.name}`, 'topups'],
+    'wallet:paypal-review': ['مراجعة PayPal مطلوبة', `تم تجميد الصرف والشحن عبر PayPal لمحفظة ${actorUser.name} لحين مطابقة الدفعات والاستردادات`, 'topups'],
+    'wallet:paypal-review-resolved': ['تمت مطابقة دفعات PayPal', 'تم تصحيح الرصيد وتوثيق المطابقة وإغلاق مراجعة PayPal', 'topups'],
   };
   const details = definitions[action];
   if (!details) return;
@@ -859,6 +882,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (portal !== user.role) fail(403, 'هذا القسم غير متاح لحسابك.');
     if (user.status === 'suspended') fail(403, 'الحساب موقوف.');
 
+    if (await servePaypalWallet(req, res, { db, user, path, validOrigin: validChatOrigin(req.headers.origin) })) return;
+
     if (path === 'video/ice' && !write && ['teachers', 'students'].includes(user.role)) {
       const fallback = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] }];
       const configuredUrls = String(process.env.VITE_TURN_URLS || process.env.TURN_URLS || '').split(',').map(value => value.trim()).filter(Boolean);
@@ -1116,7 +1141,13 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (path === 'audit' && user.role === 'admin' && !write) return res.json({ events: await db.collection('audit').find({}, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
     if (path === 'wallet' && user.role === 'students' && !write) {
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
-      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias) }, topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ balance: await walletBalance(user.id), payment: { ...settings, ready: Boolean(settings.cliq_alias), paypal: paypalSettings() }, paypal_orders: (await db.collection('paypal_orders').find({ user_id: user.id }).sort({ created: -1 }).limit(100).toArray()).map(publicPaypalOrder), topups: (await db.collection('wallet_topups').find({ user_id: user.id }, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(100).toArray()).map(publicTopup), transactions: await db.collection('wallet_transactions').find({ user_id: user.id }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(100).toArray() });
+    }
+    if (/^wallet\/paypal-review\/[^/]+$/.test(path) && user.role === 'admin') {
+      if (req.method !== 'POST') fail(405, 'طريقة الطلب غير متاحة.');
+      if (!validChatOrigin(req.headers.origin)) fail(403, 'مصدر الطلب غير صالح.');
+      return res.json(await resolvePaypalReview(db, path.split('/')[2], body, user.id, audit));
     }
     if (path === 'wallet-topups' && user.role === 'admin' && !write) {
       const rows = await db.collection('wallet_topups').find({}, { projection: { _id: 0, proof_hash: 0 } }).sort({ created: -1 }).limit(500).toArray();
@@ -1125,7 +1156,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const accountMap = new Map(accounts.map(row => [row.user_id, row]));
       const names = new Map(users.map(row => [row.id, row]));
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
-      return res.json({ settings, topups: rows.map(row => publicTopup({ ...row, user_name: names.get(row.user_id)?.name, user_email: names.get(row.user_id)?.email })), accounts: users.map(row => ({ user_id: row.id, user_name: row.name, user_email: row.email, balance: Number(accountMap.get(row.id)?.balance || 0), updated: Number(accountMap.get(row.id)?.updated || 0) })) });
+      return res.json({ settings, paypal_reviews: await paypalReviews(db), topups: rows.map(row => publicTopup({ ...row, user_name: names.get(row.user_id)?.name, user_email: names.get(row.user_id)?.email })), accounts: users.map(row => ({ user_id: row.id, user_name: row.name, user_email: row.email, balance: Number(accountMap.get(row.id)?.balance || 0), updated: Number(accountMap.get(row.id)?.updated || 0) })) });
     }
     if (path === 'support' && ['students', 'teachers'].includes(user.role) && !write) {
       const settings = paymentSettings((await db.collection('platform_settings').findOne({ key: 'payments' }))?.value);
@@ -1308,8 +1339,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const lessonDuration = Number(offer.minutes) * 60000;
       if (starts.some(start => occupied.some(range => start < range.end && start + lessonDuration > range.start))) fail(409, 'أحد الأوقات المختارة حُجز للتو. افتح تفاصيل الباقة واختر وقتاً آخر.');
       await walletAccount(user.id);
-      const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: offer.price } }, { $inc: { balance: -offer.price }, $set: { updated: Date.now() } });
-      if (!debit.modifiedCount) fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال شراء الباقة.');
+      const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, paypal_review: { $ne: true }, balance: { $gte: offer.price } }, { $inc: { balance: -offer.price }, $set: { updated: Date.now() } });
+      if (!debit.modifiedCount) {
+        if ((await walletAccount(user.id)).paypal_review) fail(409, 'المحفظة قيد المراجعة. يرجى التواصل مع الإدارة قبل الشحن.');
+        fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال شراء الباقة.');
+      }
       const purchase = { id: crypto.randomUUID(), package_id: offer.id, teacher_id: offer.teacher_id, teacher_name: teacher.name, student_id: user.id, package_name: offer.name, subjects: [subject], lesson_count: offer.lesson_count, remaining_lessons: 0, minutes: offer.minutes, price: offer.price, commission_percent: teacherCommission(teacher), weekly_schedule: storedWeeklySchedule(offer), selected_schedule: selectedSchedule, scheduled_starts: starts, scheduled_at: now, status: 'scheduled', expires_at: expiresAt, created: now, updated: now };
       const bookingIds = starts.map(() => crypto.randomUUID());
       const lessonPrice = Math.round(Number(offer.price) / Number(offer.lesson_count));
@@ -1422,8 +1456,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (!consumed.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(409, 'تم استخدام آخر حصة من هذه الباقة للتو.'); }
       } else {
         await walletAccount(user.id);
-        const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
-        if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال عملية الشراء.'); }
+        const debit = await db.collection('wallet_accounts').updateOne({ user_id: user.id, paypal_review: { $ne: true }, balance: { $gte: selectedOffering.price } }, { $inc: { balance: -selectedOffering.price }, $set: { updated: Date.now() } });
+        if (!debit.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); if ((await walletAccount(user.id)).paypal_review) fail(409, 'المحفظة قيد المراجعة. يرجى التواصل مع الإدارة قبل الشحن.'); fail(402, 'رصيد محفظتك غير كافٍ. اشحن محفظتك لإكمال عملية الشراء.'); }
       }
       const bookingPrice = packagePurchase ? Math.round(Number(packagePurchase.price) / Number(packagePurchase.lesson_count)) : selectedOffering.price;
       try {
