@@ -3,6 +3,24 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
+test('public discovery documents bypass the cached portal shell', async () => {
+  const handlers = {};
+  const origin = 'https://emtidad-alelm.onrender.com';
+  const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
+  const fetched = [];
+  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
+    self, URL, Response,
+    fetch: async request => { fetched.push(request.url); return new Response('public document'); },
+    caches: { open() { throw new Error('public documents must not read or overwrite the app shell'); } },
+  });
+  for (const pathname of ['/about/', '/about', '/robots.txt', '/sitemap.xml', '/google2431f05154e788a3.html']) {
+    let result;
+    handlers.fetch({ request: { method: 'GET', mode: 'navigate', url: origin + pathname }, respondWith: promise => { result = promise; } });
+    assert.equal(await (await result).text(), 'public document');
+  }
+  assert.equal(fetched.length, 5);
+});
+
 test('navigation falls back to the platform shell on a temporary server error', async () => {
   const handlers = {};
   const origin = 'https://emtidad-alelm.onrender.com';

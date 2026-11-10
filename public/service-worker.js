@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v34';
+const CACHE_NAME = 'imtidad-shell-v35';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -29,6 +29,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) return;
+  // Public documents must never receive or overwrite the cached portal shell.
+  if (/\/about\/?$|\/(?:robots\.txt|sitemap\.xml|google[a-f0-9]+\.html)$/.test(url.pathname)) {
+    event.respondWith(fetch(request)); return;
+  }
 
   if (request.mode === 'navigate') {
     const network = fetch(request).then(async response => {

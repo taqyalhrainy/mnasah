@@ -94,6 +94,7 @@ export function AuthForm({ portal: initialPortal, onLogin }: { portal: Portal; o
       </div> : <><div className="auth-role-choice">{(['students', 'teachers'] as const).map(role => <button key={role} type="button" onClick={() => { setPortal(role); setRegister(intent === 'register'); setEntry('form'); setError(''); }}>
         {role === 'students' ? <GraduationCap size={32} /> : <Users size={32} />}<strong>{role === 'students' ? t('طالب') : t('أستاذ')}</strong><span>{role === 'students' ? t('أبحث عن حصتي الخصوصية') : t('أقدّم حصصاً خصوصية')}</span><ArrowLeft size={18} />
       </button>)}</div><button className="text-button auth-entry-back" type="button" onClick={() => setEntry('choice')}>{t('رجوع')}</button></>}
+      {entry === 'choice' && <p className="auth-public-summary">{t('حصص خصوصية مباشرة مع أستاذك، وسبورة تفاعلية وشرح ملفات.')} <a href={`${base}about/`}>{t('تعرّف على منصة امتداد العلم')}</a></p>}
     </section></div><aside className="auth-visual" aria-label={t('مساحة تعلم')}><img src={`${base}images/learning-desk-v3.jpg`} alt={t('دفتر دراسة وقلم وسماعات على مكتب أصفر')} fetchPriority="high" /></aside>
   </main>;
   if (register && portal !== 'admin' && !setupToken) return <main className={`auth-page redesigned-auth registration-page portal-${portal}`} dir={direction()}>

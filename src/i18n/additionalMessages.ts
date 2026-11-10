@@ -1,4 +1,6 @@
 export const additionalMessages: Record<string, string> = {
+  "حصص خصوصية مباشرة مع أستاذك، وسبورة تفاعلية وشرح ملفات.": "Live private lessons with your teacher, an interactive whiteboard and shared lesson files.",
+  "تعرّف على منصة امتداد العلم": "About Emtidad Al Elm",
   "القرآن الكريم": "Holy Quran",
   "القرآن": "Quran",
   "تأسيس عربي": "Arabic foundations",
