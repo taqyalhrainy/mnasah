@@ -2778,7 +2778,10 @@ html.call-active .support-whatsapp { display: none; }
 .call-resource-control.file-resource .resource-stop { color: #ffe4a3; background: #43371f; }
 .resource-stop > span { font-size: 10px; white-space: nowrap; }
 .resource-stop:hover { filter: brightness(1.2); }
-.call-experience .call-toolbar { max-width: min(100%,900px); flex-wrap: wrap; gap: 5px; }
+.call-experience .call-toolbar { max-width: min(100%,900px); width: max-content; box-sizing: border-box; flex-wrap: nowrap; gap: 5px; }
+.call-toolbar-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: inherit; min-width: 0; max-width: 100%; overflow-x: auto; padding: 3px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.call-toolbar-actions::-webkit-scrollbar { display: none; }
+.call-toolbar-actions > * { flex-shrink: 0; }
 /* Restore the board's full canvas and the original tools below the camera rail. */
 .call-experience.whiteboard-mode .whiteboard-side-rail { display: block; padding: 0; overflow-y: auto; }
 .call-experience.whiteboard-mode .whiteboard-tools { display: grid; width: auto; grid-template-columns: repeat(3,minmax(34px,1fr)); grid-auto-rows: auto; gap: 7px; padding: 9px; }
