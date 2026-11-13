@@ -26,8 +26,9 @@ import { educationCatalog, educationGroups } from '../shared/jordan-catalog.js';
 import { validCatalogOrder } from '../shared/catalog-order.js';
 import { validPushSubscription, deliverDevicePush, notifyPlatformOwners } from '../shared/device-push.js';
 import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
-import { slotAvailability } from '../shared/slot-availability.js';
+import { slotAvailability, bookingStarts } from '../shared/slot-availability.js';
 import { serveLessonFile } from './lesson-files.js';
+import { freeTrialStatus, claimFreeTrial, releaseFreeTrial, FREE_TRIAL_MINUTES } from './free-trial.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -375,7 +376,7 @@ function cookie(req, name) {
 }
 const teacherCommission = teacher => teacher?.commission_exempt ? 0 : Math.max(0, Math.min(90, Number(process.env.PLATFORM_COMMISSION_PERCENT ?? 10)));
 function publicUser(u) {
-  return u ? { id: u.id, commission_exempt: Boolean(u.commission_exempt), email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
+  return u ? { id: u.id, commission_exempt: Boolean(u.commission_exempt), free_trial_enabled: u.free_trial_enabled === true, email: u.email, name: u.name, role: u.role, status: u.status, subject: u.subject || '', bio: u.bio || '', academic_level: u.academic_level || '', phone: u.phone || '', avatar_url: u.role === 'teachers' ? `/api/media/avatar/${u.id}` : '', custom_packages: parseCustomPackages(u.custom_packages), verification: parseVerification(u.verification), auth_provider: u.auth_provider || 'password', email_verified: Boolean(u.email_verified), mustChangePassword: Boolean(u.must_change_password) } : null;
 }
 async function restoreExpiredSuspension(user) {
   if (user?.status !== 'suspended' || !Number(user.suspended_until || 0) || Number(user.suspended_until) > Date.now()) return user;
@@ -666,7 +667,7 @@ async function finalizeEndedBookings(filter = {}) {
     const teacherJoined = Number(booking.teacher_joined_at || 0) > 0;
     const studentJoined = Number(booking.student_joined_at || 0) > 0;
     const bothJoined = teacherJoined && studentJoined;
-    const packageStudentAbsent = Boolean(booking.package_purchase_id && teacherJoined && !studentJoined);
+    const packageStudentAbsent = Boolean((booking.package_purchase_id || booking.is_free_trial) && teacherJoined && !studentJoined);
     if (!bothJoined && !packageStudentAbsent) continue;
     await db.collection('bookings').updateOne(
       { id: booking.id, status: 'confirmed' },
@@ -686,7 +687,10 @@ async function ensureAutomaticNoShowReports(bookings) {
       { upsert: true },
     );
     if (result.upsertedCount) {
-      if (row.package_purchase_id) {
+      if (row.is_free_trial) {
+        await db.collection('bookings').updateOne({ id: row.id, status: 'confirmed' }, { $set: { status: 'cancelled', cancelled_at: now, cancelled_by: 'system', cancellation_reason: 'teacher_absent', payout_status: 'forfeited', room: random() } });
+        await releaseFreeTrial(db, row);
+      } else if (row.package_purchase_id) {
         const refund = Math.max(0, Number(row.price || 0));
         const transactionId = `package-teacher-absence:${row.id}`;
         const transaction = await db.collection('wallet_transactions').updateOne({ id: transactionId }, { $setOnInsert: { id: transactionId, user_id: row.student_id, type: 'package_teacher_absence_refund', amount: refund, reference: `booking:${row.id}`, created: now } }, { upsert: true });
@@ -877,6 +881,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
         const verification = registrationProfile(body, role);
         verification.phone = normalizeJordanPhone(verification.phone);
         user = { id: crypto.randomUUID(), email, name: [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(random()), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone, verification, auth_provider: 'google', email_verified: 1, google_sub: google.sub, created: Date.now(), must_change_password: 0 };
+        if (user.role === 'students') user.free_trial_granted_at = Date.now();
         try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً.'); }
         accountCreated = true;
       } else {
@@ -892,7 +897,8 @@ app.all('/api/auth/:action', async (req, res, next) => {
       } else if (role === 'admin') fail(403, 'إنشاء حساب إدارة غير متاح للعامة.');
       const verification = role === 'admin' ? {} : registrationProfile(body, role);
       user = { id: role === 'admin' ? 'platform-owner' : crypto.randomUUID(), email, name: role === 'admin' ? field(body.name, 100) : [verification.first_name, verification.father_name, verification.family_name].join(' '), role, status: role === 'teachers' ? 'pending' : 'active', password: passwordHash(password), subject: '', bio: role === 'teachers' ? verification.professional_bio : '', phone: verification.phone || '', verification, auth_provider: 'password', email_verified: 0, created: Date.now(), must_change_password: 0 };
-      try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً أو حساب الإدارة موجود.'); }
+      if (user.role === 'students') user.free_trial_granted_at = Date.now();
+        try { await db.collection('users').insertOne(user); } catch { fail(409, 'البريد مستخدم مسبقاً أو حساب الإدارة موجود.'); }
       accountCreated = true;
     }
     if (accountCreated) await audit(user.id, 'account:created', user.id);
@@ -991,6 +997,16 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       return res.json({ ok: true });
     }
     if (user.status !== 'active') fail(403, 'هذا الحساب بانتظار موافقة الإدارة.');
+    if (path === 'free-trial') {
+      if (user.role === 'students' && !write) return res.json(await freeTrialStatus(db, user.id));
+      if (user.role !== 'teachers') fail(403, 'هذا الخيار متاح للأساتذة فقط.');
+      if (write) {
+        if (!validChatOrigin(req.headers.origin, req) || typeof body.enabled !== 'boolean') fail(400, 'اختر تفعيل الحصة المجانية أو إيقافها.');
+        await db.collection('users').updateOne({ id: user.id, role: 'teachers' }, { $set: { free_trial_enabled: body.enabled } });
+        io.emit('availability:changed', {});
+      }
+      return res.json({ user: publicUser(await db.collection('users').findOne({ id: user.id })) });
+    }
     if (path.startsWith('push/') && write && (!validChatOrigin(req.headers.origin, req) || !req.is('application/json'))) fail(403, 'مصدر الطلب غير صالح.');
     if (path === 'push/subscribe' && write) {
       if (!pushReady) fail(503, 'تعذر تفعيل تنبيهات الهاتف مؤقتًا. أعد المحاولة.');
@@ -1436,8 +1452,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         const teacherMap = new Map(teachers.map(t => [t.id, t]));
         const ratings = await teacherRatingMap(slots.map(slot => slot.teacher_id));
         const occupied = await db.collection('bookings').find({ slot_id: { $in: slots.map(slot => slot.id) }, status: 'confirmed' }, { projection: { _id: 0, slot_id: 1, start: 1, minutes: 1 } }).toArray();
-        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => { const subjects = storedSubjects(s).filter(subject => allowedSubjects.has(subject)); return ({ ...s, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '', ...ratings.get(s.teacher_id) }); }).filter(slot => slot.subjects.length);
-        return res.json({ slots: available.filter(slotHasAvailability) });
+        const available = slots.filter(s => teacherMap.has(s.teacher_id)).map(s => { const subjects = storedSubjects(s).filter(subject => allowedSubjects.has(subject)); return ({ ...s, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, booked_ranges: occupied.filter(row => row.slot_id === s.id).map(row => ({ start: Number(row.start || s.start), end: Number(row.start || s.start) + Number(row.minutes || s.minutes) * 60000 })), teacher_free_trial_enabled: teacherMap.get(s.teacher_id).free_trial_enabled === true, teacher_name: teacherMap.get(s.teacher_id).name, bio: teacherMap.get(s.teacher_id).bio || '', teacher_subjects: teacherMap.get(s.teacher_id).subject || '', ...ratings.get(s.teacher_id) }); }).filter(slot => slot.subjects.length);
+        return res.json({ slots: available.filter(slot => slotHasAvailability(slot) || slot.teacher_free_trial_enabled && bookingStarts(slot, FREE_TRIAL_MINUTES).length > 0) });
       }
       if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
       const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
@@ -1477,16 +1493,20 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const legacyAllSubjects = !Array.isArray(slot.subjects) && slot.subject === 'كل المواد المختارة';
       const requestedSubject = typeof body.subject === 'string' ? field(body.subject, 100) : '';
       const selectedSubject = requestedSubject && (subjects.includes(requestedSubject) || legacyAllSubjects) ? requestedSubject : subjects.length === 1 && !legacyAllSubjects ? subjects[0] : '';
-      const selectedOffering = offerings.find(item => item.minutes === Number(body.minutes)) || (offerings.length === 1 ? offerings[0] : null);
+      const isFreeTrial = body.method === 'free_trial';
+      if (isFreeTrial && Number(body.minutes) !== FREE_TRIAL_MINUTES) fail(400, 'مدة الحصة المجانية 30 دقيقة فقط.');
+      const selectedOffering = isFreeTrial ? { minutes: FREE_TRIAL_MINUTES, price: 0 } : offerings.find(item => item.minutes === Number(body.minutes)) || (offerings.length === 1 ? offerings[0] : null);
       if (!selectedSubject) fail(400, 'اختر المادة التي تريد حجزها.');
       if (!selectedOffering) fail(400, 'اختر مدة الحصة التي تناسبك.');
       const hasSelectedStart = body.start !== undefined && body.start !== null && body.start !== '';
+      if (isFreeTrial && !hasSelectedStart) fail(400, 'اختر وقت الحصة المجانية.');
       const selectedStart = Number(hasSelectedStart ? body.start : slot.start);
       const selectedEnd = selectedStart + selectedOffering.minutes * 60000;
       if (!Number.isSafeInteger(selectedStart) || (hasSelectedStart && (selectedStart < Number(slot.start) || selectedEnd > Number(slot.available_until) || selectedStart <= Date.now()))) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي حددها الأستاذ.');
       const studentBookings = await enrichBookings(await db.collection('bookings').find({ student_id: user.id, status: 'confirmed' }, { projection: { _id: 0 } }).toArray());
       if (studentBookings.some(row => selectedStart < row.start + row.minutes * 60000 && selectedEnd > row.start)) fail(409, 'لديك حصة أخرى تتعارض مع هذا الوقت.');
       const packagePurchaseId = typeof body.package_purchase_id === 'string' ? field(body.package_purchase_id, 80) : '';
+      if (isFreeTrial && packagePurchaseId) fail(400, 'الحصة المجانية منفصلة عن الباقات.');
       let packagePurchase = null;
       if (packagePurchaseId) {
         packagePurchase = await db.collection('package_purchases').findOne({ id: packagePurchaseId, student_id: user.id, teacher_id: slot.teacher_id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: selectedEnd } }, { projection: { _id: 0 } });
@@ -1496,7 +1516,10 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const bookingId = crypto.randomUUID();
       const reserved = await db.collection('slots').updateOne({ id, status: 'open', start: { $lte: selectedStart }, available_until: { $gte: selectedEnd }, $nor: [{ reservations: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }, { withdrawn_ranges: { $elemMatch: { start: { $lt: selectedEnd }, end: { $gt: selectedStart } } } }] }, { $push: { reservations: { booking_id: bookingId, start: selectedStart, end: selectedEnd } } });
       if (!reserved.modifiedCount) fail(409, 'محجوز: الحصة أصبحت غير متاحة، لقد حجزها طالب قبلك. اختر وقتاً آخر.');
-      if (packagePurchase) {
+      if (isFreeTrial) {
+        try { await claimFreeTrial(db, user.id, bookingId, await db.collection('users').findOne({ id: slot.teacher_id, role: 'teachers' })); }
+        catch (error) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); throw error; }
+      } else if (packagePurchase) {
         const consumed = await db.collection('package_purchases').updateOne({ id: packagePurchase.id, student_id: user.id, status: 'active', remaining_lessons: { $gt: 0 }, expires_at: { $gte: selectedEnd } }, { $inc: { remaining_lessons: -1 }, $set: { updated: Date.now() } });
         if (!consumed.modifiedCount) { await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); fail(409, 'تم استخدام آخر حصة من هذه الباقة للتو.'); }
       } else {
@@ -1507,14 +1530,15 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const bookingPrice = packagePurchase ? Math.round(Number(packagePurchase.price) / Number(packagePurchase.lesson_count)) : selectedOffering.price;
       try {
         const bookingTeacher = await db.collection('users').findOne({ id: slot.teacher_id });
-        await db.collection('bookings').insertOne({ commission_percent: packagePurchase?.commission_percent ?? teacherCommission(bookingTeacher), id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: bookingPrice, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: packagePurchase ? `package:${packagePurchase.id}` : 'wallet', package_purchase_id: packagePurchase?.id || '', notes: '', resource: '', created: Date.now() });
-        if (!packagePurchase) await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
-        else {
+        await db.collection('bookings').insertOne({ commission_percent: isFreeTrial ? 0 : packagePurchase?.commission_percent ?? teacherCommission(bookingTeacher), is_free_trial: isFreeTrial, id: bookingId, slot_id: id, student_id: user.id, start: hasSelectedStart ? selectedStart : 0, minutes: selectedOffering.minutes, price: bookingPrice, subject: selectedSubject, status: 'confirmed', room: random(), paid: 1, payment_ref: isFreeTrial ? 'free_trial' : packagePurchase ? `package:${packagePurchase.id}` : 'wallet', package_purchase_id: packagePurchase?.id || '', notes: '', resource: '', created: Date.now() });
+        if (!packagePurchase && !isFreeTrial) await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: user.id, type: 'lesson_payment', amount: -selectedOffering.price, reference: `lesson-payment:${bookingId}`, created: Date.now() });
+        else if (packagePurchase) {
           const fresh = await db.collection('package_purchases').findOne({ id: packagePurchase.id }, { projection: { _id: 0, remaining_lessons: 1 } });
           if (Number(fresh?.remaining_lessons || 0) <= 0) await db.collection('package_purchases').updateOne({ id: packagePurchase.id }, { $set: { status: 'exhausted', updated: Date.now() } });
         }
       } catch (error) {
-        if (packagePurchase) await db.collection('package_purchases').updateOne({ id: packagePurchase.id }, { $inc: { remaining_lessons: 1 }, $set: { status: 'active', updated: Date.now() } });
+        if (isFreeTrial) await releaseFreeTrial(db, { id: bookingId, student_id: user.id, is_free_trial: true });
+        else if (packagePurchase) await db.collection('package_purchases').updateOne({ id: packagePurchase.id }, { $inc: { remaining_lessons: 1 }, $set: { status: 'active', updated: Date.now() } });
         else await db.collection('wallet_accounts').updateOne({ user_id: user.id }, { $inc: { balance: selectedOffering.price }, $set: { updated: Date.now() } });
         await db.collection('bookings').deleteOne({ id: bookingId });
         await db.collection('slots').updateOne({ id }, { $pull: { reservations: { booking_id: bookingId } } }); throw error;
@@ -1642,7 +1666,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         });
         if (user.role === 'teachers') {
           const withdrawn = await db.collection('slots').findOne({ id: row.slot_id });
-          if (withdrawn && !slotHasAvailability(withdrawn) && !await db.collection('bookings').findOne({ slot_id: row.slot_id, status: 'confirmed' })) await db.collection('slots').updateOne({ id: row.slot_id, status: 'open' }, { $set: { status: 'cancelled' } });
+          if (withdrawn && !slotHasAvailability(withdrawn) && !(user.free_trial_enabled && bookingStarts(withdrawn, FREE_TRIAL_MINUTES).length) && !await db.collection('bookings').findOne({ slot_id: row.slot_id, status: 'confirmed' })) await db.collection('slots').updateOne({ id: row.slot_id, status: 'open' }, { $set: { status: 'cancelled' } });
         }
         if (row.payment_ref === 'wallet' && quote.refund > 0) {
           await walletAccount(row.student_id);
@@ -1650,6 +1674,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: quote.refund, reference: `lesson-refund:${id}`, created: Date.now() });
         }
         if (row.package_purchase_id) await restorePackageLesson(row);
+        await releaseFreeTrial(db, row);
         await audit(user.id, 'booking:cancel', id);
         io.emit('availability:changed', { id: row.slot_id });
         return res.json({ ok: true, quote });
@@ -1668,6 +1693,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           await db.collection('wallet_transactions').insertOne({ id: crypto.randomUUID(), user_id: row.student_id, type: 'lesson_refund', amount: row.price, reference: `lesson-no-show-refund:${id}`, created: Date.now() });
         }
         if (row.package_purchase_id) await restorePackageLesson(row);
+        await releaseFreeTrial(db, row);
         await db.collection('lesson_reports').updateOne(
           { booking_id: id, reporter_id: user.id, category: 'teacher_absent' },
           { $set: { teacher_id: row.teacher_id, note: field(body.reason || 'عدم حضور الأستاذ', 300, 0), status: 'upheld', automatic: true, resolved_at: Date.now(), evidence: { lesson_start: Number(row.start), teacher_joined_at: 0, student_joined_at: Number(row.student_joined_at || 0) } }, $setOnInsert: { id: crypto.randomUUID(), booking_id: id, reporter_id: user.id, category: 'teacher_absent', created: Date.now() } },

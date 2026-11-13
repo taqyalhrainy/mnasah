@@ -18,7 +18,7 @@
     "backend": "node server/index.js",
     "dev:backend": "node --watch server/index.js",
     "start": "node server/index.js",
-    "test": "node --test tests/api.test.mjs tests/auth-session-server.test.mjs tests/chat-server.test.mjs tests/payments.test.mjs tests/wallet-server.test.mjs tests/paypal-wallet-server.test.mjs tests/card-wallet-server.test.mjs tests/packages-server.test.mjs tests/phone-verification-server.test.mjs tests/international-phone.test.mjs tests/ratings-preferences-server.test.mjs tests/owner-push-server.test.mjs tests/owner-push-worker.test.mjs tests/commission-exemption.test.mjs tests/ui-translations.test.mjs tests/availability-live.test.mjs tests/booking-presence-server.test.mjs tests/video-connection-service.test.mjs tests/document-page-cache.test.mjs tests/public-discovery-server.test.mjs tests/startup-recovery.test.mjs tests/youtube.test.mjs",
+    "test": "node --test tests/api.test.mjs tests/auth-session-server.test.mjs tests/chat-server.test.mjs tests/payments.test.mjs tests/wallet-server.test.mjs tests/free-trial-server.test.mjs tests/paypal-wallet-server.test.mjs tests/card-wallet-server.test.mjs tests/packages-server.test.mjs tests/phone-verification-server.test.mjs tests/international-phone.test.mjs tests/ratings-preferences-server.test.mjs tests/owner-push-server.test.mjs tests/owner-push-worker.test.mjs tests/commission-exemption.test.mjs tests/ui-translations.test.mjs tests/availability-live.test.mjs tests/booking-presence-server.test.mjs tests/video-connection-service.test.mjs tests/document-page-cache.test.mjs tests/public-discovery-server.test.mjs tests/startup-recovery.test.mjs tests/youtube.test.mjs",
     "preview": "vite preview",
     "server": "wrangler dev --port 8787"
   },
