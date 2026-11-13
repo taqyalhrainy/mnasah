@@ -16,6 +16,13 @@ test('public about page and discovery files work without a session', async () =>
     assert.equal(missingChunk.status, 404);
     assert.equal(missingChunk.headers.get('cache-control'), 'no-store');
     assert.doesNotMatch(await missingChunk.text(), /<!doctype html>/i);
+    for (const role of ['student', 'teacher']) {
+      const manifest = await fetch(`${base}/${role}-manifest.webmanifest`);
+      assert.equal(manifest.headers.get('cache-control'), 'no-cache');
+      const data = await manifest.json();
+      assert.equal(data.name, 'منصة امتداد العلم');
+      assert.equal(data.short_name, 'منصة امتداد العلم');
+    }
     const page = await fetch(base + '/about/');
     assert.equal(page.status, 200);
     assert.match(page.headers.get('content-type'), /text\/html/);

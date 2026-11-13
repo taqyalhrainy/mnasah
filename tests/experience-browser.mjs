@@ -52,9 +52,9 @@ try {
   assert.ok(renewed.expires * 1000 > Date.now() + 364 * 86400000);
   await page.locator('.device-notification-prompt button.primary-button').click();
   await page.locator('.notification-help').waitFor();
-  assert.equal(await page.evaluate(() => window.notificationRequests), 1);
+  assert.equal(await page.evaluate(() => window.notificationRequests), 0);
   await page.locator('.notification-help .primary-button').click();
-  assert.equal(await page.evaluate(() => window.notificationRequests), 2);
+  assert.equal(await page.evaluate(() => window.notificationRequests), 0);
   await page.evaluate(() => {
     window.setNotificationPermission('default');
     Notification.requestPermission = async () => { window.notificationRequests++; window.setNotificationPermission('granted'); return 'granted'; };
@@ -62,7 +62,7 @@ try {
   await page.locator('.notification-help .primary-button').click();
   await page.locator('.notification-help').waitFor({ state: 'detached' });
   await page.locator('.device-notification-prompt').waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => window.notificationRequests), 3, 'resetting a blocked permission permits a fresh OS request');
+  assert.equal(await page.evaluate(() => window.notificationRequests), 1, 'resetting a blocked permission permits a fresh OS request');
   await page.locator('.teacher-saved-subjects article').waitFor();
   assert.equal(await page.locator('.teacher-saved-subjects article').count(), 1);
   assert.match(await page.locator('.teacher-saved-subjects article').innerText(), /الأساسي.*الإعدادي/s);

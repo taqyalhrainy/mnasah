@@ -31,6 +31,7 @@ try {
   const blocked = await browser.newContext({ serviceWorkers: 'block' });
   await blocked.addInitScript(() => Object.defineProperty(window, 'sessionStorage', { get() { throw new Error('disabled storage'); } }));
   const broken = await blocked.newPage();
+  const bootErrors = []; broken.on('pageerror', error => bootErrors.push(error.message));
   let denied = true, loads = 0;
   broken.on('framenavigated', frame => { if (frame === broken.mainFrame()) loads++; });
   await broken.route(`**${entry}`, route => denied ? route.abort() : route.continue());
@@ -39,7 +40,7 @@ try {
   assert.equal(loads, 2);
   denied = false;
   await broken.locator('#boot-retry').click();
-  await broken.locator('.auth-account-choice').waitFor();
+  await broken.locator('.auth-account-choice').waitFor().catch(async error => { console.log({ url: broken.url(), errors: bootErrors, body: await broken.locator('body').innerText() }); throw error; });
   await blocked.close();
 
   // Exercise the actual installed worker with an intentionally stale shell.
@@ -50,7 +51,9 @@ try {
   await cachedPage.evaluate(async () => {
     await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) await new Promise(resolve => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
-    const cache = await caches.open('imtidad-shell-v37');
+    const cacheName = (await caches.keys()).find(name => name.startsWith('imtidad-shell-'));
+    if (!cacheName) throw new Error('installed app cache missing');
+    const cache = await caches.open(cacheName);
     await cache.put(new URL('/index.html', location.href), new Response('<html><body>stale build</body></html>', { headers: { 'content-type': 'text/html' } }));
   });
   await cachedPage.reload();

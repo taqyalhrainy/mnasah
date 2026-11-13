@@ -159,6 +159,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [youtubeSession, setYoutubeSession] = useState<YoutubeSession | null>(null);
   const youtubeRef = useRef<YoutubeSession | null>(null);
   const updateYoutube = (session: YoutubeSession | null, broadcast = false) => {
+    if (broadcast && session === null && role !== 'teacher') return;
     if (session && !validYoutubeSession(session)) return;
     const previous = youtubeRef.current;
     youtubeRef.current = session; setYoutubeSession(session);
@@ -1039,7 +1040,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
-    if (message.kind === 'youtube') { if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
+    if (message.kind === 'youtube') { if (message.session === null && role === 'teacher') return; if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
     if (message.kind === 'sync-request') {
       if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
       return;
@@ -1098,7 +1099,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (message.kind === 'sync') {
-      if (message.youtube === null || validYoutubeSession(message.youtube)) updateYoutube(message.youtube);
+      if ((message.youtube === null && role !== 'teacher') || validYoutubeSession(message.youtube)) updateYoutube(message.youtube);
       if (message.boardOpen !== undefined) updateBoardOpen(message.boardOpen);
       else if (message.mode === 'whiteboard') updateBoardOpen(true);
       if (message.mode) { setStageMode(message.mode); setFocusedParticipant(null); }
@@ -2190,7 +2191,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           {youtubeSession && <button type="button" className="shared-document-tile shared-youtube-tile" onClick={() => { setStageMode('youtube'); setFocusedParticipant(null); }} aria-label={t('عرض فيديو يوتيوب')}>▶ YouTube</button>}
           {boardOpen && <button type="button" className="shared-document-tile shared-whiteboard-tile" onClick={() => { setStageMode('whiteboard'); setFocusedParticipant(null); }} aria-label={t('العودة إلى البورد المشترك')}><svg viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`}><rect x={whiteboardViewport.x} y={whiteboardViewport.y} width={viewWidth} height={viewHeight} fill="#fff" />{whiteboardStrokes.map(stroke => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}{whiteboardItems.map(item => item.type === 'image' ? <image key={item.id} href={item.src} x={item.x} y={item.y} width={item.width} height={item.height} /> : <text key={item.id} x={item.x + item.width} y={item.y + item.fontSize} textAnchor="end" fontSize={item.fontSize} fill={item.color}>{item.text}</text>)}</svg></button>}
         </div>
-        {youtubeSession && <div className="youtube-stage" hidden={stageMode !== 'youtube'}><SharedYoutube session={youtubeSession} onChange={state => updateYoutube(state, true)} onClose={() => updateYoutube(null, true)} /></div>}
+        {youtubeSession && <div className="youtube-stage" hidden={stageMode !== 'youtube'}><SharedYoutube session={youtubeSession} canClose={role === 'teacher'} onChange={state => updateYoutube(state, true)} onClose={() => updateYoutube(null, true)} /></div>}
         {stageMode === 'whiteboard' && <div className="whiteboard-stage"><aside className="whiteboard-side-rail">{renderWhiteboardTools()}</aside>{renderWhiteboard()}</div>}
         {stageMode === 'document' && sharedDocument && <div className="document-stage">
           <section className="document-viewer" aria-label={t('عارض الملف')}>

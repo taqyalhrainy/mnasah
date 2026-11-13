@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,follow" />
+  <meta name="theme-color" content="#21152f" />
+  <title>منصة امتداد العلم</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;background:radial-gradient(ellipse at top,#493160,#21152f 65%);color:#fff;font-family:Tahoma,Arial,sans-serif;padding:24px;text-align:center}.card{max-width:430px}img{width:100px;height:100px;border-radius:50%;background:#fff;margin-bottom:20px}h1{font-size:25px;line-height:1.7;margin:16px 0}p{color:#d5cadf;line-height:1.9}.spinner{display:block;width:32px;height:32px;margin:24px auto;border:3px solid #ffffff25;border-top-color:#ffda54;border-radius:50%;animation:spin .8s linear infinite}button{padding:13px 28px;background:#ffda54;color:#21152f;border:0;border-radius:12px;font:inherit;font-weight:bold;cursor:pointer}[hidden]{display:none!important}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+  </style>
+</head>
+<body><main class="card"><img src="../images/emtidad-alelm-final-logo-192.png" alt="شعار منصة امتداد العلم" /><p>منصة امتداد العلم</p><h1>ثواني وبنكون معك</h1><span class="spinner" aria-hidden="true"></span><p id="status" role="status" aria-live="polite">نجهّز المنصة لاستقبالك…</p><button id="retry" hidden>إعادة المحاولة</button><noscript><p>يرجى تفعيل JavaScript لفتح المنصة.</p><a href="https://emtidad-alelm.onrender.com/" style="color:#ffda54">فتح المنصة</a></noscript></main>
+<script>
+  (function() {
+    // This document is also published on GitHub's static CDN. It can appear
+    // before the Render service wakes; no login or payment data crosses origins.
+    var portal = new URLSearchParams(location.search).get('portal');
+    var origin = portal === 'owner' ? 'https://emtidad-alelm-owner.onrender.com' : 'https://emtidad-alelm.onrender.com';
+    var destination = origin + (portal === 'owner' ? '/owner' : portal === 'teachers' ? '/teachers' : portal === 'students' ? '/students' : '/');
+    var status = document.getElementById('status'), retry = document.getElementById('retry');
+    var started, running = false;
+    async function check() {
+      if (running) return; running = true;
+      var controller = new AbortController();
+      var timer = setTimeout(function() { controller.abort(); }, 10000);
+      try {
+        var response = await fetch(origin + '/health', { signal: controller.signal, credentials: 'omit', cache: 'no-store' });
+        if (response.ok && (await response.json()).ok === true) { location.replace(destination); return; }
+      } catch (_) { /* The provider's temporary wake page is never displayed. */ }
+      finally { clearTimeout(timer); running = false; }
+      if (Date.now() - started < 120000) setTimeout(check, 2500);
+      else { status.textContent = 'تعذر الاتصال الآن. تحقق من اتصالك وأعد المحاولة.'; retry.hidden = false; }
+    }
+    function start() { started = Date.now(); retry.hidden = true; status.textContent = 'نجهّز المنصة لاستقبالك…'; void check(); }
+    retry.onclick = start; start();
+  })();
+</script></body></html>

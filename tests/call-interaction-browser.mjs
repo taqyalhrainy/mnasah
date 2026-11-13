@@ -47,7 +47,8 @@ try {
   assert.equal(await student.locator('.youtube-stage').isVisible(), false);
   assert.equal(await student.evaluate(() => !!window.youtubeTestPlayer), true, 'changing camera focus preserves the shared player');
   await student.getByRole('button', { name: 'عرض فيديو يوتيوب', exact: true }).tap();
-  await student.getByRole('button', { name: 'إنهاء العرض', exact: true }).tap();
+  assert.equal(await student.getByRole('button', { name: 'إنهاء العرض', exact: true }).count(), 0, 'student cannot end YouTube sharing');
+  await teacher.getByRole('button', { name: 'إنهاء العرض', exact: true }).tap();
   for (const page of [teacher, student]) await page.locator('.youtube-stage').waitFor({ state: 'detached' });
   await teacher.getByTitle('اللوح المشترك', { exact: true }).tap();
   await student.locator('.whiteboard-canvas').waitFor();

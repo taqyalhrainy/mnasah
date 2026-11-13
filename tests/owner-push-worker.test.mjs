@@ -84,6 +84,24 @@ test('fresh HTML wins over stale cache and recovery bypasses it; cache failures 
   }
 });
 
+test('an installed worker without a cached shell shows branded loading instead of the provider page', async () => {
+  const handlers = {}, work = [];
+  const origin = 'https://emtidad-alelm.onrender.com';
+  const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
+  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
+    self, URL, Request, Response, setTimeout, clearTimeout,
+    fetch: async () => new Response('<html>Render wake page</html>'),
+    caches: { open: async () => ({ match: async () => undefined }) },
+  });
+  let result;
+  handlers.fetch({ request: navigation(origin + '/students'), waitUntil: p => work.push(p), respondWith: p => { result = p; } });
+  const response = await result, html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /ثواني وبنكون معك/);
+  assert.doesNotMatch(html, /Render wake page/);
+  await Promise.all(work);
+});
+
 test('background worker shows owner notifications without an open page and opens the target section', async () => {
   const handlers = {}, shown = [], messages = [], opened = [];
   let running = [];

@@ -32,6 +32,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
         if (!value && 'Notification' in window && Notification.permission === 'granted') value = await ensureDevicePush(portal);
         if (alive && version === syncVersion.current) { setEnabled(value); setChecked(true); }
       } catch { /* Keep the last known state; an offline device has not revoked permission. */ }
+      finally { if (alive && version === syncVersion.current) { setChecked(true); if (currentPermission !== 'granted') setEnabled(false); } }
     };
     const visible = () => { if (document.visibilityState === 'visible') sync(); };
     let permissionStatus: PermissionStatus | undefined;
@@ -42,13 +43,15 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     sync(); document.addEventListener('visibilitychange', visible); window.addEventListener('focus', sync);
     return () => { alive = false; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', sync); permissionStatus?.removeEventListener('change', sync); };
   }, [portal, userId]);
-  async function toggle() {
+  async function enable() {
     if (!userId || busy) return;
     setBusy(true); setHint('');
     ++syncVersion.current;
     try {
-      if (enabled) {
-        await removeDevicePush(portal); setEnabled(false); setHint('تم إيقاف تنبيهات هذا الجهاز.'); return;
+      if ('Notification' in window && Notification.permission === 'denied') {
+        setPermission('denied'); setEnabled(false); setPermissionHelpOpen(true);
+        setHint('الإذن ما زال محظوراً. غيّره إلى سماح من إعدادات الجهاز أو المتصفح، ثم اضغط تحقق مرة أخرى.');
+        return;
       }
       // Keep the OS permission request in the original button's user activation.
       const ready = await ensureDevicePush(portal, true);
@@ -61,6 +64,14 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     } catch (error) { setPermission('Notification' in window ? Notification.permission : 'unsupported'); setEnabled(false); setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
+  async function toggle() {
+    if (!userId || busy) return;
+    if (!enabled) return enable();
+    setBusy(true); setHint(''); ++syncVersion.current;
+    try { await removeDevicePush(portal); setEnabled(false); setHint('تم إيقاف تنبيهات هذا الجهاز.'); }
+    catch (error) { setHint(notificationError(error)); }
+    finally { setBusy(false); }
+  }
   async function test() {
     if (!enabled || busy) return;
     setBusy(true); setHint('');
@@ -68,5 +79,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && !enabled && permission !== 'granted', toggle, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && !enabled && permission !== 'granted', toggle, recheck: enable, test };
 }

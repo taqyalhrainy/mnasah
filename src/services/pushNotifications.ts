@@ -9,11 +9,10 @@ const decodeVapidKey = (value: string) => {
 export async function ensureDevicePush(portal: Portal, askPermission = false) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return false;
   let permission = Notification.permission;
-  if (permission !== 'granted' && askPermission) permission = await Notification.requestPermission();
+  if (permission === 'default' && askPermission) permission = await Notification.requestPermission();
   if (permission !== 'granted') return false;
-  const configResponse = await fetch(`${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/public/config`, { credentials: 'include', cache: 'no-store' });
-  const config = await configResponse.json() as { vapidPublicKey?: string };
-  if (!configResponse.ok || !config.vapidPublicKey) throw new Error('تعذر تفعيل تنبيهات الهاتف مؤقتًا. أعد المحاولة.');
+  const config = await request<{ vapidPublicKey?: string }>('public/config');
+  if (!config.vapidPublicKey) throw new Error('تعذر تفعيل تنبيهات الهاتف مؤقتًا. أعد المحاولة.');
   const registration = await readyPushWorker();
   let subscription = await registration.pushManager.getSubscription();
   const publicKey = decodeVapidKey(config.vapidPublicKey);

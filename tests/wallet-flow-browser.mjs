@@ -1,0 +1,80 @@
+import { chromium } from '@playwright/test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
+import { startPlatformServer } from '../server/index.js';
+import { memoryMongo } from './helpers/memory-mongo.mjs';
+
+const student = { id: 'wallet-flow', role: 'students', status: 'active', name: 'Student', email: 'student@flow.test' };
+const db = memoryMongo({ users: [student], sessions: [{ token: crypto.createHash('sha256').update('wallet-flow-token').digest('hex'), user_id: student.id, expires: Date.now() + 3600000 }], platform_settings: [{ key: 'payments', value: { cliq_alias: 'TAQY123', cliq_name: 'تقي الله الهريني' } }] });
+const proofs = new Map();
+const { httpServer, io } = await startPlatformServer({ database: db, port: 0, topupProofStore: { async write(id, _name, source) { const chunks = []; for await (const chunk of source) chunks.push(Buffer.from(chunk)); proofs.set(id, Buffer.concat(chunks)); }, read(id) { return Readable.from([proofs.get(id)]); }, async remove(id) { proofs.delete(id); } } });
+const base = `http://127.0.0.1:${httpServer.address().port}`;
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+try {
+  for (const theme of ['light', 'dark']) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+    await context.addInitScript(theme => { localStorage.setItem('mansah-theme', theme); localStorage.setItem('mansah-language', 'ar'); }, theme);
+    await context.addCookies([{ name: 'mansah_session_students', value: 'wallet-flow-token', url: base }]);
+    const page = await context.newPage();
+    await page.goto(base + '/students?view=wallet');
+    await page.locator('.wallet-entry-options').waitFor({ timeout: 10000 }).catch(async error => { console.log(theme, page.url(), await page.locator('body').innerText()); throw error; });
+    const notificationDismiss = page.locator('.device-notification-prompt .notification-prompt-close');
+    if (await notificationDismiss.isVisible()) await notificationDismiss.click();
+    assert.equal(await page.locator('.wallet-entry-options button').count(), 2);
+    assert.equal(await page.locator('#wallet-topup-amount,.wallet-activity,.wallet-payment-methods').count(), 0);
+    const nav = await page.locator('.nav-list').evaluate(nav => { const buttons = [...nav.querySelectorAll('button')].map(x => x.getBoundingClientRect()); const r = nav.getBoundingClientRect(); return { left: Math.min(...buttons.map(x => x.left)) - r.left, right: r.right - Math.max(...buttons.map(x => x.right)), widths: buttons.map(x => x.width) }; });
+    assert.ok(nav.left < 2 && nav.right < 2, JSON.stringify(nav));
+    assert.ok(Math.max(...nav.widths) - Math.min(...nav.widths) < 1);
+    await page.screenshot({ path: `.private/wallet-home-${theme}.png` });
+    await page.getByRole('button', { name: 'شحن الرصيد', exact: true }).click();
+    assert.equal(await page.locator('#wallet-topup-amount').inputValue(), '', 'no amount is chosen for the student');
+    assert.equal(await page.getByRole('button', { name: 'متابعة', exact: true }).isDisabled(), true);
+    await page.locator('#wallet-topup-amount').fill('12.75');
+    await page.getByRole('button', { name: 'متابعة', exact: true }).click();
+    assert.equal(await page.locator('.topup-form').count(), 0);
+    await page.locator('.wallet-payment-methods button').filter({ hasText: 'PayPal' }).click();
+    await page.locator('.paypal-checkout-panel').waitFor();
+    assert.match(await page.locator('.wallet-section-title').innerText(), /١٢٫٧٥/);
+    await page.locator('.wallet-step-back').click();
+    await page.locator('.wallet-payment-methods button').filter({ hasText: 'كليك' }).click();
+    await page.getByText('بنك الاتحاد', { exact: false }).waitFor();
+    await page.getByText('TAQY123', { exact: true }).waitFor();
+    await page.getByText('تقي الله الهريني', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'إرسال للمراجعة', exact: true }).isDisabled(), true);
+    await page.screenshot({ path: `.private/wallet-cliq-${theme}.png`, fullPage: true });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    const receipt = Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'), Buffer.from(theme)]);
+    await page.locator('.proof-picker input[type=file]').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: receipt });
+    await page.getByRole('button', { name: 'إرسال للمراجعة', exact: true }).click();
+    await page.locator('.topup-submitted-dialog').waitFor({ timeout: 5000 }).catch(async error => { console.log('Wallet submission feedback:', await page.locator('.wallet-workspace').innerText()); throw error; });
+    await page.getByRole('button', { name: 'حسناً', exact: true }).click();
+    await page.locator('.wallet-activity').waitFor();
+    const row = await db.collection('wallet_topups').findOne({ user_id: student.id });
+    assert.equal(row.amount, 1275); assert.equal(row.status, 'pending');
+    const balance = await page.locator('.wallet-balance-band > div > strong').innerText();
+    assert.match(balance, /[0٠]/, 'receipt submission does not directly credit funds');
+    await page.locator('.wallet-step-back').click();
+    await page.locator('.wallet-entry-options').waitFor();
+    await page.getByRole('button', { name: 'حالة الدفعات', exact: true }).click();
+    await page.locator('.wallet-activity').waitFor();
+    assert.equal(await page.locator('.wallet-charge-card').count(), 0);
+    await context.close();
+  }
+  // A static launch screen keeps provider HTML hidden until /health is ready.
+  const launcher = await browser.newPage();
+  let healthChecks = 0;
+  await launcher.route('https://emtidad-alelm.onrender.com/health', route => ++healthChecks < 2 ? route.fulfill({ status: 200, contentType: 'text/html', body: '<html>Render wake page</html>', headers: { 'access-control-allow-origin': '*' } }) : route.fulfill({ json: { ok: true }, headers: { 'access-control-allow-origin': '*' } }));
+  await launcher.route('https://emtidad-alelm.onrender.com/teachers', route => route.fulfill({ contentType: 'text/html', body: '<main>Platform is ready</main>' }));
+  await launcher.goto(base + '/launch/?portal=teachers');
+  await launcher.getByRole('heading', { name: 'ثواني وبنكون معك', exact: true }).waitFor();
+  assert.doesNotMatch(await launcher.locator('body').innerText(), /Render/);
+  await launcher.waitForURL('https://emtidad-alelm.onrender.com/teachers');
+  assert.equal(healthChecks, 2);
+  console.log('Wallet progressive flow, blank amount, receipt approval, mobile navigation, themes and branded wake-up launcher passed.');
+} finally {
+  await browser.close();
+  const closed = new Promise(resolve => io.close(() => httpServer.close(resolve)));
+  httpServer.closeAllConnections();
+  await closed;
+}

@@ -70,3 +70,13 @@
 .topup-submitted-dialog{width:min(430px,calc(100vw - 28px));padding:30px;border:1px solid var(--line);border-radius:22px;color:var(--ink);background:var(--surface);text-align:center;box-shadow:0 30px 90px #0007}.topup-submitted-dialog::backdrop{background:#070711b8;backdrop-filter:blur(7px)}.topup-submitted-dialog .topup-submitted-icon{display:grid;place-items:center;width:62px;height:62px;margin:0 auto 14px;border-radius:50%;color:#0f6940;background:#dff7ea}.topup-submitted-dialog h2{margin:0 0 8px}.topup-submitted-dialog p{margin:5px 0;color:var(--muted)}.topup-submitted-dialog>a{display:inline-flex;margin:12px 0 18px;color:var(--accent);font-size:1.15rem;font-weight:900}.topup-submitted-dialog>.primary-button{width:100%;justify-content:center}
 
 .wallet-payment-methods { grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); }
+.wallet-entry-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.wallet-entry-options>button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;min-height:145px;padding:24px;border:1px solid var(--line);border-radius:20px;background:var(--surface);color:var(--ink);font:inherit;cursor:pointer;transition:border-color .15s,background .15s}
+.wallet-entry-options>button:first-child{background:#633b80;color:#fff;border-color:#633b80}
+.wallet-entry-options>button:hover{border-color:#a479bd}
+.wallet-entry-options strong{font-size:18px}
+.wallet-step-back{display:flex;align-items:center;gap:8px;justify-self:start;border:0;background:transparent;color:var(--ink);padding:8px 0;font:inherit;cursor:pointer}
+[dir=ltr] .wallet-step-back svg{transform:rotate(180deg)}
+.wallet-amount-step{display:grid;gap:16px}.wallet-amount-step .wallet-amount-label{margin:0}.wallet-amount-step>small{color:var(--muted)}.wallet-amount-step>.primary-button{justify-content:center;min-height:48px;border-radius:12px}
+.wallet-receipt-required{display:flex;align-items:flex-start;gap:8px;line-height:1.8;font-size:14px;color:var(--ink)}.wallet-receipt-required svg{flex-shrink:0;margin-top:4px}
+@media(max-width:480px){.wallet-entry-options{gap:10px}.wallet-entry-options>button{min-height:130px;padding:16px}.wallet-entry-options strong{font-size:16px}.simple-wallet .cliq-alias-card{grid-template-columns:minmax(0,1fr)}.simple-wallet .cliq-alias-card>button{grid-column:1;grid-row:auto}.simple-wallet .cliq-alias-card small{line-height:1.8}}

@@ -1707,7 +1707,7 @@ app.use(express.static(path.join(root, 'dist/client'), {
         res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       } else if (filePath.endsWith('index.html')) {
         res.setHeader('Cache-Control', 'no-store');
-      } else if (filePath.endsWith('service-worker.js') || filePath.endsWith('manifest.webmanifest')) {
+      } else if (filePath.endsWith('service-worker.js') || filePath.endsWith('.webmanifest')) {
       res.setHeader('Cache-Control', 'no-cache');
     }
   },

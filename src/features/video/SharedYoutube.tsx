@@ -42,7 +42,7 @@ export function YoutubeLinkDialog({ onShare, onClose }: { onShare: (id: string) 
   return <div className="youtube-link-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><dialog open className="youtube-link-dialog" aria-modal="true" aria-label={t('مشاركة فيديو يوتيوب')} onKeyDown={event => { if (event.key === 'Escape') onClose(); }}><button type="button" className="icon-button" onClick={onClose} aria-label={t('إغلاق')}><X size={20} /></button><form onSubmit={event => { event.preventDefault(); if (id) onShare(id); }}><h2>{t('مشاركة فيديو يوتيوب')}</h2><label>{t('رابط فيديو يوتيوب')}<input autoFocus type="url" dir="ltr" value={link} onChange={event => setLink(event.target.value)} placeholder="https://www.youtube.com/watch?v=…" required /></label>{link && !id && <p role="alert">{t('أدخل رابط فيديو يوتيوب صالحاً.')}</p>}<button type="submit" className="primary-button" disabled={!id}><Play size={18} />{t('عرض داخل المكالمة')}</button></form></dialog></div>;
 }
 
-export function SharedYoutube({ session, onChange, onClose }: { session: YoutubeSession; onChange: (session: YoutubeSession) => void; onClose: () => void }) {
+export function SharedYoutube({ session, onChange, onClose, canClose }: { session: YoutubeSession; onChange: (session: YoutubeSession) => void; onClose: () => void; canClose: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const player = useRef<Player | null>(null);
   const latest = useRef(session); latest.current = session;
@@ -96,7 +96,7 @@ export function SharedYoutube({ session, onChange, onClose }: { session: Youtube
   }, [session.videoId]);
   useEffect(() => { if (ready) apply(); }, [session, ready]);
   return <section className="shared-youtube" aria-label={t('فيديو يوتيوب مشترك')}>
-    <header><strong>YouTube</strong><button type="button" onClick={onClose}><X size={17} />{t('إنهاء العرض')}</button></header>
+    <header><strong>YouTube</strong>{canClose && <button type="button" onClick={onClose}><X size={17} />{t('إنهاء العرض')}</button>}</header>
     <div className="youtube-player" ref={container} />
     {failed && <p role="alert">{t('تعذر تشغيل الفيديو. قد يمنع صاحبه عرضه داخل المواقع أو قد يكون الاتصال متوقفاً.')}</p>}
     {blocked && !failed && <button type="button" className="youtube-resume" onClick={() => { apply(); setBlocked(false); }}><Play size={18} />{t('اضغط لتشغيل الفيديو بالصوت')}</button>}
