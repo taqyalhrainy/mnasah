@@ -1,7 +1,8 @@
 // Routing separation complements (and never replaces) account-role authorization.
+import { FRONTEND_ORIGIN } from './deployment.js';
 export const OWNER_PORTAL_ORIGIN = 'https://emtidad-alelm-owner.onrender.com';
 export function publicOwnerPage(pathname, hostname) {
-  return ['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(hostname.toLowerCase()) && /^\/(?:owner|admin)(?:\/|$)/i.test(decodeURIComponent(pathname));
+  return ['emtidad-alelm.onrender.com', 'mnasah.onrender.com', new URL(FRONTEND_ORIGIN).hostname].includes(hostname.toLowerCase()) && /^\/(?:owner|admin)(?:\/|$)/i.test(decodeURIComponent(pathname));
 }
 
 export function portalRoleAllowed(role, mode = 'all') {
