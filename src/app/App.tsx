@@ -1,7 +1,7 @@
 import { allowNavigation } from '../services/unsavedChanges';
 import { lazyWithRetry } from './RecoveryBoundary';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, BellRing, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, ShieldAlert, Smartphone, Star, X } from 'lucide-react';
+import { Bell, BellOff, BellRing, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, ShieldAlert, Smartphone, Star, X } from 'lucide-react';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
 import { apiMediaUrl, request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
@@ -19,7 +19,7 @@ const PortalWorkspace = lazyWithRetry(() => loadWorkspace().then(module => ({ de
 const VideoTestPage = lazyWithRetry(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 type AdminNotificationCounts = Record<string, number>;
-const portalNotificationViews: Record<Portal, string[]> = { admin: ['bookings', 'reports', 'users', 'topups', 'audit', 'payments', 'catalog', 'profile'], teachers: ['home', 'rooms', 'messages', 'available', 'earnings', 'profile'], students: ['home', 'rooms', 'messages', 'tutors', 'wallet', 'history', 'profile'] };
+const portalNotificationViews: Record<Portal, string[]> = { admin: ['bookings', 'reports', 'users', 'topups', 'audit', 'payments', 'catalog', 'profile'], teachers: ['home', 'rooms', 'messages', 'available', 'earnings', 'profile'], students: ['home', 'rooms', 'messages', 'tutors', 'wallet', 'profile'] };
 function notificationView(portal: Portal) {
   const query = new URLSearchParams(location.search);
   const view = query.get('view') || (query.has('lesson') ? (portal === 'admin' ? 'bookings' : 'rooms') : '');
@@ -218,7 +218,7 @@ function PortalApp() {
   if (user.mustChangePassword && portal === user.role) return <ChangeTemporaryPassword user={user} onComplete={() => setUser(null)} />;
   if (portal !== user.role) return <main className="loading-page" dir={direction()}><h1>{t("هذا القسم غير متاح لحسابك")}</h1><a className="primary-button" href={appUrl(user.role)}>{t("العودة إلى قسمك")}</a><button className="text-button" onClick={logout}>{t("تسجيل الخروج")}</button></main>;
   const nav = portal === 'students'
-    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }, { id: 'history', label: t("السجل"), icon: History }]
+    ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'tutors', label: t("أساتذتي"), icon: Users }, { id: 'wallet', label: t("المحفظة"), icon: Wallet }]
     : portal === 'teachers'
     ? [{ id: 'home', label: t("الرئيسية"), icon: Home }, { id: 'rooms', label: t("الحصص المحجوزة"), icon: Video }, { id: 'messages', label: t("الرسائل"), icon: MessageCircle }, { id: 'available', label: t("المتاحة"), icon: Clock3 }, { id: 'earnings', label: t("المستحقات"), icon: Wallet }]
     : [{ id: 'bookings', label: t("الحصص والحجوزات"), icon: CalendarDays },
