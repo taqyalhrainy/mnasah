@@ -29,7 +29,7 @@ function CategoryIcon({ value }: { value: string }) {
 }
 
 type EventRow = { id: string; name: string; action: string; target: string; created: number };
-type Room = { id: string; room: string; role: 'teacher' | 'student'; scheduledEnd: number };
+type Room = { id: string; room: string; role: 'teacher' | 'student'; scheduledEnd: number; presence?: { updatedAt: number; teacherPeerId?: string | null; studentPeerId?: string | null; teacher_present_until: number; student_present_until: number } };
 type TeacherProfileData = { teacher: User; reviews: Array<{ rating: number; review: string; created: number; student_name: string }> };
 const actionNames: Record<string, string> = { 'user:password-reset': 'إصدار كلمة مرور مؤقتة', 'user:active': 'تفعيل حساب', 'user:suspended': 'إيقاف حساب', 'booking:cancel': 'إلغاء حصة', 'payment:received': 'تسجيل دفعة', 'payment:reversed': 'عكس دفعة' };
 actionNames['user:deleted'] = 'حذف حساب';
@@ -351,7 +351,13 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   }
   async function join(b: Booking) {
     await act(async () => {
-      const data = await request<Pick<Room, 'room' | 'role'>>(`${portal}/bookings/${b.id}/room`);
+      const data = await request<Pick<Room, 'room' | 'role' | 'presence'>>(`${portal}/bookings/${b.id}/room`);
+      const previousPresence = presenceUpdatesRef.current.get(b.id);
+      if (data.presence && (!previousPresence || previousPresence.updatedAt <= data.presence.updatedAt)) {
+        const presence = { ...data.presence, receivedAt: performance.now() };
+        presenceUpdatesRef.current.set(b.id, presence);
+        setBookings(current => current.map(booking => booking.id === b.id ? { ...booking, ...presence } : booking));
+      }
       setSelected(null);
       setMessages([]);
       setCallCompact(false);
@@ -627,6 +633,8 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
       key={room.id}
       assignedRole={room.role}
       assignedRoom={room.room}
+      initialRemotePeerId={room.role === 'teacher' ? room.presence?.studentPeerId : room.presence?.teacherPeerId}
+      remotePresent={Number((bookings.find(booking => booking.id === room.id) || room.presence)?.[room.role === 'teacher' ? 'student_present_until' : 'teacher_present_until'] || 0) > Date.now()}
       currentUserId={user.id}
       lessonId={room.id}
       displayName={user.name}

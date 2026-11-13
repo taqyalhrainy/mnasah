@@ -13,6 +13,8 @@ type PeerCallbacks = {
   onDataOpen?: () => void;
   onLocalPeerId?: (peerId: string | null) => void | Promise<void>;
   getRemotePeerId?: () => Promise<string | null | undefined>;
+  initialRemotePeerId?: string | null;
+  onRemotePresence?: (present: boolean) => void;
   onLocalVideoSource: (source: VideoSource) => void;
   onLocalScreenStream?: (stream: MediaStream | null) => void;
   onRemoteScreenStream?: (stream: MediaStream | null) => void;
@@ -125,6 +127,10 @@ export class VideoConnection {
     }
 
     this.callbacks.onStatus(t("جاري تشغيل المايك"));
+    // Fetch traversal credentials while the browser prepares the microphone/camera.
+    const iceReady = request<{ ice_servers?: RTCIceServer[] }>(`${this.role}s/video/ice`, undefined, undefined, 5000).then(result => {
+      if (!this.closed && generation === this.generation && Array.isArray(result.ice_servers) && result.ice_servers.length) this.resolvedIceServers = result.ice_servers;
+    }).catch(() => undefined);
     let stream: MediaStream | undefined;
     try {
       try {
@@ -156,10 +162,7 @@ export class VideoConnection {
       if (this.placeholderVideoTrack) stream.addTrack(this.placeholderVideoTrack);
     }
 
-    try {
-      const result = await request<{ ice_servers?: RTCIceServer[] }>(`${this.role}s/video/ice`, undefined, undefined, 5000);
-      if (generation === this.generation && Array.isArray(result.ice_servers) && result.ice_servers.length) this.resolvedIceServers = result.ice_servers;
-    } catch { /* Static STUN/TURN configuration remains available as a fallback. */ }
+    await iceReady;
 
     if (this.closed || generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
     this.createPeer();
@@ -489,7 +492,12 @@ export class VideoConnection {
     peer.on('open', (peerId) => {
       if (this.closed || this.peer !== peer) return;
       void this.callbacks.onLocalPeerId?.(peerId);
-      this.callbacks.onStatus(t("بانتظار دخول الطرف الثاني بنفس كود الغرفة"));
+      const target = !this.remotePeerId && !this.hasRemoteStream ? this.callbacks.initialRemotePeerId : null;
+      if (target) {
+        this.remotePeerId = target;
+        this.callbacks.onRemotePresence?.(true);
+        if (this.role === 'teacher') this.callStudent(target); else this.ensureStudentDataConnection(target);
+      } else this.callbacks.onStatus(t('جارٍ التحقق من حضور الطرف الآخر'));
       this.startPeerSearch();
     });
 
@@ -639,10 +647,15 @@ export class VideoConnection {
       const peerAtDiscovery = this.remotePeerId;
       try {
         const discoveredPeerId = await this.callbacks.getRemotePeerId();
-        if (this.closed || generation !== this.generation || !discoveredPeerId) return;
+        if (this.closed || generation !== this.generation) return;
         // A presence response started before a new handshake must not replace
         // the peer that has since connected directly.
         if (dataAtDiscovery !== this.activeDataConnection || callAtDiscovery !== this.activeCall || peerAtDiscovery !== this.remotePeerId) return;
+        if (!discoveredPeerId) {
+          if (!this.hasRemoteStream && !this.activeDataConnection?.open) this.callbacks.onRemotePresence?.(false);
+          return;
+        }
+        this.callbacks.onRemotePresence?.(true);
         const peerChanged = discoveredPeerId !== this.remotePeerId;
         this.remotePeerId = discoveredPeerId;
         if (this.role === 'teacher') {
@@ -676,7 +689,7 @@ export class VideoConnection {
       else this.closeRemoteMedia();
     }
 
-    this.callbacks.onStatus(t("جاري البحث عن الطالب"));
+    this.callbacks.onStatus(t('جارٍ الاتصال بالطرف الموجود في الغرفة'));
     this.bindCallEvents(this.peer.call(targetPeerId, this.localStream));
   }
 

@@ -1,5 +1,7 @@
 import { constrainDocumentView, fitDocumentView, zoomDocumentView } from './documentViewport';
 import { DocumentPageCache } from './documentPageCache';
+import { whiteboardPng, downloadBoardImage } from './whiteboardExport';
+import { BoardImagePreview } from './BoardImagePreview';
 import { SharedYoutube, YoutubeLinkDialog, validYoutubeSession, type YoutubeSession } from './SharedYoutube';
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
@@ -105,6 +107,8 @@ type VideoRoomProps = {
   onSendMessage?: (body: string) => Promise<void>;
   onPresenceChange?: (active: boolean, peerId?: string | null, joining?: boolean) => Promise<unknown>;
   getRemotePeerId?: () => Promise<string | null | undefined>;
+  initialRemotePeerId?: string | null;
+  remotePresent?: boolean;
   onLeave?: () => void;
   navigationItems?: Array<{ id: string; label: string }>;
   onNavigate?: (id: string) => void;
@@ -131,9 +135,20 @@ function callMediaPreference(room: string, role: VideoRole) {
   catch { return {}; }
 }
 
-export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, onLeave, navigationItems = [], onNavigate, compact = false, onExpand, currentUserId, lessonId, displayName, avatarUrl, scheduledEnd, onGraceExpired }: VideoRoomProps) {
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, initialRemotePeerId, remotePresent, onLeave, navigationItems = [], onNavigate, compact = false, onExpand, currentUserId, lessonId, displayName, avatarUrl, scheduledEnd, onGraceExpired }: VideoRoomProps) {
   usePreferences();
-  const [status, setStatus] = useState(t("جاهز للانضمام"));
+  const [mediaError, setMediaError] = useState('');
+  const mediaErrorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const setStatus = useCallback((message: string) => {
+    const error = /تعذر|خطأ|فشل|error|fail|unable|cannot|can't|could not|couldn.t|denied/i.test(message) ? message : '';
+    if (!error) return;
+    clearTimeout(mediaErrorTimer.current);
+    setMediaError(error);
+    mediaErrorTimer.current = setTimeout(() => setMediaError(''), 5000);
+  }, []);
+  useEffect(() => () => clearTimeout(mediaErrorTimer.current), []);
+  const [boardExporting, setBoardExporting] = useState(false);
+  const [boardImage, setBoardImage] = useState<File | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(() => callMediaPreference(roomId, role).audio !== false);
@@ -146,6 +161,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(false);
   const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [reportedRemotePresent, setReportedRemotePresent] = useState<boolean | null>(() => remotePresent ?? (initialRemotePeerId ? true : null));
+  useEffect(() => { if (remotePresent !== undefined) setReportedRemotePresent(remotePresent); }, [remotePresent]);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | 'local-screen' | 'remote-screen' | null>(null);
   const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
   const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
@@ -689,6 +706,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           for (const track of stream.getAudioTracks()) track.onunmute = () => void resumeRemoteAudio();
           void resumeRemoteAudio();
           setHasRemoteStream(true);
+          setReportedRemotePresent(true);
           setStatus(t("متصل"));
         },
         onRemoteVideoSource: (source) => {
@@ -729,6 +747,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           void publish();
         },
         getRemotePeerId,
+        initialRemotePeerId,
+        onRemotePresence: setReportedRemotePresent,
         onLocalVideoSource: (source) => {
           setIsScreenSharing(source === 'screen');
           if (source === 'screen') {
@@ -751,6 +771,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           setRemoteAudioEnabled(true);
           setRemoteScreenStream(null);
           setHasRemoteStream(false);
+          setReportedRemotePresent(false);
           setFocusedParticipant(null);
         },
         onStatus: setStatus,
@@ -1625,18 +1646,18 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: next, mode: stageMode });
   };
 
-  const downloadWhiteboard = () => {
+  const downloadWhiteboard = async () => {
     const svg = whiteboardSvgRef.current;
-    if (!svg) return;
-    const clone = svg.cloneNode(true) as SVGSVGElement;
-    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    clone.setAttribute('width', '1600');
-    clone.setAttribute('height', String(Math.round(1600 / whiteboardAspect)));
-    const source = new XMLSerializer().serializeToString(clone);
-    const url = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml;charset=utf-8' }));
-    const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = `emtidad-board-${new Date().toISOString().slice(0, 10)}.svg`; anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (!svg || boardExporting) return;
+    const { x, y, width, height } = svg.viewBox.baseVal;
+    setBoardExporting(true);
+    try {
+      const blob = await whiteboardPng({ view: { x, y, width, height }, items: whiteboardItemsRef.current.map(item => ({ ...item })), strokes: [...whiteboardStrokesRef.current, ...(activeStroke ? [activeStroke] : [])] });
+      const file = new File([blob], `emtidad-board-${new Date().toISOString().slice(0, 10)}.png`, { type: 'image/png' });
+      const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+      if (ios) setBoardImage(file); else downloadBoardImage(file);
+    } catch { setStatus(t('تعذر حفظ صورة البورد. حاول مجدداً.')); }
+    finally { setBoardExporting(false); }
   };
 
   useEffect(() => {
@@ -1982,7 +2003,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <label className="whiteboard-color-picker" title={t('اختيار لون القلم')}><span style={{ background: whiteboardColor }} /><input aria-label={t('اختيار لون القلم')} type="color" value={whiteboardColor} onChange={event => setWhiteboardColor(event.target.value)} /></label>
         <label className="whiteboard-size-picker" title={t('حجم القلم')}><span>{whiteboardSize}</span><input aria-label={t("حجم القلم")} min="2" max="18" type="range" value={whiteboardSize} onChange={(event) => setWhiteboardSize(Number(event.target.value))} /></label>
         {selectedWhiteboardItem && <button className="whiteboard-delete-item" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardItem)} title={t('حذف العنصر')} aria-label={t('حذف العنصر')}><Trash2 size={17} /></button>}
-        <button className="tool-mode" type="button" onClick={downloadWhiteboard} title={t('تنزيل اللوح')} aria-label={t('تنزيل اللوح')}><Download size={17} /></button>
+        <button className="tool-mode" type="button" disabled={boardExporting} onClick={() => void downloadWhiteboard()} title={t('تنزيل اللوح')} aria-label={t('تنزيل اللوح')}>{boardExporting ? <RefreshCw size={17} /> : <Download size={17} />}</button>
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
       </div>
   );
@@ -2152,9 +2173,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       <div role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); } }} data-tile={id} className={`participant-tile ${focusedParticipant === id ? 'is-focused' : ''} ${variant} ${fitMode === 'fill' ? 'fill-frame' : 'fit-video'} ${source === 'screen' ? 'screen' : ''} ${ratio < 1 ? 'portrait-video' : 'landscape-video'} ${focusedParticipant === id ? 'selected' : ''} ${!micMuted && (isLocal ? localSpeaking : remoteSpeaking) ? 'speaking' : ''}`} onClick={() => { setStageMode('video'); setFocusedParticipant(current => current === id ? null : id); }} aria-label={focusedParticipant === id ? t('العودة إلى العرض الشبكي') : t("تكبير {v0}", { v0: name })} style={{ '--video-ratio': String(ratio) } as CSSProperties}>
         <video ref={isLocal ? bindLocalVideo : bindRemoteVideo} autoPlay muted playsInline onLoadedMetadata={(event) => updateVideoRatio(id, event.currentTarget)} onResize={(event) => updateVideoRatio(id, event.currentTarget)} className={isLocal && source === 'camera' && cameraFacing === 'user' ? 'mirrored-video' : undefined} />
         {isLocal && showVideo && source === 'camera' && <button type="button" className="camera-switch-button" disabled={cameraSwitching} aria-label={t('تبديل الكاميرا الأمامية والخلفية')} title={t('تبديل الكاميرا الأمامية والخلفية')} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); void handleCameraSwitch(); }}><SwitchCamera size={20} /></button>}
-        {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}{(isLocal ? avatarUrl : remoteProfile?.avatar) ? <img src={apiMediaUrl((isLocal ? avatarUrl : remoteProfile?.avatar)!)} alt="" onError={event => { event.currentTarget.style.display = 'none'; }} /> : null}</span><strong>{hasStream ? name : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
+        {!showVideo && <div className="camera-placeholder" aria-hidden="true"><span>{name.slice(0, 1)}{(isLocal ? avatarUrl : remoteProfile?.avatar) ? <img src={apiMediaUrl((isLocal ? avatarUrl : remoteProfile?.avatar)!)} alt="" onError={event => { event.currentTarget.style.display = 'none'; }} /> : null}</span><strong>{isLocal || hasStream || reportedRemotePresent ? name : reportedRemotePresent === null ? t('جارٍ الاتصال') : t("بانتظار الدخول")}</strong><small>{hasStream ? t("الكاميرا مغلقة") : isLocal ? t('جارٍ تجهيز اتصالك') : reportedRemotePresent ? t('داخل الحصة') : reportedRemotePresent === null ? t('جارٍ التحقق من حضور الطرف الآخر') : t("{v0} لم يدخل بعد", { v0: remoteName })}</small></div>}
         {micMuted && <span className="participant-mic-state" role="status" aria-label={t("المايك مغلق")}><MicOff size={18} /></span>}
-        <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{micMuted && <MicOff size={15} aria-label={t("المايك مغلق")} />}{!showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
+        <div className="participant-meta"><span>{name}{isLocal ? t(" - أنت") : ''}</span>{micMuted && <MicOff size={15} aria-label={t("المايك مغلق")} />}{hasStream && !showVideo && <CameraOff size={15} aria-label={t("الكاميرا مغلقة")} />}{source === 'screen' && <ScreenShare size={15} aria-label={t("مشاركة شاشة")} />}</div>
       </div>
     );
   };
@@ -2211,7 +2232,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       {showScreenShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('المشاركة أو النافذة العائمة غير متاحة على هذا المتصفح')}</strong><p>{t('حدّث المتصفح أو جرّب Chrome. إذا كان هاتفك يدعم المشاركة والنافذة العائمة ستبقى الحصة ظاهرة أثناء انتقالك بين التطبيقات.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowScreenShareNotice(false)}>{t('حسناً')}</button></div>}
 
       {documentLoading && <div className="call-document-loading" role="status"><RefreshCw size={18} />{t('جارٍ رفع وتجهيز الملف…')}</div>}
-      {/^تعذر|error|failed/i.test(status) && <p className="call-media-error" role="alert">{status}</p>}
+      {boardImage && <BoardImagePreview file={boardImage} onClose={() => setBoardImage(null)} />}
+      {mediaError && <p className="call-media-error" role="alert">{mediaError}</p>}
       <div className="call-stage">
         <div className={`video-grid stable-media-grid ${focusedParticipant ? 'has-focus' : ''} ${focusedParticipant ? `${focusedParticipant}-focused` : ''} ${sharedDocument ? 'with-document' : ''} ${!sharedDocument && !boardOpen && !localScreenStream && !remoteScreenStream ? 'camera-only' : ''}`} aria-label={t("المشاركون")}>
           {renderTile('remote')}{renderTile('local')}{renderScreenTile('local')}{renderScreenTile('remote')}
@@ -2233,7 +2255,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
             </div>
           </section>
         </div>}
-        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}{!audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span><span>{hasRemoteStream ? remoteName : t("{v0} بانتظار الدخول", { v0: remoteName })}{hasRemoteStream && !remoteAudioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span></div></aside>}
+        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}{!audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span><span>{hasRemoteStream || reportedRemotePresent ? remoteName : reportedRemotePresent === null ? t('جارٍ التحقق من حضور الطرف الآخر') : t("{v0} بانتظار الدخول", { v0: remoteName })}{hasRemoteStream && !remoteAudioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span></div></aside>}
       </div>
 
       <div className="call-toolbar" aria-label={t("أدوات المكالمة")}>

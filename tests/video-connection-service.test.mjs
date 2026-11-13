@@ -18,6 +18,19 @@ const bundle = await build({
 });
 const createService = new Function('module', 'exports', 'testPeer', 'navigator', 'window', 'document', 'MediaStream', `${bundle.outputFiles[0].text}; return module.exports.VideoConnection;`);
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+
+for (const role of ['teacher', 'student']) test(`known ${role === 'teacher' ? 'student' : 'teacher'} is contacted on signaling open without waiting for presence polling`, async () => {
+  const polling = deferred();
+  const h = harness(role, () => polling.promise);
+  h.callbacks.initialRemotePeerId = 'already-in-room';
+  h.callbacks.onRemotePresence = present => h.events.push(['presence', present]);
+  await h.service.start();
+  h.peers[0].emit('open', 'joining-peer');
+  assert.equal((role === 'teacher' ? h.peers[0].calls : h.peers[0].connections)[0]?.peer, 'already-in-room');
+  assert.ok(h.events.some(event => event[0] === 'presence' && event[1]));
+  assert.ok(!h.events.some(event => event[0] === 'onStatus' && event[1].startsWith('بانتظار')));
+  h.service.close(); polling.resolve(null); await settle();
+});
 test('camera flip replaces only video, preserves microphone and retains the selected camera on toggles', async () => {
   const h = harness();
   const stream = await h.service.start({ video: true });

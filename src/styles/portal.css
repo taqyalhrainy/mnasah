@@ -2929,6 +2929,14 @@ html.call-active .support-whatsapp { display: none; }
   .youtube-stage { grid-column: 1; grid-row: 2; }
 }
 
+.board-image-backdrop { position: fixed; z-index: 14000; inset: 0; display: grid; place-items: center; padding: max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); background: #080712bb; }
+.board-image-preview { position: relative; inset: auto; display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 16px; width: min(700px,100%); max-height: calc(100dvh - 40px); min-height: 0; box-sizing: border-box; border: 1px solid #54485d; border-radius: 20px; color: #fff; background: #201b28; }
+.board-image-preview header,.board-image-preview footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.board-image-preview h2 { margin: 0; font-size: 18px; }
+.board-image-preview img { display: block; width: 100%; min-height: 0; max-height: 55dvh; object-fit: contain; background: #fff; border-radius: 10px; -webkit-touch-callout: default; user-select: auto; -webkit-user-select: auto; }
+.board-image-preview p { margin: 0; font-size: 13px; line-height: 1.7; }
+.board-image-preview button { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #63536e; border-radius: 10px; background: #67477f; color: #fff; padding: 10px 12px; }
+
 /* Keep resource previews paired and mobile board tools on their own full row. */
 .call-experience.video-mode .stable-media-grid.with-document > .shared-document-tile { grid-column: auto; }
 @media (max-width: 760px) {

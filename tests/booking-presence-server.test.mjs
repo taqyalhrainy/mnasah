@@ -61,6 +61,16 @@ test('booking presence persists before private realtime events and safely clears
     assert.equal(response.status, status, JSON.stringify(result));
     return result;
   }
+  await t.test('authorized room entry includes the current peer presence for immediate dialing', async () => {
+    await store.collection('bookings').updateOne({ id: 'booking' }, { $set: { student_peer_id: 'student-in-room', student_present_until: Date.now() + 45000 } });
+    const response = await fetch(`${base}/api/teachers/bookings/booking/room`, { headers: { cookie: cookie('teacher') } });
+    assert.equal(response.status, 200);
+    const room = await response.json();
+    assert.equal(room.presence.studentPeerId, 'student-in-room');
+    assert.ok(room.presence.student_present_until > Date.now());
+    assert.equal(room.room, 'private-room');
+    await store.collection('bookings').updateOne({ id: 'booking' }, { $unset: { student_peer_id: '', student_present_until: '' } });
+  });
   function nextEvent(id) {
     return new Promise((resolve, reject) => {
       const socket = sockets.get(id);

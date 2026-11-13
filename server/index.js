@@ -1569,7 +1569,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         if (Date.now() < row.start - 900000) fail(403, 'يمكن دخول الحصة قبل موعدها بخمس عشرة دقيقة.');
         if (Date.now() >= Number(row.start) + Number(row.minutes) * 60000 + 5 * 60000) fail(403, 'انتهت الحصة وأُغلقت الغرفة. لا يمكن الدخول إليها مرة أخرى.');
         const bookingDocument = await db.collection('bookings').findOne({ id }, { projection: { _id: 0, room: 1 } });
-        return res.json({ room: bookingDocument.room, role: user.role === 'teachers' ? 'teacher' : 'student' });
+        return res.json({ room: bookingDocument.room, role: user.role === 'teachers' ? 'teacher' : 'student', presence: bookingPresence(row) });
       }
       if (action === 'presence') {
         const participant = (user.role === 'teachers' && row.teacher_id === user.id) || (user.role === 'students' && row.student_id === user.id);
