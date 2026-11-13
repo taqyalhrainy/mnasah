@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { locale, t } from '../../i18n/preferences';
-import { BACKEND_ORIGIN, FRONTEND_ORIGIN } from '../../../shared/deployment.js';
+import { BACKEND_ORIGIN, FRONTEND_ORIGIN, GOOGLE_SIGNIN_ORIGIN } from '../../../shared/deployment.js';
 import { request } from '../../services/platformApi';
 import { GOOGLE_WEB_CLIENT_ID } from '../../../shared/google.js';
 
@@ -14,7 +14,7 @@ function decodeGoogleProfile(credential: string): GoogleProfile {
 export function GoogleSignInButton({ onCredential }: { onCredential: (credential: string, profile: GoogleProfile) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const bridge = useRef<HTMLIFrameElement>(null);
-  const useBridge = Boolean(import.meta.env.VITE_EDGE_FRONTEND) && location.origin === FRONTEND_ORIGIN;
+  const useBridge = [FRONTEND_ORIGIN, BACKEND_ORIGIN].includes(location.origin);
   const [clientId, setClientId] = useState(() => (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || GOOGLE_WEB_CLIENT_ID);
   useEffect(() => {
     if (clientId) return;
@@ -25,7 +25,7 @@ export function GoogleSignInButton({ onCredential }: { onCredential: (credential
   useEffect(() => {
     if (useBridge) {
       const receive = (event: MessageEvent) => {
-        if (event.origin !== BACKEND_ORIGIN || event.source !== bridge.current?.contentWindow || event.data?.type !== 'emtidad-google-credential' || typeof event.data.credential !== 'string') return;
+        if (event.origin !== GOOGLE_SIGNIN_ORIGIN || event.source !== bridge.current?.contentWindow || event.data?.type !== 'emtidad-google-credential' || typeof event.data.credential !== 'string') return;
         onCredential(event.data.credential, decodeGoogleProfile(event.data.credential));
       };
       window.addEventListener('message', receive);
@@ -55,6 +55,6 @@ export function GoogleSignInButton({ onCredential }: { onCredential: (credential
     }
     return () => { cancelled = true; };
   }, [clientId, onCredential, useBridge]);
-  if (useBridge) return <div className="registration-google"><iframe ref={bridge} title={t('المواصلة باستخدام Google')} src={`${BACKEND_ORIGIN}/auth/google-bridge?parent=${encodeURIComponent(FRONTEND_ORIGIN)}&lang=${locale().startsWith('en') ? 'en' : 'ar'}`} allow="identity-credentials-get" style={{ width: '100%', maxWidth: 360, height: 48, border: 0, colorScheme: 'light' }} /></div>;
+  if (useBridge) return <div className="registration-google"><iframe ref={bridge} title={t('المواصلة باستخدام Google')} src={`${GOOGLE_SIGNIN_ORIGIN}/api/public/google-bridge?parent=${encodeURIComponent(location.origin)}&lang=${locale().startsWith('en') ? 'en' : 'ar'}`} allow="identity-credentials-get" style={{ width: '100%', maxWidth: 360, height: 48, border: 0, colorScheme: 'light' }} /></div>;
   return <div className="registration-google"><div ref={host} />{!clientId && <small>{t('يتطلب تسجيل Google إضافة مفتاح Google Client ID إلى إعدادات الخادم.')}</small>}</div>;
 }

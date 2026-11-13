@@ -22,7 +22,8 @@ Provider waiting HTML becomes a retryable JSON response while the locally served
 platform loader stays visible. A new visitor never navigates to Render.
 
 Google's button runs in a narrowly scoped iframe on its existing authorized
-Render origin. Only the exact frontend window receives its credential, and the
+`https://mnasah.onrender.com` origin, before the legacy hostname redirect. Only
+the exact allowed frontend window receives its credential, and the
 backend still verifies the token with Google. This avoids breaking existing Google
 accounts when the new frontend origin has not been added to Google Cloud.
 Payment callbacks remain on Render; customer return URLs use the new frontend.
