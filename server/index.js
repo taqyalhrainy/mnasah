@@ -765,8 +765,15 @@ app.all('/api/auth/:action', async (req, res, next) => {
         const token = cookie(req, sessionCookie(account.role)) || cookie(req, 'mansah_session');
         if (token) {
           const expires = Date.now() + (account.role === 'admin' ? 7 : 365) * 86400000;
-          const renewed = await db.collection('sessions').updateOne({ token: digest(token), user_id: account.id, expires: { $gt: Date.now() } }, { $set: { expires } });
-          if (renewed.modifiedCount) setSession(res, account.role, token, expires);
+          try {
+            const renewed = await db.collection('sessions').updateOne({ token: digest(token), user_id: account.id, expires: { $gt: Date.now() } }, { $set: { expires } });
+            if (renewed.modifiedCount) setSession(res, account.role, token, expires);
+          } catch (error) {
+            // The existing session was already authenticated and is unexpired.
+            // An Atlas storage limit must not turn renewal into a login outage.
+            if (!/over your space quota|Writes are blocked on your cluster/i.test(error.message || '')) throw error;
+            console.warn('Session renewal deferred: database storage quota');
+          }
         }
       }
       const visible = publicUser(account);

@@ -4,6 +4,18 @@ import crypto from 'node:crypto';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
+test('an Atlas quota error during renewal preserves an already valid login', async () => {
+  const baseDb = memoryMongo({ users: [{ id: 'student', role: 'students', name: 'Student', status: 'active' }], sessions: [{ token: crypto.createHash('sha256').update('valid-token').digest('hex'), user_id: 'student', expires: Date.now() + 3600000 }] });
+  const db = { collection(name) { const collection = baseDb.collection(name); return name === 'sessions' ? { ...collection, async updateOne() { throw new Error('you are over your space quota. Writes are blocked on your cluster.'); } } : collection; } };
+  const { httpServer, io } = await startPlatformServer({ database: db, port: 0, portalMode: 'public' });
+  try {
+    const response = await fetch(`http://127.0.0.1:${httpServer.address().port}/api/auth/me?portal=students`, { headers: { cookie: 'mansah_session_students=valid-token' } });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).user.id, 'student');
+    assert.equal(response.headers.get('set-cookie'), null);
+  } finally { await new Promise(resolve => io.close(() => httpServer.close(resolve))); }
+});
+
 test('root discovers saved learning sessions, renews persistent cookie and respects logout/expiry/owner isolation', async () => {
   const hash = value => crypto.createHash('sha256').update(value).digest('hex');
   const db = memoryMongo({ users: [

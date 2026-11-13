@@ -6,10 +6,21 @@ import { attachmentFail as fail, attachmentHeaders, attachmentAccess, uploadMeta
 
 export function gridAttachmentBytes(db) {
   const bucket = new GridFSBucket(db, { bucketName: 'chat_files', chunkSizeBytes: 255 * 1024 });
+  const files = db.collection('chat_files.files');
   return {
     write: (id, name, source) => pipeline(Readable.from(source), bucket.openUploadStreamWithId(id, name)),
-    read: (id, range = null) => bucket.openDownloadStream(id, range ? { start: range.start, end: range.end + 1 } : undefined),
-    async remove(id) { try { await bucket.delete(id); } catch (error) { if (!/File not found/.test(error.message)) throw error; } },
+    read: (id, range = null) => Readable.from((async function* () {
+      const file = await files.findOne({ _id: id }, { projection: { metadata: 1 } });
+      const storageId = file?.metadata?.storageId || id;
+      yield* bucket.openDownloadStream(storageId, range ? { start: range.start, end: range.end + 1 } : undefined);
+    })()),
+    async remove(id) {
+      const file = await files.findOne({ _id: id });
+      if (file?.metadata?.storageId) { await files.deleteOne({ _id: id }); return; }
+      // A deduplicated payload remains until every logical file releases it.
+      if (await files.findOne({ 'metadata.storageId': id })) return;
+      try { await bucket.delete(id); } catch (error) { if (!/File not found/.test(error.message)) throw error; }
+    },
   };
 }
 const activeUploads = new Map();
