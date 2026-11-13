@@ -2,6 +2,7 @@ import { RecoveryBoundary } from './app/RecoveryBoundary';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
+import { ExternalBrowserGate } from './app/ExternalBrowserGate';
 import './styles/global.css';
 import './styles/design.css';
 import './styles/purple.css';
@@ -9,7 +10,7 @@ import './styles/preferences.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <RecoveryBoundary><App /></RecoveryBoundary>
+    <RecoveryBoundary><ExternalBrowserGate><App /></ExternalBrowserGate></RecoveryBoundary>
   </StrictMode>,
 );
 
