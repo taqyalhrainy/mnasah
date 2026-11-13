@@ -300,6 +300,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const connectionRef = useRef<VideoConnection | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const callGenerationRef = useRef(0);
+  const joiningRef = useRef(false);
+  const joinRetryTimerRef = useRef<number | null>(null);
+  const recoverJoinRef = useRef(false);
+  const startCallRef = useRef<() => void>(() => undefined);
   const cameraToggleBusyRef = useRef(false);
   const cameraRecoveryBlockedRef = useRef(false);
   const whiteboardStrokesRef = useRef<WhiteboardStroke[]>([]);
@@ -546,6 +550,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     return () => {
       window.removeEventListener('pagehide', releaseMonitorOnExit);
       callGenerationRef.current++;
+      joiningRef.current = false;
+      if (joinRetryTimerRef.current !== null) window.clearTimeout(joinRetryTimerRef.current);
+      joinRetryTimerRef.current = null;
+      recoverJoinRef.current = false;
       window.mansahCallActive = false;
       if (activeStrokeFrameRef.current !== null) cancelAnimationFrame(activeStrokeFrameRef.current);
       if (liveStrokeTimerRef.current !== null) window.clearTimeout(liveStrokeTimerRef.current);
@@ -671,12 +679,28 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   }, [stageMode]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void startCall(), 0);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => startCallRef.current(), 0);
+    // Failed startup also needs recovery listeners; isConnected is still false.
+    const recover = () => {
+      if (document.visibilityState === 'visible' && recoverJoinRef.current && !joiningRef.current) startCallRef.current();
+    };
+    window.addEventListener('online', recover);
+    window.addEventListener('pageshow', recover);
+    document.addEventListener('visibilitychange', recover);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('online', recover);
+      window.removeEventListener('pageshow', recover);
+      document.removeEventListener('visibilitychange', recover);
+    };
   }, []);
 
-  const startCall = async () => {
-    if (isJoining) return;
+  const startCall = async (attempt = 0) => {
+    if (joiningRef.current) return;
+    joiningRef.current = true;
+    recoverJoinRef.current = false;
+    if (joinRetryTimerRef.current !== null) window.clearTimeout(joinRetryTimerRef.current);
+    joinRetryTimerRef.current = null;
     cameraRecoveryBlockedRef.current = false;
     const generation = ++callGenerationRef.current;
     setIsJoining(true);
@@ -794,12 +818,30 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setIsConnected(true);
     } catch (error) {
       if (generation !== callGenerationRef.current) return;
+      connectionRef.current?.close();
+      connectionRef.current = null;
+      const failure = error as { status?: number; name?: string; cause?: { name?: string } };
+      const name = failure.cause?.name || failure.name;
+      // Denied devices/authorization require an explicit user action, never a prompt loop.
+      const retryable = !['NotAllowedError', 'SecurityError', 'NotFoundError', 'NotSupportedError', 'OverconstrainedError'].includes(name || '')
+        && (!failure.status || failure.status === 408 || failure.status === 429 || failure.status >= 500);
+      recoverJoinRef.current = retryable;
+      if (retryable && attempt < 3) {
+        joinRetryTimerRef.current = window.setTimeout(() => {
+          joinRetryTimerRef.current = null;
+          if (generation === callGenerationRef.current) void startCall(attempt + 1);
+        }, [750, 1500, 3000][attempt]);
+      }
       setStatus(error instanceof Error ? error.message : t("تعذر بدء المكالمة"));
       setIsConnected(false);
     } finally {
-      if (generation === callGenerationRef.current) setIsJoining(false);
+      if (generation === callGenerationRef.current) {
+        joiningRef.current = false;
+        setIsJoining(joinRetryTimerRef.current !== null);
+      }
     }
   };
+  startCallRef.current = () => { void startCall(); };
 
   const startAudioMonitor = (stream: MediaStream) => {
     const sourceTrack = stream.getAudioTracks()[0];
@@ -842,6 +884,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (audioMonitorRef.current) { cancelAnimationFrame(audioMonitorRef.current.frame); audioMonitorRef.current.track.stop(); void audioMonitorRef.current.context.close(); audioMonitorRef.current = null; }
     speakingRef.current = false; setLocalSpeaking(false); setRemoteSpeaking(false); setMutedSpeechWarning(false);
     callGenerationRef.current++;
+    joiningRef.current = false;
+    if (joinRetryTimerRef.current !== null) window.clearTimeout(joinRetryTimerRef.current);
+    joinRetryTimerRef.current = null;
+    recoverJoinRef.current = false;
     connectionRef.current?.sendTyping(false);
     connectionRef.current?.close();
     connectionRef.current = null;
@@ -1655,7 +1701,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       const blob = await whiteboardPng({ view: { x, y, width, height }, items: whiteboardItemsRef.current.map(item => ({ ...item })), strokes: [...whiteboardStrokesRef.current, ...(activeStroke ? [activeStroke] : [])] });
       const file = new File([blob], `emtidad-board-${new Date().toISOString().slice(0, 10)}.png`, { type: 'image/png' });
       const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
-      if (ios) setBoardImage(file); else downloadBoardImage(file);
+      const mobileShare = navigator.maxTouchPoints > 0 && !!navigator.canShare?.({ files: [file] });
+      if (ios || mobileShare) setBoardImage(file); else downloadBoardImage(file);
     } catch { setStatus(t('تعذر حفظ صورة البورد. حاول مجدداً.')); }
     finally { setBoardExporting(false); }
   };
@@ -2227,7 +2274,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
       <div className="session-controls call-start">
         {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
-        {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={startCall}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
+        {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={() => void startCall()}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
       </div>
       {showScreenShareNotice && <div className="unsupported-share-panel" role="status"><div><strong>{t('المشاركة أو النافذة العائمة غير متاحة على هذا المتصفح')}</strong><p>{t('حدّث المتصفح أو جرّب Chrome. إذا كان هاتفك يدعم المشاركة والنافذة العائمة ستبقى الحصة ظاهرة أثناء انتقالك بين التطبيقات.')}</p></div><button className="secondary-button" type="button" onClick={() => setShowScreenShareNotice(false)}>{t('حسناً')}</button></div>}
 

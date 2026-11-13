@@ -74,6 +74,8 @@ export class VideoConnection {
   private videoEnabled = false;
   private audioEnabled = true;
   private retryTimer?: number;
+  private signalingTimer?: number;
+  private dataTimeouts = new Map<DataConnection, number>();
   private hasRemoteStream = false;
   private closed = false;
   private remotePeerId?: string;
@@ -147,9 +149,9 @@ export class VideoConnection {
       if (this.closed || generation !== this.generation) throw new Error('Call closed');
       const error = cause as DOMException;
       if (error?.name === 'NotAllowedError' || error?.name === 'SecurityError') {
-        throw new Error(t('اسمح للمتصفح باستخدام المايك ثم حاول مجدداً.'));
+        throw new Error(t('اسمح للمتصفح باستخدام المايك ثم حاول مجدداً.'), { cause });
       }
-      throw new Error(t('تعذر تشغيل المايك على هذا الجهاز. أغلق أي تطبيق يستخدمه ثم حاول مجدداً.'));
+      throw new Error(t('تعذر تشغيل المايك على هذا الجهاز. أغلق أي تطبيق يستخدمه ثم حاول مجدداً.'), { cause });
     }
     if (!stream || this.closed || generation !== this.generation) { stream?.getTracks().forEach(track => track.stop()); throw new Error('Call closed'); }
     this.localStream = stream;
@@ -387,6 +389,10 @@ export class VideoConnection {
     this.discoveryInFlight = false;
     if (this.retryTimer) window.clearInterval(this.retryTimer);
     this.retryTimer = undefined;
+    if (this.signalingTimer) window.clearTimeout(this.signalingTimer);
+    this.signalingTimer = undefined;
+    this.dataTimeouts.forEach(timer => window.clearTimeout(timer));
+    this.dataTimeouts.clear();
     void this.callbacks.onLocalPeerId?.(null);
 
     // Keep the captured data transport alive until delivery is acknowledged (or
@@ -491,6 +497,8 @@ export class VideoConnection {
 
     peer.on('open', (peerId) => {
       if (this.closed || this.peer !== peer) return;
+      if (this.signalingTimer) window.clearTimeout(this.signalingTimer);
+      this.signalingTimer = undefined;
       void this.callbacks.onLocalPeerId?.(peerId);
       const target = !this.remotePeerId && !this.hasRemoteStream ? this.callbacks.initialRemotePeerId : null;
       if (target) {
@@ -555,6 +563,9 @@ export class VideoConnection {
 
     peer.on('error', (error) => {
       if (this.closed || this.peer !== peer) return;
+      if (['network', 'socket-error', 'socket-closed', 'server-error', 'unavailable-id'].includes(error.type)) {
+        this.watchSignaling(peer, 1000);
+      }
       if (error.type === 'unavailable-id') {
         this.callbacks.onStatus(t("تعذر إنشاء معرّف جديد للجلسة"));
         return;
@@ -586,12 +597,33 @@ export class VideoConnection {
     });
     this.peer = peer;
     this.bindPeerEvents(peer);
+    this.watchSignaling(peer);
+  }
+
+  // A failed signaling socket may never emit open/disconnected on mobile.
+  // Rebuild only signaling with the existing capture, not another permission prompt.
+  private watchSignaling(peer: Peer, delay = 8000) {
+    if (this.signalingTimer) window.clearTimeout(this.signalingTimer);
+    this.signalingTimer = window.setTimeout(() => {
+      this.signalingTimer = undefined;
+      if (this.closed || this.peer !== peer || this.hasRemoteStream) return;
+      this.peer = undefined;
+      this.closeRemoteMedia();
+      this.pendingDataConnections.forEach(connection => connection.close());
+      this.pendingDataConnections.clear();
+      this.activeDataConnection?.close();
+      this.activeDataConnection = undefined;
+      peer.destroy();
+      this.callbacks.onStatus(t('جاري إعادة الاتصال'));
+      this.createPeer();
+    }, delay);
   }
 
   reconnectSignaling() {
     if (this.closed || !this.peer || this.peer.destroyed || !this.peer.disconnected) return;
 
     try {
+      this.watchSignaling(this.peer);
       this.peer.reconnect();
       this.callbacks.onStatus(this.hasRemoteStream ? t("الاتصال مباشر") : t("جاري إعادة الاتصال"));
     } catch {
@@ -836,8 +868,20 @@ export class VideoConnection {
 
   private bindDataConnection(connection: DataConnection) {
     this.pendingDataConnections.add(connection);
+    const clearDeadline = () => {
+      const timer = this.dataTimeouts.get(connection);
+      if (timer) window.clearTimeout(timer);
+      this.dataTimeouts.delete(connection);
+    };
+    this.dataTimeouts.set(connection, window.setTimeout(() => {
+      clearDeadline();
+      if (this.closed || !this.pendingDataConnections.delete(connection)) return;
+      connection.close();
+      this.startPeerSearch();
+    }, 8000));
 
     connection.on('open', async () => {
+      clearDeadline();
       if (this.closed || !this.pendingDataConnections.has(connection)) {
         connection.close();
         return;
@@ -926,6 +970,7 @@ export class VideoConnection {
     });
 
     const ended = () => {
+      clearDeadline();
       this.pendingDataConnections.delete(connection);
       if (this.closed || this.activeDataConnection !== connection) return;
       this.activeDataConnection = undefined;

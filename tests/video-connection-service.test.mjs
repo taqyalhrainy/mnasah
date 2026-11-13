@@ -19,6 +19,43 @@ const bundle = await build({
 const createService = new Function('module', 'exports', 'testPeer', 'navigator', 'window', 'document', 'MediaStream', `${bundle.outputFiles[0].text}; return module.exports.VideoConnection;`);
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
+test('a signaling socket that never opens is replaced without reacquiring devices', async () => {
+  const h = harness(); const stream = await h.service.start();
+  const stalled = h.peers[0];
+  await h.advance(8000);
+  assert.equal(stalled.destroyed, true); assert.equal(h.peers.length, 2);
+  assert.equal(h.acquisitions.length, 1);
+  assert.equal(stream.getAudioTracks()[0].readyState, 'live');
+  stalled.emit('open', 'retired-id');
+  assert.equal(h.events.some(event => event[0] === 'onLocalPeerId' && event[1] === 'retired-id'), false);
+  h.peers[1].emit('open', 'fresh-id');
+  await h.advance(16000); assert.equal(h.peers.length, 2);
+  h.service.close(); assert.equal(h.timers.size, 0);
+});
+
+test('signaling network errors recover automatically, while working media is preserved', async () => {
+  const h = harness(); await h.service.start();
+  h.peers[0].emit('error', { type: 'network', message: 'temporary failure' });
+  await h.advance(1000); assert.equal(h.peers.length, 2); assert.equal(h.acquisitions.length, 1);
+  h.service.close(); assert.equal(h.timers.size, 0);
+  const live = await participant();
+  live.peer.emit('error', { type: 'socket-error', message: 'temporary failure' });
+  await live.advance(1000);
+  assert.equal(live.peer.destroyed, false); assert.equal(live.call.closed, false);
+  assert.equal(live.remote.getAudioTracks()[0].readyState, 'live');
+  live.service.close();
+});
+
+test('a data handshake that never opens times out and retries without reopening the app', async () => {
+  const h = harness('student', async () => 'teacher');
+  await h.service.start(); h.peers[0].emit('open', 'student'); await settle();
+  const stalled = h.peers[0].connections[0];
+  await h.advance(8000);
+  assert.equal(stalled.closed, true); assert.ok(h.peers[0].connections.length > 1);
+  assert.equal(h.acquisitions.length, 1);
+  h.service.close(); assert.equal(h.timers.size, 0);
+});
+
 for (const role of ['teacher', 'student']) test(`known ${role === 'teacher' ? 'student' : 'teacher'} is contacted on signaling open without waiting for presence polling`, async () => {
   const polling = deferred();
   const h = harness(role, () => polling.promise);
@@ -450,8 +487,9 @@ for (const name of ['NotFoundError', 'OverconstrainedError']) test(`${name} on c
     return new Stream([new Track('audio')]);
   };
   const stream = await h.service.start({ video: true });
-  assert.equal(h.acquisitions.length, 2); assert.equal(h.timers.size, 0);
+  assert.equal(h.acquisitions.length, 2);
   assert.equal(stream.getAudioTracks()[0].readyState, 'live'); h.service.close();
+  assert.equal(h.timers.size, 0);
 });
 
 for (const name of ['NotAllowedError', 'SecurityError']) test(`${name} is never retried or followed by an automatic permission fallback`, async () => {
@@ -518,7 +556,8 @@ test('NotFoundError during forced camera repair is attempted once and preserves 
   const camera = stream.getVideoTracks()[0]; const mic = stream.getAudioTracks()[0];
   h.devices.acquire = () => { throw new DOMException('Requested device not found', 'NotFoundError'); };
   await assert.rejects(h.service.repairVideo(true), { name: 'NotFoundError' });
-  assert.equal(h.acquisitions.length, 2); assert.equal(h.timers.size, 0);
+  assert.equal(h.acquisitions.length, 2);
   assert.equal(stream.getVideoTracks()[0], camera); assert.equal(camera.readyState, 'live');
   assert.equal(mic.readyState, 'live'); h.service.close();
+  assert.equal(h.timers.size, 0);
 });
