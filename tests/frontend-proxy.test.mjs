@@ -87,10 +87,10 @@ test('independent frontend keeps real Mongo sessions, Google bridge and authenti
     const me = await proxyBackend(request('/api/auth/me?portal=students', { headers }), localFetch);
     assert.equal((await me.json()).user.id, 'student');
     assert.match(me.headers.get('Set-Cookie'), /HttpOnly/);
-    const google = await fetch(`${base}/api/public/google-bridge?parent=${encodeURIComponent(FRONTEND_ORIGIN)}&lang=en`, { headers: { 'X-Forwarded-Host': 'mnasah.onrender.com' }, redirect: 'manual' });
+    const google = await fetch(`${base}/auth/google-bridge?parent=${encodeURIComponent(FRONTEND_ORIGIN)}&lang=en`);
     assert.equal(google.status, 200);
     assert.equal(google.headers.get('Content-Security-Policy'), `frame-ancestors ${FRONTEND_ORIGIN}`);
-    assert.equal((await fetch(`${base}/api/public/google-bridge?parent=https://evil.invalid`)).status, 403);
+    assert.equal((await fetch(`${base}/auth/google-bridge?parent=https://evil.invalid`)).status, 403);
     assert.equal((await fetch(`${base}/api/auth/me?portal=admin`, { headers })).status, 404);
     const logout = await proxyBackend(request('/api/auth/logout?portal=students', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{"role":"students"}' }), localFetch);
     assert.equal(logout.status, 200);

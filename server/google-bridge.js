@@ -2,8 +2,8 @@ import { FRONTEND_ORIGIN } from '../shared/deployment.js';
 
 // Keep GIS on its already-authorized Render origin. The token crosses only to
 // our exact frontend and is still verified by Google's API on the backend.
-export function googleBridge(clientId, language, parent = FRONTEND_ORIGIN) {
-  const config = JSON.stringify({ clientId, parent, language }).replaceAll('<', '\\u003c');
+export function googleBridge(clientId, language) {
+  const config = JSON.stringify({ clientId, parent: FRONTEND_ORIGIN, language }).replaceAll('<', '\\u003c');
   return `<!doctype html><html lang="${language}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:transparent}#google{display:flex;justify-content:center;min-height:44px}</style><div id="google"></div><script>
   var config=${config};
   function ready(){

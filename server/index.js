@@ -28,7 +28,7 @@ import { validPushSubscription, deliverDevicePush, notifyPlatformOwners } from '
 import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
 import { slotAvailability } from '../shared/slot-availability.js';
 import { serveLessonFile } from './lesson-files.js';
-import { FRONTEND_ORIGIN, BACKEND_ORIGIN } from '../shared/deployment.js';
+import { FRONTEND_ORIGIN } from '../shared/deployment.js';
 import { googleBridge } from './google-bridge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -108,15 +108,6 @@ app.all('/api/payments/card/return', (req, res) => {
   res.redirect(303, `/students?view=wallet&card=return&order=${order}`);
 });
 
-// Google still authorizes the original mnasah origin. Serve this before the old
-// hostname redirect; /api/ also bypasses every previously installed shell SW.
-app.get('/api/public/google-bridge', (req, res) => {
-  if (![FRONTEND_ORIGIN, BACKEND_ORIGIN].includes(req.query.parent)) return res.sendStatus(403);
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Content-Security-Policy', `frame-ancestors ${req.query.parent}`);
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.type('html').send(googleBridge(GOOGLE_CLIENT_ID, req.query.lang === 'en' ? 'en' : 'ar', req.query.parent));
-});
 app.use((req, res, next) => {
   const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
   if (forwardedHost === 'mnasah.onrender.com') {
@@ -146,6 +137,12 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
+});
+app.get('/auth/google-bridge', (req, res) => {
+  if (req.query.parent !== FRONTEND_ORIGIN) return res.sendStatus(403);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${FRONTEND_ORIGIN}`);
+  res.type('html').send(googleBridge(GOOGLE_CLIENT_ID, req.query.lang === 'en' ? 'en' : 'ar'));
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/api/public/config', (_req, res) => res.json({
