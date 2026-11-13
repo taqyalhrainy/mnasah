@@ -34,7 +34,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  if (/^\/(?:owner|admin)(?:\/|$)/.test(url.pathname) && ['emtidad-alelm.onrender.com', 'mnasah.onrender.com', 'emtidad-alelm.taqialhrainy.chatgpt.site'].includes(url.hostname)) {
+  if (/^\/(?:owner|admin)(?:\/|$)/.test(url.pathname) && ['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(url.hostname)) {
     event.respondWith(fetch(request));
     return;
   }

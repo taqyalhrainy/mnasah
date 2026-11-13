@@ -11,7 +11,6 @@ import { removeDevicePush } from '../services/pushNotifications';
 import { PreferenceControls, direction, usePreferences, t, locale } from '../i18n/preferences';
 import { IosInstallGuide } from './IosInstallGuide';
 import { NotificationPermissionHelp } from './NotificationPermissionHelp';
-import { FRONTEND_ORIGIN } from '../../shared/deployment.js';
 const DirectMessages = lazyWithRetry(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
 const AuthForm = lazyWithRetry(() => import('../features/auth/AuthForm').then(module => ({ default: module.AuthForm })));
 const RegistrationFlow = lazyWithRetry(() => import('../features/auth/RegistrationFlow').then(module => ({ default: module.RegistrationFlow })));
@@ -50,13 +49,11 @@ function routePath() {
 export function App() {
   usePreferences();
   if (routePath() === '/video-test') return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><VideoTestPage /></Suspense>;
-  if (routePath() === '/admin' || (['emtidad-alelm.onrender.com', 'mnasah.onrender.com', new URL(FRONTEND_ORIGIN).hostname].includes(location.hostname) && routePath().startsWith('/owner'))) return <main className="loading-page" dir={direction()}><div className="wake-card"><ShieldAlert size={38} /><h1>{t('هذا الرابط غير متاح')}</h1><p>{t('بوابة الإدارة منفصلة ولا يمكن فتحها من رابط بوابات الطلاب والأساتذة.')}</p></div></main>;
+  if (routePath() === '/admin' || (['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(location.hostname) && routePath().startsWith('/owner'))) return <main className="loading-page" dir={direction()}><div className="wake-card"><ShieldAlert size={38} /><h1>{t('هذا الرابط غير متاح')}</h1><p>{t('بوابة الإدارة منفصلة ولا يمكن فتحها من رابط بوابات الطلاب والأساتذة.')}</p></div></main>;
   return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><PortalApp /></Suspense>;
 }
 
-// The independent shell can load while Render is asleep. Keep branded progress
-// visible for a full cold start, with a bounded retry rather than a reload loop.
-const wakeRetryDelays = import.meta.env.VITE_EDGE_FRONTEND ? [1000, 1500, 2000, 2500, 3000, 3000, 4000, 4000] : [1000, 2000];
+const wakeRetryDelays = [1000, 2000];
 
 function WakeLoading({ slow, attempt }: { slow: boolean; attempt: number }) {
   usePreferences();
