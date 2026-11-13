@@ -7,7 +7,7 @@ import { paymentRange, paymentSummary, paymentMidnight, paymentDay } from '../sh
 import { cancellationQuote } from '../shared/cancellation.js';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
-import worker from '../dist/test-worker/index.js';
+import worker from '../dist/server/index.js';
 import { digest } from '../worker/auth.js';
 
 test('cancellation policy refunds the wallet and splits late fees deterministically', () => {

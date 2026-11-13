@@ -4,43 +4,6 @@ The public service currently uses Render's **Free** instance (`render.yaml`). Re
 
 ## Branded static entry
 
-## Independent frontend (current deployment)
-
-Public frontend: **https://emtidad-alelm.taqialhrainy.chatgpt.site**
-
-The frontend assets and application shell are now served from the existing free
-Sites/Cloudflare hosting. `npm run build` produces this deployment. Render keeps
-the Express API, Socket.IO, MongoDB records, file storage, payment callbacks and
-TURN configuration; its existing `npm run build:backend` remains unchanged.
-No database migration and no Render billing change are required.
-
-The frontend Worker only proxies `/api/`, `/socket.io/` and `/health` to the fixed
-Render backend. Cookies remain HttpOnly, on the frontend's own host, rather than
-depending on third-party cookies on iPhone. API responses and uploads are never
-cached. Range requests and WebSocket upgrades are forwarded without buffering.
-Provider waiting HTML becomes a retryable JSON response while the locally served
-platform loader stays visible. A new visitor never navigates to Render.
-
-Google's button runs in a narrowly scoped iframe on its existing authorized
-Render origin. Only the exact frontend window receives its credential, and the
-backend still verifies the token with Google. This avoids breaking existing Google
-accounts when the new frontend origin has not been added to Google Cloud.
-Payment callbacks remain on Render; customer return URLs use the new frontend.
-
-The owner portal remains separately hosted at
-`https://emtidad-alelm-owner.onrender.com`; no admin API is exposed by the public
-frontend. Opening the old public Render URL still opens its legacy frontend and
-can encounter Render's first-visit waiting page. Share the new frontend URL to
-avoid that page. A visitor must sign in once on the new hostname; browser
-permissions and existing installed apps also belong to their original hostname.
-
-For local development against the local Express server, use `npm run dev:client`
-and `npm run dev:backend`. The built frontend proxy targets production Render;
-do not use it for test transactions. The legacy D1 Worker is retained only as
-source compatibility code, never as this deployment's live API.
-
-## Legacy static entry
-
 `https://taqyalhrainy.github.io/mnasah/launch/` is published alongside the application by the existing GitHub Pages workflow. It displays the platform logo and loading message immediately, checks the Render `/health` endpoint, and navigates to the normal platform URL only after a JSON `{ ok: true }` response. It never displays the provider's temporary HTML. Optional `?portal=teachers`, `?portal=students` and `?portal=owner` select the destination without accepting arbitrary redirect URLs. Existing login cookies remain on their normal Render origin; no credentials, tokens or payment data pass through this page.
 
 The installed service worker also displays a branded waiting page if the host returns its own waiting HTML and the application shell is unavailable. A first-ever visit directly to an asleep `onrender.com` address still reaches Render before a service worker can run. Use the static entry URL for that case; the existing Render address and search canonical remain unchanged.

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
-import worker from '../dist/test-worker/index.js';
+import worker from '../dist/server/index.js';
 import { digest, passwordHash } from '../worker/auth.js';
 
 function database() {
