@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
+import { paymentReturnOrigin } from '../shared/deployment.js';
 
 // Payments Standard uses no API credentials. Readiness describes configuration,
 // not merchant eligibility or availability of PayPal's guest card checkout.
@@ -92,11 +93,12 @@ export async function servePaypalWallet(req, res, { db, user, path, validOrigin 
   await ensurePaypalIndexes(db);
   await db.collection('paypal_orders').insertOne(order);
   const checkout = new URL(ENDPOINTS[settings.mode].checkout);
+  const returnOrigin = paymentReturnOrigin(req, settings.origin);
   checkout.search = new URLSearchParams({ cmd: '_xclick', business: order.receiver, amount: money(usd_cents), currency_code: 'USD',
     item_name: 'Student wallet top-up', invoice: order.id, custom: order.nonce, no_shipping: '1', no_note: '1', charset: 'utf-8',
     landing_page: 'Billing', shipping: '0.00', handling: '0.00', tax: '0.00', notify_url: `${settings.origin}/api/payments/paypal/ipn`,
-    return: `${settings.origin}/students?view=wallet&paypal=return&order=${order.id}`,
-    cancel_return: `${settings.origin}/students?view=wallet&paypal=cancel&order=${order.id}`, rm: '1' }).toString();
+    return: `${returnOrigin}/students?view=wallet&paypal=return&order=${order.id}`,
+    cancel_return: `${returnOrigin}/students?view=wallet&paypal=cancel&order=${order.id}`, rm: '1' }).toString();
   res.json({ checkout_url: checkout.href, order: publicPaypalOrder(order) });
   return true;
 }

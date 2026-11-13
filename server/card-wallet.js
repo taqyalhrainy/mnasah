@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { paymentReturnOrigin } from '../shared/deployment.js';
 
 const ORIGIN = 'https://emtidad-alelm.onrender.com';
 const GATEWAY = 'https://secure-jordan.paytabs.com';
@@ -80,7 +81,7 @@ export async function serveCardWallet(req, res, { db, user, path, validOrigin, w
     cart_description: 'Emtidad Al Elm - student wallet top-up', payment_methods: ['creditcard'],
     paypage_lang: req.body?.language === 'en' ? 'en' : 'ar', hide_shipping: true, show_save_card: false,
     customer_details: { ...(user.name ? { name: user.name } : {}), ...(user.email ? { email: user.email } : {}), ...(user.phone ? { phone: user.phone } : {}) },
-    callback: `${settings.origin}/api/payments/card/callback`, return: `${settings.origin}/api/payments/card/return?order=${order.id}`,
+    callback: `${settings.origin}/api/payments/card/callback`, return: `${paymentReturnOrigin(req, settings.origin)}/api/payments/card/return?order=${order.id}`,
   }, settings, fetchImpl);
   if (!safeCheckout(result.redirect_url) || !/^[A-Za-z0-9_-]{5,128}$/.test(result.tran_ref || '') || /^TST/i.test(result.tran_ref) || result.cart_id !== order.id) fail(502, 'تعذر تجهيز صفحة الدفع بالبطاقة.');
   await db.collection('card_orders').updateOne({ id: order.id }, { $set: { tran_ref: result.tran_ref } });

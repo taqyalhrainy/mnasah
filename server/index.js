@@ -28,6 +28,8 @@ import { validPushSubscription, deliverDevicePush, notifyPlatformOwners } from '
 import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../shared/portal-access.js';
 import { slotAvailability } from '../shared/slot-availability.js';
 import { serveLessonFile } from './lesson-files.js';
+import { FRONTEND_ORIGIN } from '../shared/deployment.js';
+import { googleBridge } from './google-bridge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -60,7 +62,7 @@ function validChatOrigin(origin, req) {
   try {
     const url = new URL(origin);
     if (req && url.host === req.headers.host) return true;
-    return CLIENT_ORIGIN.split(',').map(value => value.trim()).includes(origin)
+    return origin === FRONTEND_ORIGIN || CLIENT_ORIGIN.split(',').map(value => value.trim()).includes(origin)
       || origin === 'https://mnasah.onrender.com' || origin === 'https://emtidad-alelm.onrender.com' || origin === 'https://taqyalhrainy.github.io'
       || (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname));
   } catch { return false; }
@@ -135,6 +137,12 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
+});
+app.get('/auth/google-bridge', (req, res) => {
+  if (req.query.parent !== FRONTEND_ORIGIN) return res.sendStatus(403);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${FRONTEND_ORIGIN}`);
+  res.type('html').send(googleBridge(GOOGLE_CLIENT_ID, req.query.lang === 'en' ? 'en' : 'ar'));
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/api/public/config', (_req, res) => res.json({
