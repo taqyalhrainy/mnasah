@@ -24,8 +24,9 @@ test('root discovers saved learning sessions, renews persistent cookie and respe
     const restore = await fetch(`${base}/api/auth/me?portal=students&discover=1`, { headers: cookies });
     assert.equal((await restore.json()).user.id, 'teacher');
     assert.match(restore.headers.get('set-cookie'), /mansah_session_teachers=teacher-token; Path=\/; HttpOnly/);
-    assert.ok(Number(restore.headers.get('set-cookie').match(/Max-Age=(\d+)/)[1]) >= 29 * 86400);
-    assert.ok((await db.collection('sessions').findOne({ token: hash('teacher-token') })).expires > Date.now() + 29 * 86400000);
+    assert.ok(Number(restore.headers.get('set-cookie').match(/Max-Age=(\d+)/)[1]) >= 364 * 86400);
+    assert.match(restore.headers.get('set-cookie'), /Expires=/);
+    assert.ok((await db.collection('sessions').findOne({ token: hash('teacher-token') })).expires > Date.now() + 364 * 86400000);
     assert.equal((await (await fetch(`${base}/api/auth/me?portal=students&discover=1`, { headers: { cookie: 'mansah_session_students=student-expired' } })).json()).user, null);
     assert.equal((await (await fetch(`${base}/api/auth/me?portal=students&discover=1`, { headers: { cookie: 'mansah_session_admin=owner-token' } })).json()).user, null);
     await fetch(`${base}/api/auth/logout?portal=teachers`, { method: 'POST', headers: { ...cookies, 'content-type': 'application/json', origin: base }, body: '{"role":"teachers"}' });

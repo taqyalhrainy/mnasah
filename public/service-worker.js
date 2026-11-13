@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v36';
+const CACHE_NAME = 'imtidad-shell-v37';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -41,8 +41,11 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    const network = fetch(new Request(request, { cache: 'no-store' })).then(response => {
+    const network = fetch(new Request(request, { cache: 'no-store' })).then(async response => {
       if (!response.ok) throw new Error('Navigation unavailable');
+      // A hosting-provider wake-up page is not our application, even with HTTP 200.
+      const html = await response.clone().text();
+      if (!html.includes('id="boot-recovery"')) throw new Error('Application is starting');
       // Storage/quota failures must not turn a successful load into an error.
       const copy = response.clone();
       event.waitUntil(Promise.resolve().then(() => caches.open(CACHE_NAME)).then(cache => cache.put(INDEX_URL, copy)).catch(() => undefined));
@@ -57,7 +60,7 @@ self.addEventListener('fetch', (event) => {
       if (!cached) return network.catch(() => Response.error());
       let timer;
       try {
-        return await Promise.race([network.catch(() => cached), new Promise(resolve => { timer = setTimeout(() => resolve(cached), 1500); })]);
+        return await Promise.race([network.catch(() => cached), new Promise(resolve => { timer = setTimeout(() => resolve(cached), 150); })]);
       } finally { clearTimeout(timer); }
     })());
     return;

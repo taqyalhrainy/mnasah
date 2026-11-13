@@ -11,6 +11,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
   const [checked, setChecked] = useState(false);
+  const [permissionHelpOpen, setPermissionHelpOpen] = useState(false);
   const syncVersion = useRef(0);
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported');
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -23,7 +24,9 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     if (!userId) return;
     const sync = async () => {
       const version = ++syncVersion.current;
-      setPermission('Notification' in window ? Notification.permission : 'unsupported');
+      const currentPermission = 'Notification' in window ? Notification.permission : 'unsupported';
+      setPermission(currentPermission);
+      if (currentPermission === 'granted') setPermissionHelpOpen(false);
       try {
         let value = await devicePushEnabled(portal);
         if (!value && 'Notification' in window && Notification.permission === 'granted') value = await ensureDevicePush(portal);
@@ -31,8 +34,13 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
       } catch { /* Keep the last known state; an offline device has not revoked permission. */ }
     };
     const visible = () => { if (document.visibilityState === 'visible') sync(); };
-    sync(); document.addEventListener('visibilitychange', visible);
-    return () => { alive = false; document.removeEventListener('visibilitychange', visible); };
+    let permissionStatus: PermissionStatus | undefined;
+    void navigator.permissions?.query({ name: 'notifications' }).then(status => {
+      if (!alive) return;
+      permissionStatus = status; status.addEventListener('change', sync);
+    }).catch(() => undefined);
+    sync(); document.addEventListener('visibilitychange', visible); window.addEventListener('focus', sync);
+    return () => { alive = false; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', sync); permissionStatus?.removeEventListener('change', sync); };
   }, [portal, userId]);
   async function toggle() {
     if (!userId || busy) return;
@@ -46,8 +54,8 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
       const ready = await ensureDevicePush(portal, true);
       setPermission('Notification' in window ? Notification.permission : 'unsupported');
       setEnabled(ready);
-      if (ready) setHint('تم تفعيل التنبيهات على هذا الجهاز، حتى عند إغلاق التطبيق.');
-      else if ('Notification' in window && Notification.permission === 'denied') setHint('إذن التنبيهات مرفوض. فعّله من إعدادات التنبيهات في الهاتف، ثم حاول مجددًا.');
+      if (ready) { setPermissionHelpOpen(false); setHint('تم تفعيل التنبيهات على هذا الجهاز، حتى عند إغلاق التطبيق.'); }
+      else if ('Notification' in window && Notification.permission === 'denied') { setPermissionHelpOpen(true); setHint('إذن التنبيهات مرفوض. فعّله من إعدادات التنبيهات في الهاتف، ثم حاول مجددًا.'); }
       else if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) setHint('افتح التطبيق من أيقونته على الشاشة الرئيسية. تنبيهات الآيفون تحتاج iOS 16.4 أو أحدث.');
       else setHint('لم تُفعّل تنبيهات الجهاز. وافق على الإذن، أو افتح التطبيق المثبّت من Chrome وحاول مجددًا.');
     } catch (error) { setPermission('Notification' in window ? Notification.permission : 'unsupported'); setEnabled(false); setHint(notificationError(error)); }
@@ -60,5 +68,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, needsPermission: checked && !enabled && permission !== 'granted', toggle, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && !enabled && permission !== 'granted', toggle, test };
 }

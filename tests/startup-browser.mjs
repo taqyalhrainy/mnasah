@@ -50,7 +50,7 @@ try {
   await cachedPage.evaluate(async () => {
     await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) await new Promise(resolve => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
-    const cache = await caches.open('imtidad-shell-v36');
+    const cache = await caches.open('imtidad-shell-v37');
     await cache.put(new URL('/index.html', location.href), new Response('<html><body>stale build</body></html>', { headers: { 'content-type': 'text/html' } }));
   });
   await cachedPage.reload();

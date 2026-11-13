@@ -8,6 +8,22 @@ const base = `http://127.0.0.1:${httpServer.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 try {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, permissions: ['camera', 'microphone'] });
+  // Exercise synchronized playback without depending on YouTube availability.
+  await context.addInitScript(() => {
+    window.YT = { Player: class {
+      constructor(node, options) {
+        this.options = options; this.time = 0; this.state = 2; this.changed = Date.now();
+        const frame = document.createElement('iframe'); frame.title = 'YouTube test player'; frame.src = 'about:blank'; node.replaceWith(frame); this.frame = frame;
+        window.youtubeTestPlayer = this; queueMicrotask(() => options.events.onReady());
+      }
+      getCurrentTime() { return this.time + (this.state === 1 ? (Date.now() - this.changed) / 1000 : 0); }
+      getPlayerState() { return this.state; }
+      seekTo(time) { this.time = time; this.changed = Date.now(); }
+      playVideo() { this.time = this.getCurrentTime(); this.changed = Date.now(); this.state = 1; this.options.events.onStateChange({ data: 1 }); }
+      pauseVideo() { this.time = this.getCurrentTime(); this.changed = Date.now(); this.state = 2; this.options.events.onStateChange({ data: 2 }); }
+      destroy() { this.frame.remove(); window.youtubeTestPlayer = null; }
+    } };
+  });
   for (const host of ['fonts.googleapis.com', 'fonts.gstatic.com', 'accounts.google.com']) await context.route(`https://${host}/**`, route => route.abort());
   const teacher = await context.newPage(), student = await context.newPage(), errors = [];
   for (const page of [teacher, student]) { page.setDefaultTimeout(12000); page.on('pageerror', error => errors.push(error.message)); }
@@ -16,6 +32,23 @@ try {
   await student.goto(`${base}/video-test?room=${room}&role=student`, { waitUntil: 'domcontentloaded' });
   for (const page of [teacher, student]) await page.waitForFunction(() => [...document.querySelectorAll('.participant-tile video')].filter(video => video.srcObject).length === 2, null, { timeout: 25000 });
   assert.ok(await teacher.locator('.participant-tile[data-tile="local"] video').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).a < 0), 'front preview is visibly mirrored');
+  await teacher.getByTitle('خيارات أكثر', { exact: true }).tap();
+  await teacher.getByRole('button', { name: 'يوتيوب', exact: true }).tap();
+  await teacher.getByLabel('رابط فيديو يوتيوب', { exact: true }).fill('https://youtu.be/abcdefghI_1');
+  await teacher.getByRole('button', { name: 'عرض داخل المكالمة', exact: true }).tap();
+  for (const page of [teacher, student]) await page.locator('.youtube-player iframe').waitFor();
+  await teacher.waitForTimeout(900);
+  await teacher.evaluate(() => window.youtubeTestPlayer.pauseVideo());
+  await student.waitForFunction(() => window.youtubeTestPlayer?.getPlayerState() === 2);
+  await student.waitForTimeout(900);
+  await student.evaluate(() => window.youtubeTestPlayer.seekTo(72));
+  await teacher.waitForFunction(() => Math.abs(window.youtubeTestPlayer?.getCurrentTime() - 72) < 1);
+  await student.locator('.participant-tile').first().tap();
+  assert.equal(await student.locator('.youtube-stage').isVisible(), false);
+  assert.equal(await student.evaluate(() => !!window.youtubeTestPlayer), true, 'changing camera focus preserves the shared player');
+  await student.getByRole('button', { name: 'عرض فيديو يوتيوب', exact: true }).tap();
+  await student.getByRole('button', { name: 'إنهاء العرض', exact: true }).tap();
+  for (const page of [teacher, student]) await page.locator('.youtube-stage').waitFor({ state: 'detached' });
   await teacher.getByTitle('اللوح المشترك', { exact: true }).tap();
   await student.locator('.whiteboard-canvas').waitFor();
   for (const page of [teacher, student]) {
@@ -58,5 +91,5 @@ try {
   assert.equal(await teacher.locator('.document-zoom-percent').innerText(), '100%');
   assert.equal(await student.locator('.document-zoom-percent').innerText(), '125%');
   assert.equal(errors.length, 0, errors.join('\n'));
-  console.log('Both peers draw; front camera is mirrored; file zoom stays independent and pointer synchronizes without drawing.');
+  console.log('Synchronized YouTube play/pause/seek and focus restore; both peers draw; file zoom and laser pointer remain correct.');
 } finally { await browser.close(); await new Promise(resolve => io.close(() => httpServer.close(resolve))); }

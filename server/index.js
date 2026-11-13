@@ -485,7 +485,7 @@ async function deliverPasswordReset(user, code) {
 }
 function setSession(res, role, token, expires) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure; SameSite=None' : '; SameSite=Lax';
-  res.setHeader('Set-Cookie', `${sessionCookie(role)}=${token}; Path=/; HttpOnly${secure}; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}`);
+  res.setHeader('Set-Cookie', `${sessionCookie(role)}=${token}; Path=/; HttpOnly${secure}; Max-Age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}; Expires=${new Date(expires).toUTCString()}`);
 }
 function clearSession(res, role) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure; SameSite=None' : '; SameSite=Lax';
@@ -764,7 +764,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
       if (account) {
         const token = cookie(req, sessionCookie(account.role)) || cookie(req, 'mansah_session');
         if (token) {
-          const expires = Date.now() + (account.role === 'admin' ? 7 : 30) * 86400000;
+          const expires = Date.now() + (account.role === 'admin' ? 7 : 365) * 86400000;
           const renewed = await db.collection('sessions').updateOne({ token: digest(token), user_id: account.id, expires: { $gt: Date.now() } }, { $set: { expires } });
           if (renewed.modifiedCount) setSession(res, account.role, token, expires);
         }
@@ -890,7 +890,7 @@ app.all('/api/auth/:action', async (req, res, next) => {
     }
     if (accountCreated) await audit(user.id, 'account:created', user.id);
     const token = random();
-    const expires = Date.now() + (role === 'admin' ? 7 : 30) * 86400000;
+    const expires = Date.now() + (role === 'admin' ? 7 : 365) * 86400000;
     await db.collection('sessions').deleteMany({ expires: { $lt: Date.now() } });
     await db.collection('sessions').insertOne({ token: digest(token), user_id: user.id, expires });
     setSession(res, role, token, expires);

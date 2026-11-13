@@ -8,10 +8,11 @@ const hours = Array.from({ length: 12 }, (_, index) => index + 1);
 const minutes = [0, 15, 30, 45];
 const format = (value: number) => value.toLocaleString(locale(), { minimumIntegerDigits: 2 });
 
-export function CyclicTimeColumn({ label, values, value, onChange }: { label: string; values: number[]; value: number; onChange: (value: number) => void }) {
+export function CyclicTimeColumn({ label, values, value, onChange }: { label: string; values: number[]; value: number; onChange: (value: number, steps: number) => void }) {
   const rail = useRef<HTMLDivElement>(null);
   const middle = values.length * 4;
   const [index, setIndex] = useState(middle + Math.max(0, values.indexOf(value)));
+  const currentIndex = useRef(index);
   useLayoutEffect(() => { if (rail.current) rail.current.scrollTop = index * 44; }, []);
   const move = (next: number) => rail.current?.scrollTo({ top: next * 44, behavior: 'smooth' });
   return <div className="clock-column"><span>{label}</span><div className="clock-wheel" ref={rail} role="spinbutton" tabIndex={0} aria-label={label} aria-valuenow={value} aria-valuemin={Math.min(...values)} aria-valuemax={Math.max(...values)} onKeyDown={event => {
@@ -19,10 +20,13 @@ export function CyclicTimeColumn({ label, values, value, onChange }: { label: st
   }} onScroll={event => {
     const element = event.currentTarget;
     const next = Math.round(element.scrollTop / 44);
-    setIndex(next); onChange(values[wrap(next, values.length)]);
+    const steps = next - currentIndex.current;
+    currentIndex.current = next;
+    setIndex(next);
+    if (steps) onChange(values[wrap(next, values.length)], steps);
     if (next < values.length || next >= values.length * 7) {
       const centered = middle + wrap(next, values.length);
-      element.scrollTop = centered * 44; setIndex(centered);
+      currentIndex.current = centered; element.scrollTop = centered * 44; setIndex(centered);
     }
   }}><div className="clock-wheel-options">{Array.from({ length: values.length * 9 }, (_, position) => <button type="button" tabIndex={-1} aria-hidden="true" key={position} className={position === index ? 'selected' : ''} onClick={() => move(position)}>{format(values[position % values.length])}</button>)}</div></div></div>;
 }
@@ -49,7 +53,7 @@ export function TimePicker({ label, value, onChange, note = '' }: { label: strin
     }}>
       <header><div><span>{t('اختيار الوقت')}</span><h3>{label}</h3></div><button autoFocus className="clock-close" type="button" aria-label={t('إغلاق')} onClick={close}><X size={20} /></button></header>
       <div className="clock-preview"><Clock3 size={20} /><strong>{display(draft)}</strong></div>
-      <div className="clock-columns" dir="ltr"><CyclicTimeColumn label={t('الساعة')} values={hours} value={hour12} onChange={hour => update(hour)} /><b>:</b><CyclicTimeColumn label={t('الدقائق')} values={minutes} value={minute} onChange={next => update(hour12, next)} /></div>
+      <div className="clock-columns" dir="ltr"><CyclicTimeColumn label={t('الساعة')} values={hours} value={hour12} onChange={(_hour, steps) => setDraft(current => { const [hour, min] = current.split(':'); return `${String(wrap(Number(hour) + steps, 24)).padStart(2, '0')}:${min}`; })} /><b>:</b><CyclicTimeColumn label={t('الدقائق')} values={minutes} value={minute} onChange={next => update(hour12, next)} /></div>
       <div className="clock-period">{(['AM', 'PM'] as const).map(item => <button type="button" aria-pressed={period === item} className={period === item ? 'selected' : ''} onClick={() => update(hour12, minute, item)} key={item}>{t(item === 'AM' ? 'صباحًا' : 'مساءً')}</button>)}</div>
       <p className="clock-help">{t('اسحب الأرقام لاختيار الوقت · كل ربع ساعة')}</p><button className="clock-confirm" type="button" onClick={() => { onChange(draft); close(); }}>{t('تأكيد الوقت')}</button>
     </dialog></div>, document.body)}

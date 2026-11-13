@@ -9,7 +9,7 @@ const decodeVapidKey = (value: string) => {
 export async function ensureDevicePush(portal: Portal, askPermission = false) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return false;
   let permission = Notification.permission;
-  if (permission === 'default' && askPermission) permission = await Notification.requestPermission();
+  if (permission !== 'granted' && askPermission) permission = await Notification.requestPermission();
   if (permission !== 'granted') return false;
   const configResponse = await fetch(`${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/public/config`, { credentials: 'include', cache: 'no-store' });
   const config = await configResponse.json() as { vapidPublicKey?: string };

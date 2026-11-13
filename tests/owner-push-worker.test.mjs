@@ -50,6 +50,21 @@ test('a slow server falls back to cached HTML within a bounded delay', async () 
   assert.equal(await response.text(), 'instant shell');
 });
 
+test('a hosting wake-up page with HTTP 200 never replaces the installed app', async () => {
+  const handlers = {}, work = [];
+  const origin = 'https://emtidad-alelm.onrender.com';
+  const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
+  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
+    self, URL, Request, Response, setTimeout, clearTimeout,
+    fetch: async () => new Response('<html>Render is starting your service</html>'),
+    caches: { open: async () => ({ match: async () => new Response('saved application'), put: () => { throw new Error('must not save provider page'); } }) },
+  });
+  let result;
+  handlers.fetch({ request: navigation(origin + '/teachers'), waitUntil: p => work.push(p), respondWith: p => { result = p; } });
+  assert.equal(await (await result).text(), 'saved application');
+  await Promise.all(work);
+});
+
 test('fresh HTML wins over stale cache and recovery bypasses it; cache failures do not break loads', async () => {
   for (const storageFails of [false, true]) {
     const handlers = {}, work = [];
@@ -57,13 +72,13 @@ test('fresh HTML wins over stale cache and recovery bypasses it; cache failures 
     const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
     vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
       self, URL, Request, Response, setTimeout, clearTimeout,
-      fetch: async request => { assert.equal(request.cache, 'no-store'); return new Response('fresh build'); },
+      fetch: async request => { assert.equal(request.cache, 'no-store'); return new Response('fresh build<script id="boot-recovery"></script>'); },
       caches: { open: async () => { if (storageFails) throw new Error('storage unavailable'); return { match: async () => new Response('old build'), put: async () => { throw new Error('quota full'); } }; } },
     });
     for (const path of ['/students', '/students?__app_reload=123']) {
       let result;
       handlers.fetch({ request: navigation(origin + path), waitUntil: promise => work.push(promise), respondWith: promise => { result = promise; } });
-      assert.equal(await (await result).text(), 'fresh build');
+      assert.equal(await (await result).text(), 'fresh build<script id="boot-recovery"></script>');
     }
     await Promise.all(work);
   }

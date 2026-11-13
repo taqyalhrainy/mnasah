@@ -11,6 +11,12 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
   const { language } = usePreferences();
   const [weekExpanded, setWeekExpanded] = useState(false);
   const teacher = portal === 'teachers';
+  const groupedSubjects = Array.from(teachingSubjects.reduce((groups, item) => {
+    const key = item.subject.trim().toLocaleLowerCase();
+    const group = groups.get(key) || { subject: item.subject, details: [] as string[] };
+    if (item.detail && !group.details.includes(item.detail)) group.details.push(item.detail);
+    groups.set(key, group); return groups;
+  }, new Map<string, { subject: string; details: string[] }>()).values());
   const teacherGreeting = user.verification?.gender === 'female' ? t('أهلًا معلمة') : user.verification?.gender === 'male' ? t('أهلًا أستاذ') : t('أهلًا بك');
   const greetingKey = `${portal}:${user.id}`;
   const [stage, setStage] = useState<'legacy' | 'hello' | 'question' | 'ready'>(() => greetedDuringThisVisit.has(greetingKey) ? 'ready' : teacher ? 'legacy' : 'hello');
@@ -55,7 +61,7 @@ export function WorkspaceOverview({ user, portal, bookings, availableCount, onVi
         <button type="button" className="home-skip" onClick={() => setStage('ready')}>{t('تخطي')}</button>
       </div> : <div className="home-stage-content">{children}</div>}
     </section>
-    {teacher ? <section className="teacher-saved-subjects"><h3>{t('المواد التي أدرّسها')}</h3>{teachingSubjects.length ? <div>{teachingSubjects.map((item, index) => <article key={`${item.subject}-${index}`}><BookOpen size={20} /><div><strong>{catalogText(item.subject)}</strong><small>{t(item.detail)}</small></div></article>)}</div> : <p>{t('اختر المواد التي تدرّسها من المناهج أعلاه، ثم احفظ اختياراتك.')}</p>}</section> : <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{t(label)}</span><strong>{value.toLocaleString(locale())}</strong></div></div>)}</div>}
+    {teacher ? <section className="teacher-saved-subjects"><h3>{t('المواد التي أدرّسها')}</h3>{groupedSubjects.length ? <div>{groupedSubjects.map((item, index) => <article key={`${item.subject}-${index}`}><BookOpen size={20} /><div><strong>{catalogText(item.subject)}</strong><small>{item.details.map(detail => t(detail)).join(' · ')}</small></div></article>)}</div> : <p>{t('اختر المواد التي تدرّسها من المناهج أعلاه، ثم احفظ اختياراتك.')}</p>}</section> : <div className="overview-metrics" id={`week-metrics-${portal}`}>{metrics.map(({ label, value, icon: Icon }, index) => <div className={`overview-metric metric-${index}`} key={label}><span className="metric-icon"><Icon size={22} strokeWidth={1.8} /></span><div><span>{t(label)}</span><strong>{value.toLocaleString(locale())}</strong></div></div>)}</div>}
     <div className="overview-schedule">
       <article className={`next-lesson ${!next ? 'no-next-lesson' : ''}`}>
         <div className="next-lesson-body"><span className="next-lesson-kicker"><span />{next ? next.start <= now ? t("حصة جارية") : t("على جدولك") : t("جدولك مفتوح")}</span><h3>{next ? catalogText(next.subject) : t("لا توجد حصص قادمة")}</h3><p>{next ? `${teacher ? next.student_name : next.teacher_name} · ${date(next.start)}` : teacher ? t("مواعيد متاحة: ") + availableCount : t("أساتذة متاحون: ") + availableCount}</p></div>

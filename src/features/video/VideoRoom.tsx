@@ -1,5 +1,6 @@
 import { constrainDocumentView, fitDocumentView, zoomDocumentView } from './documentViewport';
 import { DocumentPageCache } from './documentPageCache';
+import { SharedYoutube, YoutubeLinkDialog, validYoutubeSession, type YoutubeSession } from './SharedYoutube';
 import { t, locale, usePreferences, PreferenceControls } from '../../i18n/preferences';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } from 'react';
@@ -86,8 +87,9 @@ type WhiteboardMessage =
   | { kind: 'document'; document: SharedDocument | null }
   | { kind: 'document-preload'; id: string; page: number; src: string }
   | { kind: 'document-annotations'; annotations: DocumentAnnotation[] }
-  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; annotations?: DocumentAnnotation[] };
-type StageMode = 'video' | 'whiteboard' | 'document';
+  | { kind: 'youtube'; session: YoutubeSession | null }
+  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; annotations?: DocumentAnnotation[]; youtube?: YoutubeSession | null };
+type StageMode = 'video' | 'whiteboard' | 'document' | 'youtube';
 type WhiteboardTool = 'select' | 'draw' | 'pan' | 'text';
 type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem; moved: boolean };
 type WhiteboardDocument = { name: string; page: number; pages: number; itemId: string; pdf: PDFDocumentProxy };
@@ -153,6 +155,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const updateBoardOpen = (open: boolean) => { boardOpenRef.current = open; setBoardOpen(open); };
   const [sidePanel, setSidePanel] = useState<'participants' | 'chat' | null>(null);
   const [showMore, setShowMore] = useState(false);
+  const [youtubeLinkOpen, setYoutubeLinkOpen] = useState(false);
+  const [youtubeSession, setYoutubeSession] = useState<YoutubeSession | null>(null);
+  const youtubeRef = useRef<YoutubeSession | null>(null);
+  const updateYoutube = (session: YoutubeSession | null, broadcast = false) => {
+    if (session && !validYoutubeSession(session)) return;
+    const previous = youtubeRef.current;
+    youtubeRef.current = session; setYoutubeSession(session);
+    if (session && session.videoId !== previous?.videoId) { setStageMode('youtube'); setFocusedParticipant(null); }
+    if (!session && stageModeRef.current === 'youtube') setStageMode('video');
+    if (broadcast) connectionRef.current?.sendWhiteboard({ kind: 'youtube', session });
+  };
   const [chatDraft, setChatDraft] = useState('');
   const [chatSending, setChatSending] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
@@ -684,7 +697,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           if (typing) remoteTypingTimerRef.current = window.setTimeout(() => setRemoteTyping(false), 1800);
         },
         onRemoteSpeaking: setRemoteSpeaking,
-        onDataOpen: () => role === 'student' ? sendWhiteboard({ kind: 'sync-request' }) : sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current }),
+        onDataOpen: () => { if (role === 'student' && youtubeRef.current) sendWhiteboard({ kind: 'youtube', session: youtubeRef.current }); role === 'student' ? sendWhiteboard({ kind: 'sync-request' }) : sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current }); },
         onLocalPeerId: (peerId) => {
           if (presenceJoinRetryRef.current !== null) window.clearTimeout(presenceJoinRetryRef.current);
           presenceJoinRetryRef.current = null;
@@ -989,7 +1002,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
+    return kind === 'youtube' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -1026,6 +1039,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
+    if (message.kind === 'youtube') { if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
     if (message.kind === 'sync-request') {
       if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
       return;
@@ -1084,6 +1098,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (message.kind === 'sync') {
+      if (message.youtube === null || validYoutubeSession(message.youtube)) updateYoutube(message.youtube);
       if (message.boardOpen !== undefined) updateBoardOpen(message.boardOpen);
       else if (message.mode === 'whiteboard') updateBoardOpen(true);
       if (message.mode) { setStageMode(message.mode); setFocusedParticipant(null); }
@@ -1127,7 +1142,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const sendWhiteboard = (message: WhiteboardMessage) => {
-    connectionRef.current?.sendWhiteboard(message);
+    connectionRef.current?.sendWhiteboard(message.kind === 'sync' && youtubeRef.current ? { ...message, youtube: youtubeRef.current } : message);
   };
 
   const createWhiteboardId = (kind: string) => `${Date.now()}-${role}-${kind}-${Math.random().toString(36).slice(2)}`;
@@ -2151,8 +2166,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
   const isWindowsDevice = /Windows/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
   return (
-    <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
+    <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'youtube' ? 'youtube-mode' : stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
+      {youtubeLinkOpen && <YoutubeLinkDialog onClose={() => setYoutubeLinkOpen(false)} onShare={videoId => { updateYoutube({ videoId, time: 0, playing: true, updatedAt: Date.now() }, true); setYoutubeLinkOpen(false); }} />}
       {mobileWhiteboard && editingWhiteboardText && <dialog className="mobile-whiteboard-text-dialog" aria-label={t('إضافة أو تعديل النص')} ref={node => { mobileTextDialogRef.current = node; if (node && !node.open) { node.showModal(); node.querySelector('textarea')?.focus(); } }} onPointerDownCapture={() => { ignoreEditorOpeningClickRef.current = false; }} onClickCapture={event => { if (ignoreEditorOpeningClickRef.current) { ignoreEditorOpeningClickRef.current = false; event.preventDefault(); event.stopPropagation(); } }} onCancel={event => { event.preventDefault(); cancelMobileTextEdit(); }}><form onSubmit={event => { event.preventDefault(); saveMobileTextEdit(); }}><h2>{t('إضافة أو تعديل النص')}</h2><textarea className="mobile-whiteboard-text-input" autoFocus dir="auto" aria-label={t('نص البورد')} value={mobileTextDraft} onChange={event => setMobileTextDraft(event.target.value)} placeholder={t('اكتب هنا')} /><div><button type="button" onClick={cancelMobileTextEdit}>{t('إلغاء')}</button><button type="submit" disabled={!mobileTextDraft.trim()}>{t('حفظ النص')}</button></div></form></dialog>}
       {remoteAudioBlocked && <button type="button" className="remote-audio-unlock" onClick={() => void resumeRemoteAudio()}><Mic size={18} />{t('اضغط لتشغيل صوت المكالمة')}</button>}
       {role === 'teacher' && <input ref={whiteboardFileInputRef} data-whiteboard-file-input className="whiteboard-image-input call-file-input" type="file"  onChange={handleWhiteboardFileChange} />}
@@ -2171,8 +2187,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <div className={`video-grid stable-media-grid ${focusedParticipant ? 'has-focus' : ''} ${focusedParticipant ? `${focusedParticipant}-focused` : ''} ${sharedDocument ? 'with-document' : ''} ${!sharedDocument && !boardOpen && !localScreenStream && !remoteScreenStream ? 'camera-only' : ''}`} aria-label={t("المشاركون")}>
           {renderTile('remote')}{renderTile('local')}{renderScreenTile('local')}{renderScreenTile('remote')}
           {sharedDocument && <button type="button" className="shared-document-tile" onClick={() => { setStageMode('document'); setFocusedParticipant(null); }} aria-label={t('تكبير الملف المشترك')}><img src={lessonFileUrl(sharedDocument.src)} alt="" /></button>}
+          {youtubeSession && <button type="button" className="shared-document-tile shared-youtube-tile" onClick={() => { setStageMode('youtube'); setFocusedParticipant(null); }} aria-label={t('عرض فيديو يوتيوب')}>▶ YouTube</button>}
           {boardOpen && <button type="button" className="shared-document-tile shared-whiteboard-tile" onClick={() => { setStageMode('whiteboard'); setFocusedParticipant(null); }} aria-label={t('العودة إلى البورد المشترك')}><svg viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`}><rect x={whiteboardViewport.x} y={whiteboardViewport.y} width={viewWidth} height={viewHeight} fill="#fff" />{whiteboardStrokes.map(stroke => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}{whiteboardItems.map(item => item.type === 'image' ? <image key={item.id} href={item.src} x={item.x} y={item.y} width={item.width} height={item.height} /> : <text key={item.id} x={item.x + item.width} y={item.y + item.fontSize} textAnchor="end" fontSize={item.fontSize} fill={item.color}>{item.text}</text>)}</svg></button>}
         </div>
+        {youtubeSession && <div className="youtube-stage" hidden={stageMode !== 'youtube'}><SharedYoutube session={youtubeSession} onChange={state => updateYoutube(state, true)} onClose={() => updateYoutube(null, true)} /></div>}
         {stageMode === 'whiteboard' && <div className="whiteboard-stage"><aside className="whiteboard-side-rail">{renderWhiteboardTools()}</aside>{renderWhiteboard()}</div>}
         {stageMode === 'document' && sharedDocument && <div className="document-stage">
           <section className="document-viewer" aria-label={t('عارض الملف')}>
@@ -2201,7 +2219,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button className={showMore ? 'tool-button active-share' : 'tool-button'} onClick={() => setShowMore(!showMore)} title={t("خيارات أكثر")} type="button"><MoreHorizontal size={20} /></button>
         <button className="tool-button danger" onClick={endCall} title={t("إنهاء المكالمة والخروج")} type="button"><PhoneOff size={20} /></button>
         </div>
-        {showMore && <div className="call-more-menu"><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />{t("المشاركون")}</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />{t("عرض الفيديو")}</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? t('ملء إطار الفيديو') : t('احتواء الفيديو')}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />{t("نافذة عائمة")}</button></div>}
+        {showMore && <div className="call-more-menu"><button type="button" disabled={!isConnected} onClick={() => { setYoutubeLinkOpen(true); setShowMore(false); }}><ScreenShare size={17} />{t('يوتيوب')}</button><button type="button" onClick={() => { setSidePanel(sidePanel === 'participants' ? null : 'participants'); setShowMore(false); }}><Users size={17} />{t("المشاركون")}</button><button type="button" onClick={openVideoMode}><Grid2X2 size={17} />{t("عرض الفيديو")}</button><button type="button" onClick={() => setFitMode(fitMode === 'fit' ? 'fill' : 'fit')}><MoreHorizontal size={17} />{fitMode === 'fit' ? t('ملء إطار الفيديو') : t('احتواء الفيديو')}</button><button type="button" disabled={!isConnected} onClick={handlePictureInPictureToggle}><PictureInPicture2 size={17} />{t("نافذة عائمة")}</button></div>}
       </div>
 
       {mutedSpeechWarning && !audioEnabled && <button type="button" className="muted-speaking-warning" onClick={handleAudioToggle}><MicOff size={18} /><span><strong>{t('يبدو أنك تتحدث والمايك مغلق')}</strong><small>{t('اضغط هنا لفك الميوت')}</small></span></button>}

@@ -2891,6 +2891,42 @@ html.call-active .support-whatsapp { display: none; }
   .support-whatsapp,.support-whatsapp:hover { min-height: 40px; padding: 9px 14px; font-size: 12px; }
 }
 
+/* Notification recovery is explicit when the browser has blocked a new prompt. */
+.notification-help-backdrop,.youtube-link-backdrop { position: fixed; z-index: 13000; inset: 0; display: grid; place-items: center; padding: 18px; background: #0b0819aa; }
+.notification-help,.youtube-link-dialog { position: relative; inset: auto; margin: 0; box-sizing: border-box; width: min(440px,100%); max-height: calc(100dvh - 36px); overflow: auto; padding: 24px; border: 1px solid var(--line); border-radius: 22px; color: var(--ink); background: var(--surface); box-shadow: 0 20px 80px #0005; }
+.notification-help > .icon-button,.youtube-link-dialog > .icon-button { float: inline-end; }
+.notification-help h2,.youtube-link-dialog h2 { font-size: 22px; }
+.notification-help p,.notification-help li { line-height: 1.8; font-size: 14px; }
+.notification-help li { margin-block: 8px; }
+.notification-help a { display: block; margin-top: 16px; color: var(--ink); text-decoration: underline; }
+.notification-help code { overflow-wrap: anywhere; }
+.youtube-link-dialog form,.youtube-link-dialog label { display: grid; gap: 16px; }
+.youtube-link-dialog input { width: 100%; box-sizing: border-box; padding: 12px; }
+.unavailable-slot-history { margin: 12px; }
+.unavailable-slot-history summary { cursor: pointer; font-size: 13px; padding: 10px; }
+.call-experience.youtube-mode .call-stage { grid-template-columns: minmax(180px,23%) minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
+.call-experience.youtube-mode .stable-media-grid { grid-column: 1; grid-row: 1; grid-template-columns: 1fr; grid-template-rows: repeat(2,minmax(0,1fr)); }
+.youtube-mode .shared-document-tile { display: none; }
+.youtube-stage { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; }
+.youtube-stage[hidden] { display: none !important; }
+.shared-youtube { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; background: #08090c; border: 1px solid #333741; border-radius: 16px; overflow: hidden; }
+.shared-youtube header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; color: #fff; }
+.shared-youtube header button,.youtube-resume { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #4b4c57; border-radius: 9px; padding: 8px 12px; background: #292a35; color: #fff; }
+.youtube-player { flex: 1; min-height: 0; }
+.youtube-player iframe { width: 100%; height: 100%; display: block; border: 0; }
+.shared-youtube > p { color: #fff; padding: 14px; }
+.youtube-resume { position: absolute; inset-inline: 16px; bottom: 16px; }
+.shared-youtube-tile { color: #fff; font-size: 22px; background: #27132d; }
+@media(max-width:760px) {
+  .support-whatsapp,.support-whatsapp:hover { bottom: calc(76px + env(safe-area-inset-bottom)); inset-inline-start: 8px; min-height: 30px; padding: 6px 10px; font-size: 10px; }
+  .learning-shell:has(.dm-workspace) .workspace { padding-bottom: calc(116px + env(safe-area-inset-bottom)); }
+  .learning-shell .dm-workspace { height: calc(100dvh - 216px); }
+  .call-experience.youtube-mode .call-stage { grid-template-columns: minmax(0,1fr); grid-template-rows: min(45vw,180px) minmax(0,1fr); }
+  .call-experience.youtube-mode .stable-media-grid { grid-column: 1; grid-row: 1; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: minmax(0,1fr); }
+  .call-experience.youtube-mode .stable-media-grid > .participant-tile { grid-column: auto; grid-row: auto; }
+  .youtube-stage { grid-column: 1; grid-row: 2; }
+}
+
 /* Keep resource previews paired and mobile board tools on their own full row. */
 .call-experience.video-mode .stable-media-grid.with-document > .shared-document-tile { grid-column: auto; }
 @media (max-width: 760px) {

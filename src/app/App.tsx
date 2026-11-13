@@ -2,10 +2,7 @@ import { allowNavigation } from '../services/unsavedChanges';
 import { lazyWithRetry } from './RecoveryBoundary';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, BellOff, BellRing, Download, LogOut, CalendarDays, Users, Settings, Search, ClipboardList, Home, Wallet, WalletCards, History, Clock3, Video, ChevronDown, MessageCircle, ShieldCheck, ShieldAlert, Smartphone, Star, X } from 'lucide-react';
-import { AuthForm } from '../features/auth/AuthForm';
 import { ChangeTemporaryPassword } from '../features/auth/ChangeTemporaryPassword';
-import { RegistrationFlow } from '../features/auth/RegistrationFlow';
-import { PortalWorkspace } from '../features/portal/PortalWorkspace';
 import { apiMediaUrl, request, portalNames, type Portal, type User } from '../services/platformApi';
 import '../styles/portal.css';
 import { useDirectChat, type BookingCreatedNotice } from '../features/chat/useDirectChat';
@@ -13,7 +10,12 @@ import { useDeviceNotifications } from '../services/useDeviceNotifications';
 import { removeDevicePush } from '../services/pushNotifications';
 import { PreferenceControls, direction, usePreferences, t, locale } from '../i18n/preferences';
 import { IosInstallGuide } from './IosInstallGuide';
+import { NotificationPermissionHelp } from './NotificationPermissionHelp';
 const DirectMessages = lazyWithRetry(() => import('../features/chat/DirectMessages').then(module => ({ default: module.DirectMessages })));
+const AuthForm = lazyWithRetry(() => import('../features/auth/AuthForm').then(module => ({ default: module.AuthForm })));
+const RegistrationFlow = lazyWithRetry(() => import('../features/auth/RegistrationFlow').then(module => ({ default: module.RegistrationFlow })));
+const loadWorkspace = () => import('../features/portal/PortalWorkspace');
+const PortalWorkspace = lazyWithRetry(() => loadWorkspace().then(module => ({ default: module.PortalWorkspace })));
 const VideoTestPage = lazyWithRetry(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 type AdminNotificationCounts = Record<string, number>;
@@ -48,7 +50,7 @@ export function App() {
   usePreferences();
   if (routePath() === '/video-test') return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><VideoTestPage /></Suspense>;
   if (routePath() === '/admin' || (['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(location.hostname) && routePath().startsWith('/owner'))) return <main className="loading-page" dir={direction()}><div className="wake-card"><ShieldAlert size={38} /><h1>{t('هذا الرابط غير متاح')}</h1><p>{t('بوابة الإدارة منفصلة ولا يمكن فتحها من رابط بوابات الطلاب والأساتذة.')}</p></div></main>;
-  return <PortalApp />;
+  return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><PortalApp /></Suspense>;
 }
 
 const wakeRetryDelays = [1000, 2000];
@@ -60,7 +62,6 @@ function WakeLoading({ slow, attempt }: { slow: boolean; attempt: number }) {
     <div className="wake-card">
       <img src={assetUrl('images/emtidad-alelm-final-logo-192.png')} width="72" height="72" alt={t('شعار امتداد العلم أكاديمي')} />
       <div className="wake-spinner" aria-hidden="true" />
-      {slow && <button className="secondary-button" onClick={() => location.reload()}>{t("إعادة المحاولة")}</button>}
       <p className="wake-kicker">{t('امتداد العلم أكاديمي')}</p>
       <h1>{slow ? t("لحظات ونكون معك") : t("جارٍ تحميل منصتك")}</h1>
       <p>{slow ? t('يرجى الانتظار لحظات…') : t("نجهز حسابك والبيانات الخاصة بك.")}</p>
@@ -151,8 +152,9 @@ function PortalApp() {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const slowTimer = setTimeout(() => { if (alive) setSlowWake(true); }, 1800);
+    try { if (localStorage.getItem('emtidad-last-portal')) void loadWorkspace().catch(() => undefined); } catch { /* Storage is optional. */ }
     setLoading(true); setError('');
-    request<{ user: User | null }>(`auth/me?portal=${portal}${routePath() === '/' ? '&discover=1' : ''}`, undefined, controller.signal, 10000).then(result => {
+    request<{ user: User | null }>(`auth/me?portal=${portal}${portal !== 'admin' ? '&discover=1' : ''}`, undefined, controller.signal, 10000).then(result => {
       if (!alive) return;
       setUser(result.user);
       if (result.user) {
@@ -248,6 +250,7 @@ function PortalApp() {
       {portal !== 'admin' && user.status === 'active' && <div hidden={view !== 'messages'}><Suspense fallback={<p role="status">{t("جارٍ تجهيز الرسائل…")}</p>}><DirectMessages key={user.id} portal={portal} user={user} chat={chat} active={view === 'messages'} /></Suspense></div>}
       </div></section>
     {iosGuideOpen && <IosInstallGuide onClose={() => setIosGuideOpen(false)} />}
+    {deviceNotifications.permissionHelpOpen && <NotificationPermissionHelp busy={deviceNotifications.busy} onCheck={() => void deviceNotifications.toggle()} onClose={deviceNotifications.closePermissionHelp} />}
     {user.status === 'active' && (deviceNotifications.isAndroid || deviceNotifications.isDesktop) && deviceNotifications.supported && deviceNotifications.checked && deviceNotifications.needsPermission && !notificationPromptDismissed && <aside className="device-notification-prompt" role="dialog" aria-label={t('تفعيل إشعارات الجهاز')}><span><BellRing size={22} /></span><div><strong>{t(deviceNotifications.isDesktop ? 'فعّل إشعارات امتداد العلم على اللابتوب' : 'فعّل إشعارات امتداد العلم')}</strong><p>{t(deviceNotifications.permission === 'denied' ? (deviceNotifications.isDesktop ? 'الإشعارات محظورة من إعدادات المتصفح. اسمح بها لهذا الموقع من علامة القفل بجانب الرابط، ثم حاول مرة أخرى.' : 'الإشعارات مرفوضة من إعدادات الهاتف. فعّلها من إعدادات Chrome أو التطبيق ثم ارجع وحاول.') : (deviceNotifications.isDesktop ? 'اسمح بالإشعارات لتظهر على اللابتوب حتى لو كنت تتصفح موقعًا آخر أو كانت المنصة في الخلفية.' : 'اسمح بالإشعارات لتصلك الرسائل والحجوزات على الهاتف حتى عند إغلاق التطبيق.'))}</p>{deviceNotifications.hint && <small>{t(deviceNotifications.hint)}</small>}<button type="button" className="primary-button" disabled={deviceNotifications.busy} onClick={() => void deviceNotifications.toggle()}>{t(deviceNotifications.permission === 'denied' ? 'تحقق مرة أخرى' : 'السماح بالإشعارات')}</button></div><button type="button" className="notification-prompt-close" aria-label={t('ليس الآن')} onClick={() => setNotificationPromptDismissed(true)}><X size={18} /></button></aside>}
     {bookingAlert && <button className="booking-created-toast" type="button" onClick={() => { setView('rooms'); setBookingAlert(null); }}><Bell size={21} /><span><strong>{t(bookingAlert.audience === 'teacher' ? 'حجز جديد' : 'تم تأكيد حجزك')}</strong><small>{bookingAlert.audience === 'teacher' ? t('حجز طالب حصة جديدة معك. افتح الحصص المحجوزة للتفاصيل.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.')}</small>{(bookingAlert.audience === 'teacher' ? bookingAlert.student_phone : bookingAlert.teacher_phone) && <b dir="ltr">{bookingAlert.audience === 'teacher' ? bookingAlert.student_phone : bookingAlert.teacher_phone}</b>}</span></button>}
     {portal !== 'admin' && supportWhatsapp && <a className="support-whatsapp" href={`https://wa.me/${whatsappHrefNumber(supportWhatsapp)}?text=${encodeURIComponent(t('مرحباً، أحتاج مساعدة في منصة امتداد العلم'))}`} target="_blank" rel="noreferrer" aria-label={t('التواصل مع الدعم عبر واتساب')}><span><small>{t('الدعم الفني')}</small><strong dir="ltr">{supportWhatsapp}</strong></span></a>}
