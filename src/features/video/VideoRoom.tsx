@@ -72,6 +72,7 @@ type SharedDocument = { id?: string; name: string; page: number; pages: number; 
 type DocumentPoint = { x: number; y: number };
 type DocumentAnnotation = { id: string; page: number; kind: 'pen' | 'highlight'; color: string; size: number; points: DocumentPoint[] } | { id: string; page: number; kind: 'text'; color: string; x: number; y: number; text: string };
 type SharedPointer = { x: number; y: number; space: 'whiteboard' | 'document'; page?: number };
+type SharedDocumentView = { documentId: string; page: number; zoom: number; x: number; y: number };
 type WhiteboardMessage =
   | { kind: 'sync-request' }
   | { kind: 'pointer'; pointer: SharedPointer | null }
@@ -86,9 +87,10 @@ type WhiteboardMessage =
   | { kind: 'board-session'; open: boolean }
   | { kind: 'document'; document: SharedDocument | null }
   | { kind: 'document-preload'; id: string; page: number; src: string }
+  | { kind: 'document-view'; view: SharedDocumentView }
   | { kind: 'document-annotations'; annotations: DocumentAnnotation[] }
   | { kind: 'youtube'; session: YoutubeSession | null }
-  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; annotations?: DocumentAnnotation[]; youtube?: YoutubeSession | null };
+  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; documentView?: SharedDocumentView; annotations?: DocumentAnnotation[]; youtube?: YoutubeSession | null };
 type StageMode = 'video' | 'whiteboard' | 'document' | 'youtube';
 type WhiteboardTool = 'select' | 'draw' | 'pan' | 'text';
 type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem; moved: boolean };
@@ -232,12 +234,24 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [documentView, setDocumentView] = useState(fitDocumentView);
   const documentViewRef = useRef(documentView);
   documentViewRef.current = documentView;
+  const documentSizeRef = useRef(documentSize); documentSizeRef.current = documentSize;
+  const remoteDocumentViewRef = useRef<SharedDocumentView | null>(null);
   const documentOverlayRef = useRef<SVGSVGElement>(null);
   const documentPanRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const documentPointersRef = useRef(new Map<number, { x: number; y: number }>());
   const documentPinchRef = useRef<{ distance: number; center: { x: number; y: number } } | null>(null);
-  useEffect(() => { setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.name, sharedDocument?.page]);
+  useEffect(() => { documentViewRef.current = fitDocumentView; setDocumentView(fitDocumentView); documentPointersRef.current.clear(); documentPanRef.current = null; documentPinchRef.current = null; }, [sharedDocument?.id, sharedDocument?.name, sharedDocument?.page]);
   useEffect(() => {
+    if (role === 'student' && remoteDocumentViewRef.current) applyRemoteDocumentView(remoteDocumentViewRef.current);
+  }, [sharedDocument?.id, sharedDocument?.name, sharedDocument?.page, documentSize, stageMode]);
+  useEffect(() => {
+    if (role !== 'teacher' || !sharedDocument) return;
+    const frame = requestAnimationFrame(() => { const view = sharedDocumentView(); if (view) sendWhiteboard({ kind: 'document-view', view }); });
+    return () => cancelAnimationFrame(frame);
+  }, [documentView, documentSize, sharedDocument?.id, sharedDocument?.name, sharedDocument?.page]);
+  useEffect(() => {
+    const followed = remoteDocumentViewRef.current;
+    if (role === 'student' && followed && sharedDocument && followed.documentId === (sharedDocument.id || sharedDocument.name) && followed.page === sharedDocument.page) return;
     const area = documentPageRef.current;
     if (area) setDocumentView(view => constrainDocumentView(view, documentSize, { width: area.clientWidth, height: area.clientHeight }));
   }, [documentSize]);
@@ -1003,7 +1017,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'youtube' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
+    return kind === 'document-view' || kind === 'youtube' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -1040,6 +1054,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
+    if (message.kind === 'document-view') { applyRemoteDocumentView(message.view); return; }
     if (message.kind === 'youtube') { if (message.session === null && role === 'teacher') return; if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
     if (message.kind === 'sync-request') {
       if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
@@ -1104,6 +1119,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       else if (message.mode === 'whiteboard') updateBoardOpen(true);
       if (message.mode) { setStageMode(message.mode); setFocusedParticipant(null); }
       if (message.document !== undefined) { sharedDocumentRef.current = message.document; setSharedDocument(message.document); }
+      if (message.documentView) applyRemoteDocumentView(message.documentView);
       if (message.annotations) {
         setDocumentAnnotations(message.annotations);
         documentAnnotationsRef.current = message.annotations;
@@ -1143,8 +1159,20 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const sendWhiteboard = (message: WhiteboardMessage) => {
-    connectionRef.current?.sendWhiteboard(message.kind === 'sync' && youtubeRef.current ? { ...message, youtube: youtubeRef.current } : message);
+    connectionRef.current?.sendWhiteboard(message.kind === 'sync' ? { ...message, ...(youtubeRef.current ? { youtube: youtubeRef.current } : {}), ...(role === 'teacher' ? { documentView: sharedDocumentView() || undefined } : {}) } : message);
   };
+  function sharedDocumentView(): SharedDocumentView | null {
+    const doc = sharedDocumentRef.current, size = documentSizeRef.current, view = documentViewRef.current;
+    return doc ? { documentId: doc.id || doc.name, page: doc.page, zoom: view.zoom, x: view.x / Math.max(1, size.width), y: view.y / Math.max(1, size.height) } : null;
+  }
+  function applyRemoteDocumentView(view: SharedDocumentView) {
+    if (role !== 'student' || !view || typeof view.documentId !== 'string' || !Number.isInteger(view.page) || !Number.isFinite(view.zoom) || view.zoom < 1 || view.zoom > 6 || !Number.isFinite(view.x) || !Number.isFinite(view.y) || Math.abs(view.x) > 6 || Math.abs(view.y) > 6) return;
+    remoteDocumentViewRef.current = view;
+    const doc = sharedDocumentRef.current, size = documentSizeRef.current;
+    if (!doc || (doc.id || doc.name) !== view.documentId || doc.page !== view.page) return;
+    const next = { zoom: view.zoom, x: view.x * size.width, y: view.y * size.height };
+    documentViewRef.current = next; setDocumentView(next);
+  }
 
   const createWhiteboardId = (kind: string) => `${Date.now()}-${role}-${kind}-${Math.random().toString(36).slice(2)}`;
   const isOwnedWhiteboardId = (id: string) => role === 'teacher' || id.includes(`-${role}-`);
@@ -1633,7 +1661,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     return () => window.clearInterval(timer);
   }, [localPointer]);
   useEffect(() => { publishPointer(null, true); setRemotePointer(null); }, [stageMode, sharedDocument?.page]);
-  const renderPointer = (pointer: SharedPointer | null, space: SharedPointer['space'], remote = false) => pointer?.space === space && (space !== 'document' || pointer.page === sharedDocument?.page) ? <circle className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} r={space === 'whiteboard' ? 7 / whiteboardViewport.zoom : 9 / documentView.zoom} fill="#ef4444" fillOpacity=".6" stroke="#fff" strokeWidth={space === 'whiteboard' ? 1.5 / whiteboardViewport.zoom : 2 / documentView.zoom} pointerEvents="none" /> : null;
+  const renderPointer = (pointer: SharedPointer | null, space: SharedPointer['space'], remote = false) => pointer?.space === space && (space !== 'document' || pointer.page === sharedDocument?.page) ? space === 'document' ? <ellipse className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} rx={8000 / Math.max(1, documentSize.width * documentView.zoom)} ry={11200 / Math.max(1, documentSize.height * documentView.zoom)} fill="#ef3333" fillOpacity=".8" stroke="#fff" strokeWidth="2" vectorEffect="non-scaling-stroke" pointerEvents="none" /> : <circle className={`shared-pointer ${remote ? 'remote' : 'local'}`} cx={pointer.x} cy={pointer.y} r={10 / whiteboardViewport.zoom} fill="#ef3333" fillOpacity=".8" stroke="#fff" strokeWidth={2 / whiteboardViewport.zoom} pointerEvents="none" /> : null;
   const startTextLongPress = (event: PointerEvent<SVGSVGElement>) => {
     if (event.pointerType !== 'touch' || !['select', 'text'].includes(whiteboardTool) || (event.target as Element).closest('textarea,input,[contenteditable=true],.whiteboard-resize-handle')) return;
     if (whiteboardPointersRef.current.size > 0) return;

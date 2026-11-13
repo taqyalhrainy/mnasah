@@ -12,6 +12,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   const [hint, setHint] = useState('');
   const [checked, setChecked] = useState(false);
   const [permissionHelpOpen, setPermissionHelpOpen] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
   const syncVersion = useRef(0);
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported');
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -20,7 +21,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   const isDesktop = !isAndroid && !isIos;
   useEffect(() => {
     let alive = true;
-    setEnabled(false); setHint(''); setChecked(false);
+    setEnabled(false); setHint(''); setChecked(false); setConsentOpen(false);
     if (!userId) return;
     const sync = async () => {
       const version = ++syncVersion.current;
@@ -66,7 +67,10 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   }
   async function toggle() {
     if (!userId || busy) return;
-    if (!enabled) return enable();
+    if (!enabled) {
+      if ('Notification' in window && Notification.permission === 'default') { setHint(''); setConsentOpen(true); return; }
+      return enable();
+    }
     setBusy(true); setHint(''); ++syncVersion.current;
     try { await removeDevicePush(portal); setEnabled(false); setHint('تم إيقاف تنبيهات هذا الجهاز.'); }
     catch (error) { setHint(notificationError(error)); }
@@ -79,5 +83,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && !enabled && permission !== 'granted', toggle, recheck: enable, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, closePermissionHelp: () => setPermissionHelpOpen(false), consentOpen, acceptConsent: () => { setConsentOpen(false); void enable(); }, declineConsent: () => { setConsentOpen(false); setHint('يمكنك تفعيل التنبيهات لاحقاً من قائمة حسابك.'); }, needsPermission: checked && !enabled && permission !== 'granted', toggle, recheck: enable, test };
 }

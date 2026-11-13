@@ -1,4 +1,7 @@
 export const additionalMessages: Record<string, string> = {
+  "هل ترغب باستقبال تنبيهات الرسائل والحصص والحجوزات؟": "Would you like notifications for messages, lessons and bookings?",
+  "عند المتابعة سيطلب جهازك الإذن. ويمكنك اختيار ليس الآن وتفعيلها لاحقاً.": "Your device will ask for permission when you continue. You can choose Not now and enable notifications later.",
+  "يمكنك تفعيل التنبيهات لاحقاً من قائمة حسابك.": "You can enable notifications later from your account menu.",
   "متابعة": "Continue",
   "ثواني وبنكون معك": "Just a moment, we’ll be with you",
   "الإذن ما زال محظوراً. غيّره إلى سماح من إعدادات الجهاز أو المتصفح، ثم اضغط تحقق مرة أخرى.": "Permission is still blocked. Change it to Allow in your device or browser settings, then check again.",

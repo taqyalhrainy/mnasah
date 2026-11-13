@@ -29,12 +29,12 @@ try {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, permissions: ['microphone'], timezoneId: 'Asia/Amman', serviceWorkers: 'block' });
   await context.addCookies([{ name: 'mansah_session_teachers', value: users[0].id, url: base }]);
   await context.addInitScript(() => {
-    let permission = 'denied';
+    let permission = 'default';
     const changes = new EventTarget();
     window.notificationRequests = 0;
     window.setNotificationPermission = value => { permission = value; changes.dispatchEvent(new Event('change')); };
     Object.defineProperty(Notification, 'permission', { get: () => permission });
-    Notification.requestPermission = async () => { window.notificationRequests++; return permission; };
+    Notification.requestPermission = async () => { window.notificationRequests++; permission = 'denied'; return permission; };
     navigator.permissions.query = async () => changes;
     const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/test', options: {}, toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/test', keys: { auth: 'test', p256dh: 'test' } }) };
     const registration = { pushManager: { getSubscription: async () => subscription } };
@@ -51,10 +51,16 @@ try {
   const renewed = (await context.cookies()).find(cookie => cookie.name === 'mansah_session_teachers');
   assert.ok(renewed.expires * 1000 > Date.now() + 364 * 86400000);
   await page.locator('.device-notification-prompt button.primary-button').click();
+  await page.locator('.notification-consent').waitFor();
+  await page.locator('.notification-consent .secondary-button').click();
+  assert.equal(await page.evaluate(() => window.notificationRequests), 0, 'declining our prompt must not request or block the browser permission');
+  assert.equal(await page.evaluate(() => Notification.permission), 'default');
+  await page.locator('.device-notification-prompt button.primary-button').click();
+  await page.locator('.notification-consent .primary-button').click();
   await page.locator('.notification-help').waitFor();
-  assert.equal(await page.evaluate(() => window.notificationRequests), 0);
+  assert.equal(await page.evaluate(() => window.notificationRequests), 1);
   await page.locator('.notification-help .primary-button').click();
-  assert.equal(await page.evaluate(() => window.notificationRequests), 0);
+  assert.equal(await page.evaluate(() => window.notificationRequests), 1);
   await page.evaluate(() => {
     window.setNotificationPermission('default');
     Notification.requestPermission = async () => { window.notificationRequests++; window.setNotificationPermission('granted'); return 'granted'; };
@@ -62,7 +68,7 @@ try {
   await page.locator('.notification-help .primary-button').click();
   await page.locator('.notification-help').waitFor({ state: 'detached' });
   await page.locator('.device-notification-prompt').waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => window.notificationRequests), 1, 'resetting a blocked permission permits a fresh OS request');
+  assert.equal(await page.evaluate(() => window.notificationRequests), 2, 'resetting a blocked permission permits a fresh OS request');
   await page.locator('.teacher-saved-subjects article').waitFor();
   assert.equal(await page.locator('.teacher-saved-subjects article').count(), 1);
   assert.match(await page.locator('.teacher-saved-subjects article').innerText(), /الأساسي.*الإعدادي/s);
