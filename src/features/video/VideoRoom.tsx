@@ -162,6 +162,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState(0);
+  const [connectionVideoSuspended, setConnectionVideoSuspended] = useState(false);
   const [reportedRemotePresent, setReportedRemotePresent] = useState<boolean | null>(() => remotePresent ?? (initialRemotePeerId ? true : null));
   useEffect(() => { if (remotePresent !== undefined) setReportedRemotePresent(remotePresent); }, [remotePresent]);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | 'local-screen' | 'remote-screen' | null>(null);
@@ -802,7 +803,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           setFocusedParticipant(null);
         },
         onStatus: setStatus,
-        onConnectionQuality: setConnectionQuality,
+        onConnectionQuality: (level, videoSuspended = false) => { setConnectionQuality(level); setConnectionVideoSuspended(videoSuspended); },
       });
       connectionRef.current = connection;
       connection.sendProfile({ name: localName, avatar: avatarUrl });
@@ -2277,7 +2278,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       {compact && <div className="compact-call-header"><button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button></div>}
 
       <div className="session-controls call-start">
-        {isConnected && connectionQuality >= 2 && <span className="call-network-notice" role="status">{t(connectionQuality === 3 ? 'النت ضعيف؛ أوقفنا إرسال الفيديو مؤقتًا للحفاظ على الصوت' : 'نخفّض جودة الفيديو للحفاظ على وضوح الصوت')}</span>}
+        {isConnected && (connectionQuality >= 2 || connectionVideoSuspended) && <span className="call-network-notice" role="status">{t(connectionVideoSuspended ? 'النت ضعيف؛ أوقفنا إرسال الفيديو مؤقتًا للحفاظ على الصوت' : 'نخفّض جودة الفيديو للحفاظ على وضوح الصوت')}</span>}
         {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={() => void startCall()}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
       </div>

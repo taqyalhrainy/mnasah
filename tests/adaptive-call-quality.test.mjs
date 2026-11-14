@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 const built = await build({ entryPoints: ['src/services/adaptiveCallQuality.ts'], bundle: true, write: false, format: 'cjs', platform: 'node' });
 const create = new Function('module', 'exports', 'window', 'Date', `${built.outputFiles[0].text}; return module.exports;`);
 const settle = async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); };
-function setup({ screen = false, reject = false } = {}) {
+function setup({ screen = false, reject = false, expectsMedia, onStall } = {}) {
   let clock = 100000, polling;
   const changes = [], feedback = [];
   const window = { setInterval(fn) { polling = fn; return 1; }, clearInterval() { polling = undefined; } };
@@ -34,7 +34,7 @@ function setup({ screen = false, reject = false } = {}) {
       ['audio', { id: 'audio', type: 'inbound-rtp', kind: 'audio', packetsReceived: received, packetsLost: lost, concealedSamples: concealed, totalSamplesReceived: samples }],
     ]),
   };
-  const quality = new AdaptiveCallQuality({ connection, screen: () => screen ? { getSenders: () => [screenVideo] } : undefined, onReceiveQuality: level => feedback.push(level), onChange: level => changes.push(level) });
+  const quality = new AdaptiveCallQuality({ connection, screen: () => screen ? { getSenders: () => [screenVideo] } : undefined, expectsMedia, onStall, onReceiveQuality: level => feedback.push(level), onChange: level => changes.push(level) });
   return { quality, speechSdp, changes, feedback, audio, video, screenVideo, connection,
     set(values) { ({ bandwidth = bandwidth, loss = loss, received = received, lost = lost, concealed = concealed, samples = samples, rtt = rtt } = values); },
     async tick(count = 1) { for (let i = 0; i < count; i++) { clock += 2000; received += 100; samples += 96000; polling?.(); await settle(); } },
@@ -56,18 +56,19 @@ test('speech has priority, bounded bitrate and mono SDP with FEC; video/media se
   h.quality.stop();
 });
 
-test('bandwidth loss pauses only video, then recovers gradually without new captures or calls', async () => {
+test('bandwidth loss preserves low-rate video and voice, then recovers gradually', async () => {
   const h = setup({ screen: true }); h.quality.start(); await settle();
   h.set({ bandwidth: 240000 }); await h.tick();
   assert.equal(h.video.getParameters().encodings[0].maxBitrate, 70000);
   assert.equal(h.screenVideo.getParameters().encodings[0].maxBitrate, 120000);
   h.set({ bandwidth: 60000 }); await h.tick();
-  assert.equal(h.video.getParameters().encodings[0].active, false);
-  assert.equal(h.screenVideo.getParameters().encodings[0].active, false);
+  assert.equal(h.video.getParameters().encodings[0].active, true);
+  assert.equal(h.video.getParameters().encodings[0].maxFramerate, 4);
+  assert.equal(h.screenVideo.getParameters().encodings[0].active, true);
   assert.equal(h.audio.getParameters().encodings[0].active, true);
   assert.equal(h.audio.track.readyState, 'live');
   h.set({ bandwidth: 800000 }); await h.tick(7);
-  assert.equal(h.video.getParameters().encodings[0].active, false);
+  assert.equal(h.video.getParameters().encodings[0].active, true);
   await h.tick(); assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.video.getParameters().encodings[0].maxBitrate, 27500);
   await h.tick(16); assert.equal(h.video.getParameters().encodings[0].maxBitrate, 210000);
@@ -80,7 +81,7 @@ test('incoming loss uses recent deltas and tells the other side to reduce its up
   assert.equal(h.feedback.at(-1), 0, 'historical losses must not poison the entire call');
   h.set({ lost: 230 }); await h.tick();
   assert.equal(h.feedback.at(-1), 3);
-  assert.equal(h.video.getParameters().encodings[0].active, false);
+  assert.equal(h.video.getParameters().encodings[0].active, true);
   await h.tick(8); assert.equal(h.feedback.at(-1), 2);
   h.quality.stop();
 });
@@ -99,7 +100,8 @@ test('Safari optional-parameter rejection falls back to portable bitrate/active 
   const h = setup({ reject: true }); h.quality.start(); await settle();
   assert.equal(h.audio.getParameters().encodings[0].maxBitrate, 32000);
   h.set({ loss: .2 }); await h.tick();
-  assert.equal(h.video.getParameters().encodings[0].active, false);
+  assert.equal(h.video.getParameters().encodings[0].active, true);
+  assert.equal(h.video.getParameters().encodings[0].maxBitrate, 28000);
   assert.equal(h.audio.getParameters().encodings[0].active, true);
   h.quality.stop();
 });
@@ -113,12 +115,13 @@ test('late statistics after leaving cannot change a retired sender', async () =>
   h.quality.remoteReceiveQuality(3); await h.tick(); assert.equal(h.video.calls.length, 0);
 });
 
-test('clean audio allows a cautious recovery probe instead of trapping video off on a stale low estimate', async () => {
+test('clean audio allows a recovery probe instead of trapping video at its lowest rate', async () => {
   const h = setup(); h.set({ bandwidth: 60000 }); h.quality.start(); await settle();
-  assert.equal(h.video.getParameters().encodings[0].active, false);
+  assert.equal(h.video.getParameters().encodings[0].active, true);
+  assert.equal(h.video.getParameters().encodings[0].maxBitrate, 28000);
   await h.tick(8); assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.video.getParameters().encodings[0].maxBitrate, 55000);
-  await h.tick(); assert.equal(h.video.getParameters().encodings[0].active, false);
+  await h.tick(); assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.audio.getParameters().encodings[0].active, true);
   h.quality.stop();
 });
@@ -138,9 +141,54 @@ test('a demand-limited encoder cannot be trapped in low quality by its own low b
   assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.video.getParameters().encodings[0].maxBitrate, 420000);
   h.set({ loss: .2 }); await h.tick();
-  assert.equal(h.video.getParameters().encodings[0].active, false, 'real loss still overrides the encoder heuristic');
+  assert.equal(h.video.getParameters().encodings[0].maxBitrate, 28000, 'real loss still overrides the encoder heuristic');
   h.set({ loss: 0 }); await h.tick(24);
   assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.video.getParameters().encodings[0].maxBitrate, 420000);
+  h.quality.stop();
+});
+
+test('only persistent severe AUDIO damage suspends video, and three good audio samples restore it', async () => {
+  const h = setup(); const original = h.connection.getStats;
+  h.connection.getStats = async () => { const stats = await original(); stats.get('remote').kind = 'audio'; return stats; };
+  h.quality.start(); await settle(); h.set({ loss: .4 });
+  await h.tick(2); assert.equal(h.video.getParameters().encodings[0].active, true);
+  await h.tick(); assert.equal(h.video.getParameters().encodings[0].active, false);
+  assert.equal(h.audio.getParameters().encodings[0].active, true);
+  assert.equal(h.audio.getParameters().encodings[0].maxBitrate, 24000);
+  h.set({ loss: 0 }); await h.tick(3);
+  assert.equal(h.video.getParameters().encodings[0].active, true);
+  assert.equal(h.audio.track.enabled, false);
+  h.quality.stop();
+});
+
+test('an authenticated peer can request temporary audio protection without stopping microphone capture', async () => {
+  const h = setup(); h.quality.start(); await settle();
+  h.quality.remoteReceiveQuality(3, true); await h.tick();
+  assert.equal(h.video.getParameters().encodings[0].active, false);
+  assert.equal(h.audio.getParameters().encodings[0].active, true);
+  h.quality.remoteReceiveQuality(2, false); await h.tick();
+  assert.equal(h.video.getParameters().encodings[0].active, true);
+  h.quality.stop();
+});
+
+test('stalled RTP triggers repair only while the remote participant expects media', async () => {
+  let expected = 'audio', repairs = 0;
+  const h = setup({ expectsMedia: () => expected, onStall: () => repairs++ });
+  const original = h.connection.getStats;
+  h.connection.getStats = async () => { const stats = await original(); stats.get('audio').packetsReceived = 100; return stats; };
+  h.quality.start(); await settle();
+  await h.tick(3); assert.equal(repairs, 0);
+  await h.tick(); assert.equal(repairs, 1);
+  expected = null; await h.tick(8); assert.equal(repairs, 1, 'intentional mute is not an RTP failure');
+  h.quality.stop();
+});
+
+test('a connected transport with no incoming RTP at all still requests recovery', async () => {
+  let repairs = 0;
+  const h = setup({ expectsMedia: () => 'audio', onStall: () => repairs++ });
+  h.connection.getStats = async () => new Map();
+  h.quality.start(); await settle(); await h.tick(4);
+  assert.equal(repairs, 1);
   h.quality.stop();
 });

@@ -64,7 +64,7 @@ test('network quality suspension never reopens a live camera, even if its previe
   const data = new Transport('student'); h.peers[0].emit('connection', data); data.opened();
   const call = h.peers[0].calls.at(-1);
   call.peerConnection.getStats = pc.peerConnection.getStats;
-  call.emit('stream', new Stream([new Track('audio')])); await settle();
+  call.state('connected'); call.emit('stream', new Stream([new Track('audio')])); await settle();
   local.getVideoTracks()[0].muted = true;
   const count = h.acquisitions.length;
   await h.service.repairVideo(); await h.service.repairVideo(true);
@@ -212,12 +212,59 @@ async function participant() {
   const peer = h.peers[0];
   const data = new Transport('student-1'); peer.emit('connection', data); data.opened();
   const call = peer.calls.at(-1); const remote = new Stream([new Track('audio'), new Track('video')]);
-  call.emit('stream', remote);
+  call.state('connected'); call.emit('stream', remote);
   data.emit('data', { type: 'profile', profile: { name: 'Student' } });
   data.emit('data', { type: 'speaking', speaking: true });
   h.events.length = 0;
   return { ...h, peer, data, call, remote };
 }
+
+test('a repaired path keeps the old media until the replacement transport is connected', async () => {
+  const h = await participant(); h.call.state('connected');
+  h.data.emit('data', { type: 'media-repair' });
+  assert.equal(h.peer.calls.length, 2);
+  const fresh = h.peer.calls.at(-1), stream = new Stream([new Track('audio'), new Track('video')]);
+  fresh.emit('stream', stream);
+  assert.equal(h.call.closed, false, 'SDP tracks alone are not a connected replacement');
+  fresh.state('connected');
+  assert.equal(h.call.closed, true);
+  assert.equal(fresh.closed, false);
+  assert.equal(h.events.filter(event => event[0] === 'onPeerLeft').length, 0);
+  assert.equal(h.acquisitions.length, 1);
+  h.service.close();
+});
+
+test('initial SDP stream does not announce connected media before ICE and DTLS connect', async () => {
+  const h = harness(); await h.service.start();
+  const data = new Transport('student'); h.peers[0].emit('connection', data); data.opened();
+  const call = h.peers[0].calls.at(-1), stream = new Stream([new Track('audio')]);
+  call.emit('stream', stream);
+  assert.equal(h.events.some(event => event[0] === 'onRemoteStream'), false);
+  call.state('connected');
+  assert.ok(h.events.some(event => event[0] === 'onRemoteStream' && event[1] === stream));
+  h.service.close();
+});
+
+test('a timed-out replacement cannot destroy a working original call', async () => {
+  const h = await participant(); h.call.state('connected');
+  h.data.emit('data', { type: 'media-repair' });
+  const fresh = h.peer.calls.at(-1);
+  await h.advance(18000);
+  assert.equal(fresh.closed, true); assert.equal(h.call.closed, false);
+  assert.equal(h.remote.getAudioTracks()[0].readyState, 'live');
+  h.service.close();
+});
+
+test('a failed board data channel does not end connected voice/video', async () => {
+  const h = await participant(); h.call.state('connected');
+  h.data.emit('error', new Error('SCTP reset'));
+  assert.equal(h.call.closed, false);
+  assert.equal(h.remote.getAudioTracks()[0].readyState, 'live');
+  assert.equal(h.events.filter(event => event[0] === 'onPeerLeft').length, 0);
+  const reopened = new Transport('student-1'); h.peer.emit('connection', reopened); reopened.opened();
+  assert.equal(h.peer.calls.length, 1, 'recover board independently');
+  h.service.close();
+});
 
 for (const ordering of ['data-first', 'media-first']) test(`incoming call is answered before diagnostics bind (${ordering})`, async () => {
   const h = harness('student', async () => 'teacher');
@@ -232,7 +279,7 @@ for (const ordering of ['data-first', 'media-first']) test(`incoming call is ans
   assert.equal(call.answeredWith, local);
   assert.ok(call.peerConnection);
   const remote = new Stream([new Track('audio'), new Track('video')]);
-  call.emit('stream', remote);
+  call.state('connected'); call.emit('stream', remote);
   if (ordering === 'media-first') peer.connections[0].opened();
   assert.ok(h.events.some(event => event[0] === 'onRemoteStream' && event[1] === remote));
   assert.equal(call.closed, false);
@@ -264,8 +311,8 @@ test('explicit leave clears media/profile/activity immediately, acknowledges and
   h.service.close();
 });
 
-for (const signal of ['close', 'error']) test(`data ${signal} clears a participant without waiting for ICE`, async () => {
-  const h = await participant(); h.data.emit(signal, new Error('network'));
+for (const signal of ['close', 'error']) test(`data ${signal} clears a participant when its media transport is also broken`, async () => {
+  const h = await participant(); h.call.peerConnection.connectionState = 'disconnected'; h.data.emit(signal, new Error('network'));
   assertCleared(h);
   h.call.emit('close'); h.data.emit('close');
   assert.equal(h.events.filter(event => event[0] === 'onPeerLeft').length, 1);
@@ -306,7 +353,7 @@ test('connected peers deliver leave and acknowledgement before transport destruc
     from.flush = () => queueMicrotask(() => to.close());
   }
   incomingData.opened(); outgoingData.opened(); await settle();
-  const remote = new Stream([new Track('audio')]); incomingCall.emit('stream', remote);
+  const remote = new Stream([new Track('audio')]); incomingCall.state('connected'); incomingCall.emit('stream', remote);
   student.events.length = 0;
   teacher.service.close(); assert.equal(teacher.peers[0].destroyed, false);
   await settle();
@@ -345,7 +392,7 @@ test('pagehide sends leave on unload, while backgrounding, PiP and BFCache stay 
 test('returning peer survives old data/media/track/ICE callbacks and retired stream events', async () => {
   const h = await participant(); h.data.emit('data', { type: 'peer-leave' });
   const fresh = new Transport('student-1'); h.peer.emit('connection', fresh); fresh.opened();
-  const call = h.peer.calls.at(-1); const stream = new Stream([new Track('audio')]); call.emit('stream', stream);
+  const call = h.peer.calls.at(-1); const stream = new Stream([new Track('audio')]); call.state('connected'); call.emit('stream', stream);
   h.events.length = 0;
   h.data.emit('close'); h.data.emit('error', new Error('late')); h.data.emit('data', { type: 'peer-leave' });
   h.call.emit('close'); h.call.emit('error', new Error('late')); h.call.emit('stream', h.remote);
@@ -361,7 +408,7 @@ test('new peer ID replaces old media before replaying state; late close cannot e
   const h = await participant(); h.callbacks.getRemotePeerId = async () => 'student-2';
   const data = new Transport('student-2'); h.peer.emit('connection', data); data.opened(); await settle();
   assertCleared(h);
-  const call = h.peer.calls.at(-1); call.emit('stream', new Stream([new Track('audio')]));
+  const call = h.peer.calls.at(-1); call.state('connected'); call.emit('stream', new Stream([new Track('audio')]));
   h.events.length = 0; h.data.emit('close'); h.call.state('disconnected');
   await h.advance(30000);
   assert.equal(call.closed, false);
@@ -375,7 +422,7 @@ test('an asynchronous data-open validation cannot displace a newer accepted conn
   const stale = new Transport('student-2'); h.peer.emit('connection', stale); stale.opened();
   h.data.emit('close');
   const fresh = new Transport('student-3'); h.peer.emit('connection', fresh); fresh.opened();
-  const call = h.peer.calls.at(-1); call.emit('stream', new Stream([new Track('audio')]));
+  const call = h.peer.calls.at(-1); call.state('connected'); call.emit('stream', new Stream([new Track('audio')]));
   h.events.length = 0; validation.resolve('student-2'); await settle();
   assert.ok(stale.closed); assert.equal(fresh.closed, false); assert.equal(call.closed, false);
   assert.equal(h.events.filter(event => event[0] === 'onPeerLeft').length, 0);

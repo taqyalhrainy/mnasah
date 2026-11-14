@@ -54,7 +54,7 @@ try {
   await student.evaluate(() => { window.networkTestPhase = 'weak'; });
   for (const page of [teacher, student]) await page.waitForFunction(() => window.testConnections.some(pc => pc.getSenders().some(sender => sender.track?.kind === 'video' && sender.getParameters().encodings[0]?.maxBitrate <= 55000)), null, { timeout: 20000 });
   await student.evaluate(() => { window.networkTestPhase = 'severe'; });
-  for (const page of [teacher, student]) await page.waitForFunction(() => window.testConnections.some(pc => pc.getSenders().some(sender => sender.track?.kind === 'video' && sender.getParameters().encodings[0]?.active === false)), null, { timeout: 20000 });
+  for (const page of [teacher, student]) await page.waitForFunction(() => window.testConnections.some(pc => pc.getSenders().some(sender => sender.track?.kind === 'video' && sender.getParameters().encodings[0]?.active && sender.getParameters().encodings[0]?.maxBitrate <= 28000)), null, { timeout: 20000 });
   await student.waitForTimeout(12000);
   const weak = await Promise.all([snapshot(teacher), snapshot(student)]);
   console.log('Real WebRTC under simulated congestion telemetry:', JSON.stringify(weak.map((state, index) => ({ receivedAudioPackets: state.incoming - before[index].incoming, decodedSamples: state.samples - before[index].samples, concealedSamples: state.concealed - before[index].concealed, videoCap: state.video.maxBitrate, videoSending: state.video.active, microphoneCaptures: state.capture }))));
@@ -75,7 +75,7 @@ try {
   const restored = await Promise.all([snapshot(teacher), snapshot(student)]);
   for (let index = 0; index < restored.length; index++) { assert.equal(restored[index].capture, before[index].capture); assert.equal(restored[index].mediaConnections, before[index].mediaConnections); }
   assert.deepEqual(errors, []);
-  console.log('Congestion telemetry on one peer reduced BOTH senders; real audio kept decoding while video paused, then video recovered without microphone or connection restart.');
+  console.log('Congestion telemetry on one peer reduced BOTH senders; audio and low-rate video stayed enabled, then quality recovered without microphone or connection restart.');
 } finally {
   await browser.close();
   await new Promise(resolve => io.close(() => { httpServer.closeAllConnections(); httpServer.close(resolve); }));

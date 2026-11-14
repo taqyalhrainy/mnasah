@@ -29,6 +29,8 @@ import { portalRequestAllowed, portalRoleAllowed, publicOwnerPage } from '../sha
 import { slotAvailability, bookingStarts } from '../shared/slot-availability.js';
 import { serveLessonFile } from './lesson-files.js';
 import { freeTrialStatus, claimFreeTrial, releaseFreeTrial, FREE_TRIAL_MINUTES } from './free-trial.js';
+import { createVideoIceProvider } from './video-ice.js';
+const videoIce = createVideoIceProvider();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -936,21 +938,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
     if (await serveCardWallet(req, res, { db, user, path, validOrigin: validChatOrigin(req.headers.origin), walletAccount, audit })) return;
 
     if (path === 'video/ice' && !write && ['teachers', 'students'].includes(user.role)) {
-      const fallback = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] }];
-      const configuredUrls = String(process.env.VITE_TURN_URLS || process.env.TURN_URLS || '').split(',').map(value => value.trim()).filter(Boolean);
-      if (configuredUrls.length && (process.env.VITE_TURN_USERNAME || process.env.TURN_USERNAME) && (process.env.VITE_TURN_CREDENTIAL || process.env.TURN_CREDENTIAL)) return res.json({ ice_servers: [...fallback, { urls: configuredUrls, username: process.env.VITE_TURN_USERNAME || process.env.TURN_USERNAME, credential: process.env.VITE_TURN_CREDENTIAL || process.env.TURN_CREDENTIAL }] });
-      if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-        try {
-          const authorization = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
-          const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Tokens.json`, { method: 'POST', headers: { Authorization: `Basic ${authorization}` } });
-          if (response.ok) {
-            const token = await response.json();
-            const twilioServers = Array.isArray(token.ice_servers) ? token.ice_servers.map(item => ({ urls: item?.urls || item?.url, ...(item?.username ? { username: item.username } : {}), ...(item?.credential ? { credential: item.credential } : {}) })).filter(item => item.urls) : [];
-            if (twilioServers.length) return res.json({ ice_servers: twilioServers });
-          }
-        } catch { /* Fall back to STUN; the client will keep retrying and report media state. */ }
-      }
-      return res.json({ ice_servers: fallback });
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.json(await videoIce());
     }
 
     if (await serveVerificationFile(req, res, { db, user, path })) return;

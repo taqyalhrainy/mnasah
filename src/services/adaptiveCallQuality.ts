@@ -5,7 +5,7 @@ const profiles = [
   { video: 420000, screen: 350000, fps: 20, scale: 1 },
   { video: 140000, screen: 120000, fps: 12, scale: 2 },
   { video: 55000, screen: 45000, fps: 6, scale: 3 },
-  { video: 16000, screen: 16000, fps: 2, scale: 4 },
+  { video: 28000, screen: 30000, fps: 4, scale: 4 },
 ];
 
 // Opus FEC repairs some lost speech packets. Mono/DTX avoid spending bandwidth
@@ -42,12 +42,22 @@ export class AdaptiveCallQuality {
   private sendGood = 0;
   private receiveGood = 0;
   private level: QualityLevel = 0;
+  private audioBad = 0;
+  private audioGood = 0;
+  private protectAudio = false;
+  private remoteProtectAudio = false;
+  private videoSuspended = false;
+  private lastMediaPackets = -1;
+  private lastExpectedMedia: 'audio' | 'video' | null = null;
+  private stalledSamples = 0;
 
   constructor(private readonly options: {
     connection: RTCPeerConnection;
     screen?: () => RTCPeerConnection | undefined;
-    onReceiveQuality: (level: QualityLevel) => void;
-    onChange?: (level: QualityLevel) => void;
+    onReceiveQuality: (level: QualityLevel, protectAudio: boolean) => void;
+    onChange?: (level: QualityLevel, videoSuspended: boolean) => void;
+    expectsMedia?: () => 'audio' | 'video' | null;
+    onStall?: () => void;
   }) {}
 
   start() {
@@ -61,9 +71,10 @@ export class AdaptiveCallQuality {
     this.previous.clear();
   }
 
-  remoteReceiveQuality(level: unknown) {
+  remoteReceiveQuality(level: unknown, protectAudio: unknown = false) {
     if (this.stopped || !Number.isInteger(level) || Number(level) < 0 || Number(level) > 3) return;
     this.remoteLevel = level as QualityLevel;
+    this.remoteProtectAudio = protectAudio === true;
     this.remoteUpdated = Date.now();
     // Apply on the next serialized sample so setParameters transactions cannot race.
   }
@@ -73,7 +84,7 @@ export class AdaptiveCallQuality {
     this.busy = true;
     try {
       const pc = this.options.connection;
-      let send: QualityLevel = 0, receive: QualityLevel = 0, measured = false;
+      let send: QualityLevel = 0, receive: QualityLevel = 0, measured = false, audioTrouble = false, audioMeasured = false;
       if (typeof pc.getStats === 'function') {
         const report = await pc.getStats().catch(() => undefined);
         if (this.stopped) return;
@@ -94,11 +105,13 @@ export class AdaptiveCallQuality {
             // actual congestion immediately suspends that probe again.
             if (bandwidthLimited && typeof rate === 'number' && rate > 0 && !(this.level === 3 && rate < 90000)) send = Math.max(send, rate < 90000 ? 3 : rate < 160000 ? 2 : rate < 350000 ? 1 : 0) as QualityLevel;
             const rtt = row.currentRoundTripTime;
-            if (typeof rtt === 'number') send = Math.max(send, rtt > 1 ? 3 : rtt > .65 ? 2 : rtt > .35 ? 1 : 0) as QualityLevel;
+            // Long-distance RTT alone is not packet loss or a failed call.
+            if (typeof rtt === 'number') send = Math.max(send, rtt > 1 ? 2 : rtt > .5 ? 1 : 0) as QualityLevel;
           }
           if (row.type === 'remote-inbound-rtp' && typeof row.fractionLost === 'number') {
             measured = true;
             send = Math.max(send, this.lossLevel(row.fractionLost)) as QualityLevel;
+            if ((row.kind || row.mediaType) === 'audio') { audioMeasured = true; audioTrouble ||= row.fractionLost > .25; }
           }
           if (row.type !== 'inbound-rtp') continue;
           const current = { received: row.packetsReceived || 0, lost: row.packetsLost || 0, concealed: row.concealedSamples || 0, samples: row.totalSamplesReceived || 0 };
@@ -109,10 +122,22 @@ export class AdaptiveCallQuality {
           measured = true;
           receive = Math.max(receive, this.lossLevel(lost / (received + lost))) as QualityLevel;
           if ((row.kind || row.mediaType) === 'audio') {
-            receive = Math.max(receive, this.lossLevel(Math.max(0, current.concealed - previous.concealed) / Math.max(1, current.samples - previous.samples))) as QualityLevel;
+            const concealment = Math.max(0, current.concealed - previous.concealed) / Math.max(1, current.samples - previous.samples);
+            receive = Math.max(receive, this.lossLevel(concealment)) as QualityLevel;
+            audioMeasured = true;
+            audioTrouble ||= lost / (received + lost) > .25 || concealment > .3;
             if (row.jitter > .12) receive = Math.max(receive, 2) as QualityLevel;
           }
         }
+        const expected = this.options.expectsMedia?.() || null;
+        if (expected !== this.lastExpectedMedia) { this.stalledSamples = 0; this.lastMediaPackets = -1; this.lastExpectedMedia = expected; }
+        const media = expected ? rows.filter(row => row.type === 'inbound-rtp' && (row.kind || row.mediaType) === expected) : [];
+        if (expected && report) {
+          const packets = media.reduce((sum, row) => sum + (row.packetsReceived || 0), 0);
+          this.stalledSamples = packets === this.lastMediaPackets ? this.stalledSamples + 1 : 0;
+          this.lastMediaPackets = packets;
+          if (this.stalledSamples >= 4) { this.stalledSamples = 0; this.options.onStall?.(); }
+        } else { this.stalledSamples = 0; this.lastMediaPackets = -1; }
       }
       if (measured) {
         // Reduce immediately; recover only one step after 16 clean seconds.
@@ -122,11 +147,23 @@ export class AdaptiveCallQuality {
         else if (this.sendGood >= 8) { this.sendLevel = (this.sendLevel - 1) as QualityLevel; this.sendGood = 0; }
         if (receive >= this.receiveLevel) this.receiveLevel = receive;
         else if (this.receiveGood >= 8) { this.receiveLevel = (this.receiveLevel - 1) as QualityLevel; this.receiveGood = 0; }
-        this.options.onReceiveQuality(this.receiveLevel);
+        if (audioMeasured) {
+          this.audioBad = audioTrouble ? this.audioBad + 1 : 0;
+          this.audioGood = audioTrouble ? 0 : this.audioGood + 1;
+          if (this.audioBad >= 3) this.protectAudio = true;
+          if (this.audioGood >= 3) this.protectAudio = false;
+        }
+        this.options.onReceiveQuality(this.receiveLevel, this.protectAudio);
       }
       const remote = Date.now() - this.remoteUpdated < 15000 ? this.remoteLevel : 0;
       const next = Math.max(this.sendLevel, this.receiveLevel, remote) as QualityLevel;
-      if (next !== this.level) { this.level = next; this.options.onChange?.(next); }
+      const suspend = this.protectAudio || (Date.now() - this.remoteUpdated < 15000 && this.remoteProtectAudio);
+      if (next !== this.level || suspend !== this.videoSuspended) { this.level = next; this.videoSuspended = suspend; this.options.onChange?.(next, suspend); }
+      for (const receiver of pc.getReceivers?.() || []) {
+        if (receiver.track?.kind !== 'audio' || !('jitterBufferTarget' in receiver)) continue;
+        // A small, bounded smoothing reserve only on unstable reception.
+        try { const target = [null, 80, 120, 160][this.receiveLevel]; if (receiver.jitterBufferTarget !== target) receiver.jitterBufferTarget = target; } catch { /* Optional receiver API. */ }
+      }
       const screen = this.options.screen?.();
       await this.configure(pc, false, Boolean(screen));
       if (screen && !this.stopped) await this.configure(screen, true, true);
@@ -145,11 +182,11 @@ export class AdaptiveCallQuality {
       const audio = sender.track.kind === 'audio';
       const params = sender.getParameters();
       if (!params.encodings?.length) continue; // Negotiation may still be in flight.
-      const rate = audio ? 32000 : screen ? profile.screen : profile.video * (sharing ? .5 : 1);
+      const rate = audio ? (this.videoSuspended ? 24000 : 32000) : screen ? profile.screen : profile.video * (sharing ? .5 : 1);
       let changed = false;
       for (const encoding of params.encodings) {
         const desired = audio ? { maxBitrate: rate, priority: 'high', networkPriority: 'high' }
-          : { maxBitrate: rate, active: this.level < 3, maxFramerate: screen ? Math.min(10, profile.fps) : profile.fps, scaleResolutionDownBy: screen ? Math.min(2, profile.scale) : profile.scale, priority: 'low', networkPriority: 'low' };
+          : { maxBitrate: rate, active: !this.videoSuspended, maxFramerate: screen ? Math.min(10, profile.fps) : profile.fps, scaleResolutionDownBy: screen ? Math.min(2, profile.scale) : profile.scale, priority: 'low', networkPriority: 'low' };
         for (const [key, value] of Object.entries(desired)) {
           const settings = encoding as unknown as Record<string, unknown>;
           if (settings[key] !== value) { settings[key] = value; changed = true; }
@@ -166,7 +203,7 @@ export class AdaptiveCallQuality {
         // portable bitrate/active limits using a fresh transaction identifier.
         try {
           const basic = sender.getParameters();
-          for (const encoding of basic.encodings || []) { encoding.maxBitrate = rate; if (!audio) encoding.active = this.level < 3; }
+          for (const encoding of basic.encodings || []) { encoding.maxBitrate = rate; if (!audio) encoding.active = !this.videoSuspended; }
           await sender.setParameters(basic);
         } catch { /* Native congestion control remains active. */ }
       }
