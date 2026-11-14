@@ -56,6 +56,23 @@ test('a data handshake that never opens times out and retries without reopening 
   h.service.close(); assert.equal(h.timers.size, 0);
 });
 
+test('network quality suspension never reopens a live camera, even if its preview reports muted', async () => {
+  const h = harness(); const local = await h.service.start({ video: true });
+  const pc = new Transport('student');
+  pc.peerConnection.getStats = async () => new Map([['pair', { id: 'pair', type: 'candidate-pair', state: 'succeeded', nominated: true, availableOutgoingBitrate: 60000 }]]);
+  h.peers[0].emit('call', pc); // Teacher rejects incoming calls; use its outgoing media call.
+  const data = new Transport('student'); h.peers[0].emit('connection', data); data.opened();
+  const call = h.peers[0].calls.at(-1);
+  call.peerConnection.getStats = pc.peerConnection.getStats;
+  call.emit('stream', new Stream([new Track('audio')])); await settle();
+  local.getVideoTracks()[0].muted = true;
+  const count = h.acquisitions.length;
+  await h.service.repairVideo(); await h.service.repairVideo(true);
+  assert.equal(h.acquisitions.length, count);
+  assert.equal(local.getAudioTracks()[0].readyState, 'live');
+  h.service.close();
+});
+
 for (const role of ['teacher', 'student']) test(`known ${role === 'teacher' ? 'student' : 'teacher'} is contacted on signaling open without waiting for presence polling`, async () => {
   const polling = deferred();
   const h = harness(role, () => polling.promise);

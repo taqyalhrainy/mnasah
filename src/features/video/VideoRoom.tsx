@@ -161,6 +161,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(false);
   const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [connectionQuality, setConnectionQuality] = useState(0);
   const [reportedRemotePresent, setReportedRemotePresent] = useState<boolean | null>(() => remotePresent ?? (initialRemotePeerId ? true : null));
   useEffect(() => { if (remotePresent !== undefined) setReportedRemotePresent(remotePresent); }, [remotePresent]);
   const [focusedParticipant, setFocusedParticipant] = useState<'local' | 'remote' | 'local-screen' | 'remote-screen' | null>(null);
@@ -480,7 +481,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   useEffect(() => {
     if (!isConnected) return;
-    let previousFrames = -1, stalled = 0, repairing = false;
+    let previousFrames = -1, previousTime = -1, stalled = 0, repairing = false;
     let lastFrameAt = performance.now(), frameCallback: number | undefined, alive = true;
     const watchedVideo = localVideoRef.current;
     const watchFrame = () => {
@@ -499,9 +500,11 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         await connectionRef.current?.repairVideo();
         if (local.paused) await local.play().catch(() => undefined);
         const frames = local.getVideoPlaybackQuality?.().totalVideoFrames ?? -1;
-        const frozen = typeof local.requestVideoFrameCallback === 'function' ? performance.now() - lastFrameAt > 4500 : frames > 0 && frames === previousFrames;
+        const frameStalled = typeof local.requestVideoFrameCallback === 'function' ? performance.now() - lastFrameAt > 4500 : frames > 0 && frames === previousFrames;
+        const frozen = connectionQuality === 0 && frameStalled && local.currentTime === previousTime;
         stalled = frozen ? stalled + 1 : 0;
         previousFrames = frames;
+        previousTime = local.currentTime;
         if (stalled === 2 && localStreamRef.current) { local.srcObject = new MediaStream(localStreamRef.current.getVideoTracks()); await local.play().catch(() => undefined); }
         if (stalled >= 4) { await connectionRef.current?.repairVideo(true); stalled = 0; }
       } catch (error) {
@@ -521,7 +524,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const devicesChanged = () => { cameraRecoveryBlockedRef.current = false; };
     navigator.mediaDevices?.addEventListener?.('devicechange', devicesChanged);
     return () => { alive = false; if (frameCallback !== undefined) watchedVideo?.cancelVideoFrameCallback?.(frameCallback); clearInterval(timer); document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); window.removeEventListener('pageshow', visible); navigator.mediaDevices?.removeEventListener?.('devicechange', devicesChanged); };
-  }, [isConnected, videoEnabled, isScreenSharing]);
+  }, [isConnected, videoEnabled, isScreenSharing, connectionQuality]);
 
   useEffect(() => {
     if (!scheduledEnd || !isConnected) { setRemainingGrace(null); graceExpiredRef.current = false; return; }
@@ -799,6 +802,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           setFocusedParticipant(null);
         },
         onStatus: setStatus,
+        onConnectionQuality: setConnectionQuality,
       });
       connectionRef.current = connection;
       connection.sendProfile({ name: localName, avatar: avatarUrl });
@@ -2273,6 +2277,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       {compact && <div className="compact-call-header"><button className="call-expand-button" type="button" onClick={onExpand} title={t("العودة إلى المكالمة الكاملة")}><Maximize2 size={17} />{t("تكبير")}</button></div>}
 
       <div className="session-controls call-start">
+        {isConnected && connectionQuality >= 2 && <span className="call-network-notice" role="status">{t(connectionQuality === 3 ? 'النت ضعيف؛ أوقفنا إرسال الفيديو مؤقتًا للحفاظ على الصوت' : 'نخفّض جودة الفيديو للحفاظ على وضوح الصوت')}</span>}
         {isJoining && <span className="call-joining"><RefreshCw size={16} />{t("جار الانضمام")}</span>}
         {!isConnected && !isJoining && <button className="primary-button" type="button" onClick={() => void startCall()}><RefreshCw size={18} />{t("إعادة المحاولة")}</button>}
       </div>

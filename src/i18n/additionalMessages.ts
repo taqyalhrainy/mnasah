@@ -1,4 +1,6 @@
 export const additionalMessages: Record<string, string> = {
+  'النت ضعيف؛ أوقفنا إرسال الفيديو مؤقتًا للحفاظ على الصوت': 'Weak connection: video sending is paused temporarily to protect audio',
+  'نخفّض جودة الفيديو للحفاظ على وضوح الصوت': 'Reducing video quality to keep audio clear',
   'صورة البورد': 'Whiteboard image',
   'لحفظها في الألبوم، اختر «حفظ الصورة» من قائمة المشاركة. ويمكنك الضغط مطولاً على الصورة لحفظها.': 'To save to Photos, choose Save Image in the share sheet. You can also press and hold the image to save it.',
   'تعذرت المشاركة. اضغط مطولاً على الصورة واختر حفظ الصورة، أو نزّل ملف PNG.': 'Sharing failed. Press and hold the image and choose Save Image, or download the PNG file.',

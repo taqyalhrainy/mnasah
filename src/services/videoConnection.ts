@@ -1,6 +1,7 @@
 import { t } from '../i18n/preferences';
 import { request } from './platformApi';
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
+import { AdaptiveCallQuality, speechSdp, type QualityLevel } from './adaptiveCallQuality';
 
 type PeerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
@@ -22,6 +23,7 @@ type PeerCallbacks = {
   onRemoteProfile?: (profile: { name: string; avatar?: string } | null) => void;
   onPeerLeft: () => void;
   onStatus: (status: string) => void;
+  onConnectionQuality?: (level: QualityLevel) => void;
 };
 
 export type VideoRole = 'teacher' | 'student';
@@ -35,10 +37,10 @@ const iceServers: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478', 'stun:global.stun.twilio.com:3478'] },
   ...(hasTurnServer ? [{ urls: turnUrls, username: turnUsername, credential: turnCredential }] : []),
 ];
-const audioConstraints: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+const audioConstraints: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: { ideal: 1 } };
 const videoConstraints: MediaTrackConstraints = {
   width: { ideal: 640, max: 1280 }, height: { ideal: 360, max: 720 },
-  frameRate: { ideal: 24, max: 30 }, facingMode: { ideal: 'user' },
+  frameRate: { ideal: 20, max: 24 }, facingMode: { ideal: 'user' },
 };
 const leaveGraceMs = 750;
 const mediaRetryDelays = [150, 300];
@@ -93,6 +95,8 @@ export class VideoConnection {
   private remoteStream?: MediaStream;
   private remotePresent = false;
   private profile?: { name: string; avatar?: string };
+  private quality?: AdaptiveCallQuality;
+  private networkQuality: QualityLevel = 0;
   private readonly handlePageHide = (event: PageTransitionEvent) => {
     // BFCache pages can resume; ordinary backgrounding/PiP uses visibilitychange.
     // Unload delivery is best-effort because the browser may stop networking.
@@ -305,6 +309,9 @@ export class VideoConnection {
     if (this.closed || !this.localStream || !this.videoEnabled || this.videoSource !== 'camera') return;
     if (this.videoRepair) return this.videoRepair;
     const current = this.cameraTrack;
+    // A bandwidth suspension is not a failed camera. Reopening a live capture
+    // here competes with adaptation and repeatedly interrupts mobile previews.
+    if (this.networkQuality > 0 && current?.readyState === 'live') return;
     if (!force && current?.readyState === 'live' && !current.muted) return;
     const generation = this.generation;
     const pending = (async () => {
@@ -438,6 +445,9 @@ export class VideoConnection {
   }
 
   private closeRemoteMedia() {
+    this.quality?.stop(); this.quality = undefined;
+    this.networkQuality = 0;
+    this.callbacks.onConnectionQuality?.(0);
     const calls = new Set([...this.pendingCalls, this.activeCall, this.incomingScreenCall, this.outgoingScreenCall]);
     this.pendingCalls.clear();
     this.activeCall = this.incomingScreenCall = this.outgoingScreenCall = undefined;
@@ -543,7 +553,7 @@ export class VideoConnection {
       this.callbacks.onStatus(t("جاري قبول الاتصال"));
       // Incoming PeerJS calls create peerConnection inside answer(). Binding
       // ICE/track listeners before answering dereferences an absent transport.
-      call.answer(this.localStream!);
+      call.answer(this.localStream!, { sdpTransform: speechSdp });
       this.bindCallEvents(call);
       this.ensureStudentDataConnection(call.peer, peerChanged);
     });
@@ -722,7 +732,7 @@ export class VideoConnection {
     }
 
     this.callbacks.onStatus(t('جارٍ الاتصال بالطرف الموجود في الغرفة'));
-    this.bindCallEvents(this.peer.call(targetPeerId, this.localStream));
+    this.bindCallEvents(this.peer.call(targetPeerId, this.localStream, { sdpTransform: speechSdp }));
   }
 
   private ensureStudentDataConnection(targetPeerId: string, replaceStaleConnection = false) {
@@ -763,6 +773,23 @@ export class VideoConnection {
       if (this.activeCall !== call && !this.pendingCalls.has(call)) return;
       const previousCall = this.activeCall;
       this.activeCall = call;
+      if (previousCall !== call && typeof call.peerConnection.getStats === 'function') {
+        this.quality?.stop();
+        this.quality = new AdaptiveCallQuality({
+          connection: call.peerConnection,
+          screen: () => this.outgoingScreenCall?.peerConnection,
+          onReceiveQuality: level => {
+            if (this.activeDataConnection?.open) this.activeDataConnection.send({ type: 'receive-quality', level });
+          },
+          onChange: level => {
+            if (this.closed || this.activeCall !== call) return;
+            this.networkQuality = level;
+            this.callbacks.onConnectionQuality?.(level);
+            this.sendVideoState();
+          },
+        });
+        this.quality.start();
+      }
       this.hasRemoteStream = true;
       this.remotePresent = true;
       this.remoteStream = remoteStream;
@@ -919,6 +946,10 @@ export class VideoConnection {
 
     connection.on('data', (message) => {
       if (this.closed || this.activeDataConnection !== connection) return;
+      if (message && typeof message === 'object' && (message as { type?: string }).type === 'receive-quality') {
+        this.quality?.remoteReceiveQuality((message as { level?: unknown }).level);
+        return;
+      }
       if (message && typeof message === 'object' && (message as { type?: string }).type === 'peer-leave') {
         // Acknowledge before retiring the channel; flush preserves message order.
         try { void Promise.resolve(connection.send({ type: 'peer-leave-ack' })).catch(() => undefined); } catch { /* Already disconnected. */ }
@@ -1009,7 +1040,7 @@ export class VideoConnection {
 
   private sendVideoState() {
     if (!this.activeDataConnection?.open) return;
-    this.activeDataConnection.send({ type: 'video-state', enabled: this.videoEnabled });
+    this.activeDataConnection.send({ type: 'video-state', enabled: this.videoEnabled && this.networkQuality < 3 });
   }
 
   private sendAudioState() {

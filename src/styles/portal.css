@@ -1124,6 +1124,7 @@ button.day-event { font: inherit; }
   font-weight: 800;
 }
 .call-joining svg { animation: call-spin 1s linear infinite; }
+.call-network-notice { max-width: 100%; padding: 6px 12px; border-radius: 12px; background: #352e20; color: #ffe7a2; font-size: 12px; line-height: 1.5; text-align: center; }
 @keyframes call-spin { to { transform: rotate(360deg); } }
 .call-stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; overflow: hidden; }
 .call-stage { flex: 1 1 auto; }
