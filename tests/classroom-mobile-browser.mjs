@@ -41,14 +41,21 @@ try {
   await teacher.locator('.room-card').getByRole('button', { name: 'دخول الغرفة', exact: true }).click();
   await student.locator('.room-card').getByRole('button', { name: /دخول الغرفة|انضم الآن/, exact: true }).click();
   for (const page of [teacher, student]) await page.waitForFunction(() => [...document.querySelectorAll('.participant-tile video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
-  for (const page of [teacher, student]) await page.waitForFunction(async () => {
-    for (const peer of window.testPeerConnections) {
-      if (peer.connectionState !== 'connected') continue;
-      const stats = await peer.getStats();
-      if ([...stats.values()].some(row => row.type === 'inbound-rtp' && row.kind === 'audio' && row.packetsReceived > 0)) return true;
+  for (const page of [teacher, student]) {
+    let receivingAudio = false;
+    for (let attempt = 0; attempt < 20 && !receivingAudio; attempt++) {
+      receivingAudio = await page.evaluate(async () => {
+        for (const peer of window.testPeerConnections) {
+          if (peer.connectionState !== 'connected') continue;
+          const stats = await peer.getStats();
+          if ([...stats.values()].some(row => row.type === 'inbound-rtp' && row.kind === 'audio' && row.packetsReceived > 0)) return true;
+        }
+        return false;
+      });
+      if (!receivingAudio) await page.waitForTimeout(500);
     }
-    return false;
-  }, undefined, { timeout: 10000 });
+    assert.ok(receivingAudio, 'mobile call must actually receive audio packets');
+  }
   await teacher.getByTitle('تشغيل الكاميرا', { exact: true }).click();
   await student.getByTitle('تشغيل الكاميرا', { exact: true }).click();
   for (const page of [teacher, student]) {
@@ -88,11 +95,13 @@ try {
   assert.equal(await teacher.locator('.document-fit-width').count(), 0, 'the unwanted three-dot file button is removed');
   await student.reload({ waitUntil: 'domcontentloaded' });
   await student.locator('.room-card').getByRole('button', { name: /دخول الغرفة|انضم الآن/, exact: true }).click();
+  await student.getByTitle('تشغيل الكاميرا', { exact: true }).waitFor();
   for (const page of [teacher, student]) {
     await page.waitForFunction(() => [...document.querySelectorAll('.participant-tile video')].filter(video => video.srcObject).length === 2, undefined, { timeout: 30000 });
     const capture = await page.evaluate(async () => ({ errors: window.testMediaErrors, permission: (await navigator.permissions.query({ name: 'camera' })).state }));
     assert.equal(capture.permission, 'granted', 'the existing camera grant remains in force after reentry');
-    if (await page.locator('.participant-tile .camera-placeholder').count()) assert.ok(capture.errors.some(error => error.name === 'NotFoundError'), 'camera fallback is only expected when the native capture device is actually unavailable');
+    // Rejoining starts the camera off by design; a placeholder is expected
+    // even with a valid permission grant and a healthy native camera.
     await page.waitForFunction(() => document.querySelector('.document-page img')?.naturalWidth > 0, undefined, { timeout: 30000 });
   }
   await teacher.getByTitle('إنهاء مشاركة الملف', { exact: true }).click();

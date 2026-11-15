@@ -16,6 +16,7 @@ export class DocumentPageCache {
     publish: (src: string, page: number) => Promise<string>;
     onReady: (src: string, page: number) => void;
     limit?: number;
+    canPrefetch?: () => boolean;
   }) {}
 
   async local(page: number): Promise<string> {
@@ -53,9 +54,9 @@ export class DocumentPageCache {
     const revision = ++this.warmRevision;
     void (async () => {
       for (const page of [around + 1, around - 1, around + 2, around - 2]) {
-        if (revision !== this.warmRevision || this.closed) return;
+        if (revision !== this.warmRevision || this.closed || this.options.canPrefetch?.() === false) return;
         if (page < 1 || page > this.options.count) continue;
-        try { await this.local(page); if (revision !== this.warmRevision || this.closed) return; await this.share(page, false); } catch { /* The visible page can retry failed warm-up work. */ }
+        try { await this.local(page); if (revision !== this.warmRevision || this.closed || this.options.canPrefetch?.() === false) return; await this.share(page, false); } catch { /* The visible page can retry failed warm-up work. */ }
       }
     })();
   }

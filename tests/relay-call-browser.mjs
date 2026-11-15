@@ -4,7 +4,8 @@ import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 import { networkRelay } from './helpers/network-relay.mjs';
 
-const relay = await networkRelay();
+const externalIce = process.env.CALL_LAB_ICE_FILE ? JSON.parse(await (await import('node:fs/promises')).readFile(process.env.CALL_LAB_ICE_FILE, 'utf8')) : null;
+const relay = externalIce ? { iceServers: externalIce, impair() {}, metrics: () => ({}), close() {} } : await networkRelay();
 const { httpServer, io } = await startPlatformServer({ database: memoryMongo(), port: 55295 });
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 try {
@@ -12,7 +13,19 @@ try {
   // build interfere with localhost relay permission; grant only the lab LAN.
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['local-network-access'], serviceWorkers: 'block' });
   await context.addInitScript(() => {
-    window.labConnections = []; window.labCaptures = 0;
+    window.labConnections = []; window.labCaptures = 0; window.labTotals = new Map();
+    setInterval(async () => {
+      for (const pc of window.labConnections) {
+        if (pc.connectionState === 'closed') continue;
+        const report = await pc.getStats().catch(() => null); if (!report) continue;
+        for (const row of report.values()) if (row.type === 'inbound-rtp') {
+          const key = `${window.labConnections.indexOf(pc)}:${row.id}`, before = window.labTotals.get(key) || {};
+          const next = { kind: row.kind };
+          for (const field of ['packetsReceived', 'totalSamplesReceived', 'concealedSamples', 'framesDecoded']) next[field] = Math.max(before[field] || 0, row[field] || 0);
+          window.labTotals.set(key, next);
+        }
+      }
+    }, 1000);
     for (const method of ['createOffer', 'createAnswer']) {
       const native = RTCPeerConnection.prototype[method];
       RTCPeerConnection.prototype[method] = function (...args) { if (!window.labConnections.includes(this)) window.labConnections.push(this); return native.apply(this, args); };
@@ -38,22 +51,59 @@ try {
     const report = await pc.getStats(), stats = [...report.values()];
     const audio = stats.find(row => row.type === 'inbound-rtp' && row.kind === 'audio'), video = stats.find(row => row.type === 'inbound-rtp' && row.kind === 'video');
     const transport = stats.find(row => row.type === 'transport' && row.selectedCandidatePairId), pair = report.get(transport?.selectedCandidatePairId);
-    return { connected: true, transport: media.indexOf(pc), connections: media.length, candidate: report.get(pair?.localCandidateId)?.candidateType, packets: audio?.packetsReceived || 0, samples: audio?.totalSamplesReceived || 0, concealed: audio?.concealedSamples || 0, frames: video?.framesDecoded || 0, captures: window.labCaptures, video: pc.getSenders().find(sender => sender.track?.kind === 'video')?.getParameters().encodings[0] };
+    const total = field => [...window.labTotals.values()].filter(row => row.kind === (field === 'framesDecoded' ? 'video' : 'audio')).reduce((sum, row) => sum + row[field], 0);
+    return { connected: true, transport: media.indexOf(pc), connections: media.length, candidate: report.get(pair?.localCandidateId)?.candidateType, packets: audio?.packetsReceived || 0, samples: audio?.totalSamplesReceived || 0, concealed: audio?.concealedSamples || 0, frames: video?.framesDecoded || 0, totalPackets: total('packetsReceived'), totalSamples: total('totalSamplesReceived'), totalConcealed: total('concealedSamples'), totalFrames: total('framesDecoded'), captures: window.labCaptures, video: pc.getSenders().find(sender => sender.track?.kind === 'video')?.getParameters().encodings[0] };
   });
   await student.waitForTimeout(3000);
   const baseline = await Promise.all(pages.map(snapshot));
   console.log('App relay baseline:', JSON.stringify(baseline));
   assert.ok(baseline.every(state => state.connected && state.candidate === 'relay' && state.samples > 0 && state.frames > 0));
+  await teacher.getByTitle('اللوح المشترك', { exact: true }).click();
+  for (const page of pages) await page.locator('.whiteboard-canvas').waitFor();
+  const draw = async (page, fraction) => {
+    await page.locator('[data-whiteboard-tool=draw]').click();
+    const box = await page.locator('.whiteboard-canvas').boundingBox();
+    await page.mouse.move(box.x + box.width * .25, box.y + box.height * fraction); await page.mouse.down();
+    await page.mouse.move(box.x + box.width * .5, box.y + box.height * fraction + 30, { steps: 12 }); await page.mouse.up();
+  };
+  await draw(teacher, .3); await student.locator('.whiteboard-canvas path').first().waitFor();
+  await draw(student, .6); await teacher.locator('.whiteboard-canvas path').nth(1).waitFor();
   relay.impair({ bytesPerSecond: 22000, loss: .03, latency: 45 });
+  const picture = await teacher.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 800; canvas.height = 450;
+    const ctx = canvas.getContext('2d'); let seed = 997;
+    for (let y = 0; y < 450; y += 4) for (let x = 0; x < 800; x += 4) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; ctx.fillStyle = `#${(seed & 0xffffff).toString(16).padStart(6, '0')}`; ctx.fillRect(x, y, 4, 4); }
+    return canvas.toDataURL('image/jpeg', .75).split(',')[1];
+  });
+  await teacher.locator('.whiteboard-tools input[type=file]').setInputFiles({ name: 'lesson.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(picture, 'base64') });
+  await student.locator('.whiteboard-board-image').waitFor({ timeout: 45000 });
+  await teacher.locator('[data-whiteboard-tool=text]').click();
+  const textBox = await teacher.locator('.whiteboard-canvas').boundingBox();
+  await teacher.mouse.click(textBox.x + 40, textBox.y + 40);
+  await teacher.locator('.whiteboard-text-editor').fill('الدرس مستمر');
+  await teacher.locator('[data-whiteboard-tool=draw]').click();
+  await student.locator('.whiteboard-text-content').filter({ hasText: 'الدرس مستمر' }).waitFor({ timeout: 15000 });
+  await draw(student, .8); await teacher.locator('.whiteboard-canvas path').nth(2).waitFor({ timeout: 15000 });
+  await teacher.locator('[data-whiteboard-file-input]').setInputFiles({ name: 'lesson.pdf', mimeType: 'application/pdf', buffer: pdfPages() });
+  await student.locator('.document-page img').waitFor({ timeout: 30000 });
+  await teacher.getByTitle('الصفحة التالية', { exact: true }).click();
+  await student.waitForFunction(() => document.querySelector('.document-page-picker button')?.textContent?.includes('2 / 3'), null, { timeout: 30000 });
+  await teacher.getByTitle('قلم', { exact: true }).click();
+  const sheet = await teacher.locator('.document-page-canvas').boundingBox();
+  await teacher.mouse.move(sheet.x + sheet.width * .4, sheet.y + sheet.height * .4); await teacher.mouse.down();
+  await teacher.mouse.move(sheet.x + sheet.width * .6, sheet.y + sheet.height * .5, { steps: 12 }); await teacher.mouse.up();
+  await student.locator('.document-page svg path').waitFor({ timeout: 15000 });
+  console.log('Two-way board drawing, text, image sharing, PDF page navigation and annotation passed over relay.');
   await student.waitForTimeout(22000);
   const weak = await Promise.all(pages.map(snapshot));
-  const directions = weak.map((state, index) => ({ audioPackets: state.packets - baseline[index].packets, samples: state.samples - baseline[index].samples, concealed: state.concealed - baseline[index].concealed, videoFrames: state.frames - baseline[index].frames, video: state.video }));
-  console.log('App actual UDP impairment (176kbps, 3% loss, extra 45ms plus queue):', JSON.stringify({ relay: relay.metrics(), directions }));
+  const directions = weak.map((state, index) => ({ audioPackets: state.totalPackets - baseline[index].totalPackets, samples: state.totalSamples - baseline[index].totalSamples, concealed: state.totalConcealed - baseline[index].totalConcealed, videoFrames: state.totalFrames - baseline[index].totalFrames, transport: state.transport, video: state.video }));
+  console.log(externalIce ? 'App hosted relay media and collaboration:' : 'App actual UDP impairment (176kbps, 3% loss, extra 45ms plus queue):', JSON.stringify({ relay: relay.metrics(), directions }));
   for (let index = 0; index < weak.length; index++) {
     assert.equal(weak[index].connected, true); assert.ok(directions[index].audioPackets > 150);
     assert.ok(directions[index].samples > 48000 * 8); assert.ok(directions[index].videoFrames > 3);
     assert.equal(weak[index].captures, baseline[index].captures);
   }
+  if (!externalIce) {
   assert.ok(relay.metrics().dropped > 0);
   relay.impair({ bytesPerSecond: 22000, loss: 1, latency: 0 });
   await student.waitForTimeout(9500);
@@ -66,5 +116,29 @@ try {
   console.log('App actual UDP recovery:', JSON.stringify(recovered));
   assert.ok(healthy(recovered), 'app must recover real media automatically after the network returns');
   assert.ok(recovered.every((state, index) => state.captures === baseline[index].captures), 'network repair never reopens the microphone');
+  }
+  for (const page of pages) {
+    assert.match(await page.locator('.document-page-picker button').innerText(), /2 \/ 3/);
+    assert.equal(await page.locator('.document-page svg path').count(), 1, 'annotations survive media repair');
+    await page.getByTitle('اللوح المشترك', { exact: true }).click();
+    assert.equal(await page.locator('.whiteboard-board-image').count(), 1, 'board images survive media repair');
+    assert.equal(await page.locator('.whiteboard-canvas path').count(), 3, 'both participants drawing survives media repair');
+    assert.equal(await page.locator('.whiteboard-text-content').filter({ hasText: 'الدرس مستمر' }).count(), 1, 'shared text survives media repair');
+  }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); relay.close(); await new Promise(resolve => io.close(() => { httpServer.closeAllConnections(); httpServer.close(resolve); })); }
+
+function pdfPages() {
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>'];
+  for (let page = 1; page <= 3; page++) {
+    const content = `BT /F1 36 Tf 72 600 Td (Lesson page ${page}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents ${page * 2 + 2} 0 R >>`, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  }
+  objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  let source = '%PDF-1.4\n'; const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(source, 'latin1')); source += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(source, 'latin1'); source += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  source += offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  source += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(source, 'latin1');
+}

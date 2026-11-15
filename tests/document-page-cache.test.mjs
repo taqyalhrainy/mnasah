@@ -46,6 +46,16 @@ test('LRU bounds decoded preview memory for large documents', async () => {
   assert.equal(renders, 4); await cache.local(2); assert.equal(renders, 5); cache.dispose();
 });
 
+test('weak-network policy pauses speculative transfers while selected pages still open and share', async () => {
+  let healthy = false; const uploaded = [];
+  const cache = new DocumentPageCache({ count: 5, render: async page => `page:${page}`, publish: async (src, page) => { uploaded.push(page); return src; }, canPrefetch: () => healthy, onReady() {} });
+  cache.warm(1); await tick(); assert.deepEqual(uploaded, []);
+  assert.equal(await cache.share(3), 'page:3'); assert.deepEqual(uploaded, [3]);
+  healthy = true; cache.warm(3);
+  for (let i = 0; i < 20 && uploaded.length < 5; i++) await tick();
+  assert.ok(uploaded.includes(4) && uploaded.includes(2)); cache.dispose();
+});
+
 test('closing a document cancels queued work and prevents late previews from reopening it', async () => {
   const gate = deferred(); let delivered = 0;
   const cache = new DocumentPageCache({ count: 5, render: async page => String(page), publish: async src => { await gate.promise; return src; }, onReady() { delivered++; } });

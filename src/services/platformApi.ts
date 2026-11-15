@@ -45,9 +45,9 @@ export async function request<T>(path: string, body?: unknown, signal?: AbortSig
     throw error;
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
-export async function requestFile<T>(path: string, file: File, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
+export async function requestFile<T>(path: string, file: File, params: Record<string, string>, signal?: AbortSignal, priority: RequestPriority = 'auto'): Promise<T> {
   const query = new URLSearchParams({ ...params, name: file.name, size: String(file.size), type: file.type });
-  const response = await fetch(`${apiBase}/api/${path}?${query}`, { method: 'POST', credentials: 'include', cache: 'no-store', headers: { 'Content-Type': 'application/octet-stream' }, body: file, signal });
+  const response = await fetch(`${apiBase}/api/${path}?${query}`, { method: 'POST', credentials: 'include', cache: 'no-store', headers: { 'Content-Type': 'application/octet-stream' }, body: file, signal, priority });
   let data; try { data = await response.json(); } catch { throw new Error(t('تعذر الاتصال بالخدمة. حاول مجددًا.')); }
   if (!response.ok) throw new ApiError(t(data.error || 'تعذر رفع الملف.'), response.status);
   return data;

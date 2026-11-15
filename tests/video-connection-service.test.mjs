@@ -319,6 +319,23 @@ for (const signal of ['close', 'error']) test(`data ${signal} clears a participa
   h.service.close();
 });
 
+test('congested collaboration keeps the latest cursor and zoom while preserving every ink edit', async () => {
+  const h = await participant(); h.data.sent.length = 0;
+  h.data.dataChannel = { bufferedAmount: 64000 };
+  for (let x = 0; x < 100; x++) {
+    h.service.sendWhiteboard({ kind: 'pointer', pointer: { x } });
+    h.service.sendWhiteboard({ kind: 'document-view', view: { zoom: x } });
+  }
+  h.service.sendWhiteboard({ kind: 'stroke', stroke: { id: 'ink' } });
+  await h.advance(180);
+  assert.deepEqual(h.data.sent, [{ type: 'whiteboard', message: { kind: 'stroke', stroke: { id: 'ink' } } }]);
+  h.data.dataChannel.bufferedAmount = 0; await h.advance(180);
+  const messages = h.data.sent.filter(row => row.type === 'whiteboard').map(row => row.message);
+  assert.deepEqual(messages.slice(1), [{ kind: 'pointer', pointer: { x: 99 } }, { kind: 'document-view', view: { zoom: 99 } }]);
+  h.service.sendWhiteboard({ kind: 'pointer', pointer: { x: 100 } }); h.service.close();
+  await h.advance(1000); assert.equal(h.timers.size, 0);
+});
+
 test('close sends leave before teardown, stops capture synchronously and waits for acknowledgement', async () => {
   const h = await participant();
   const local = await h.service.start({ video: true }); await h.service.toggleVideo(true);

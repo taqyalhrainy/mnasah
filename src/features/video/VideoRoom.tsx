@@ -162,6 +162,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState(0);
+  const connectionQualityRef = useRef(0);
   const [connectionVideoSuspended, setConnectionVideoSuspended] = useState(false);
   const [reportedRemotePresent, setReportedRemotePresent] = useState<boolean | null>(() => remotePresent ?? (initialRemotePeerId ? true : null));
   useEffect(() => { if (remotePresent !== undefined) setReportedRemotePresent(remotePresent); }, [remotePresent]);
@@ -803,7 +804,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           setFocusedParticipant(null);
         },
         onStatus: setStatus,
-        onConnectionQuality: (level, videoSuspended = false) => { setConnectionQuality(level); setConnectionVideoSuspended(videoSuspended); },
+        onConnectionQuality: (level, videoSuspended = false) => { connectionQualityRef.current = level; setConnectionQuality(level); setConnectionVideoSuspended(videoSuspended); },
       });
       connectionRef.current = connection;
       connection.sendProfile({ name: localName, avatar: avatarUrl });
@@ -1541,14 +1542,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     sharedFileUrlRef.current = lessonId ? '' : URL.createObjectURL(file);
     // The preview and the original travel independently: hundreds of pages do
     // not make the first page wait for the full original to reach the server.
-    if (lessonId) void requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, file, {}, upload.signal).then(result => {
-      if (upload.signal.aborted || documentSessionRef.current !== session) return;
-      sharedFileUrlRef.current = result.url;
-      const current = sharedDocumentRef.current;
-      if (current?.id === session) {
-        const next = { ...current, fileUrl: result.url }; sharedDocumentRef.current = next; setSharedDocument(next); sendWhiteboard({ kind: 'document', document: next });
-      }
-    }).catch(() => { if (!upload.signal.aborted && documentSessionRef.current === session) setStatus(t('تعذر رفع نسخة التنزيل. معاينة الملف ما زالت متاحة.')); });
+    const uploadOriginal = () => {
+      if (!lessonId || upload.signal.aborted) return;
+      void requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, file, {}, upload.signal, 'low').then(result => {
+        if (upload.signal.aborted || documentSessionRef.current !== session) return;
+        sharedFileUrlRef.current = result.url;
+        const current = sharedDocumentRef.current;
+        if (current?.id === session) {
+          const next = { ...current, fileUrl: result.url }; sharedDocumentRef.current = next; setSharedDocument(next); sendWhiteboard({ kind: 'document', document: next });
+        }
+      }).catch(() => { if (!upload.signal.aborted && documentSessionRef.current === session) setStatus(t('تعذر رفع نسخة التنزيل. معاينة الملف ما زالت متاحة.')); });
+    };
     let source: typeof sharedDocumentSourceRef.current;
     if (file.type === 'application/pdf' || extension === 'pdf') {
       const pdfjs = await import('pdfjs-dist');
@@ -1614,11 +1618,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const currentSource = source;
     sharedPageCacheRef.current = new DocumentPageCache({
       count: source.pages,
+      canPrefetch: () => {
+        const network = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+        return connectionQualityRef.current === 0 && !network?.saveData && !['slow-2g', '2g', '3g'].includes(network?.effectiveType || '');
+      },
       render: async page => { const src = await currentSource.render(page); return src.startsWith('data:image/svg+xml') ? rasterizeSlide(src) : src; },
       publish: async (src, page) => {
         if (!lessonId || !src.startsWith('data:')) return src;
         const blob = await (await fetch(src)).blob();
-        const result = await requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, new File([blob], `page-${page}.webp`, { type: blob.type }), {}, upload.signal);
+        const result = await requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, new File([blob], `page-${page}.webp`, { type: blob.type }), {}, upload.signal, 'high');
         return `${result.url}?preview=1`;
       },
       onReady: (src, page) => { if (documentSessionRef.current === session) sendWhiteboard({ kind: 'document-preload', id: session, page, src }); },
@@ -1627,6 +1635,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     setDocumentAnnotations([]); documentAnnotationsRef.current = [];
     sendWhiteboard({ kind: 'document-annotations', annotations: [] });
     await publishSharedDocumentPage(1);
+    // Prioritize the readable first page before the potentially large original.
+    // Original downloads remain available; failure of that copy does not close
+    // the preview or interrupt the media connection.
+    void sharedPageCacheRef.current?.share(1).then(uploadOriginal, uploadOriginal);
   };
 
   const changeSharedDocumentPage = (direction: -1 | 1) => {

@@ -98,6 +98,8 @@ export class VideoConnection {
   private profile?: { name: string; avatar?: string };
   private quality?: AdaptiveCallQuality;
   private networkQuality: QualityLevel = 0;
+  private transientBoardMessages = new Map<string, unknown>();
+  private transientBoardTimer?: number;
   private videoSuspended = false;
   private remoteAudioExpected = true;
   private remoteVideoExpected = false;
@@ -398,6 +400,9 @@ export class VideoConnection {
   close() {
     if (this.closed) return;
     this.closed = true;
+    if (this.transientBoardTimer !== undefined) window.clearTimeout(this.transientBoardTimer);
+    this.transientBoardTimer = undefined;
+    this.transientBoardMessages.clear();
     window.removeEventListener('pagehide', this.handlePageHide);
     window.removeEventListener('online', this.handleOnline);
     ++this.generation;
@@ -681,8 +686,32 @@ export class VideoConnection {
 
   sendWhiteboard(message: unknown) {
     if (!this.activeDataConnection?.open) return false;
+    const kind = (message as { kind?: string } | null)?.kind;
+    // Cursor/viewport positions are replaceable, unlike ink and edits. Keep
+    // only their latest position instead of queueing stale animation frames
+    // behind an image on a slow, reliable SCTP channel.
+    if (kind === 'pointer' || kind === 'document-view') {
+      this.transientBoardMessages.set(kind, message);
+      this.scheduleTransientBoardMessages();
+      return true;
+    }
+    if (kind === 'document' || kind === 'sync') this.transientBoardMessages.delete('document-view');
     this.activeDataConnection.send({ type: 'whiteboard', message });
     return true;
+  }
+
+  private scheduleTransientBoardMessages() {
+    if (this.transientBoardTimer !== undefined) return;
+    this.transientBoardTimer = window.setTimeout(() => {
+      this.transientBoardTimer = undefined;
+      const connection = this.activeDataConnection;
+      if (this.closed || !connection?.open) { this.transientBoardMessages.clear(); return; }
+      if ((connection.dataChannel?.bufferedAmount || 0) < 16384 && !(connection as DataConnection & { bufferSize?: number }).bufferSize) {
+        for (const message of this.transientBoardMessages.values()) connection.send({ type: 'whiteboard', message });
+        this.transientBoardMessages.clear();
+      }
+      if (this.transientBoardMessages.size) this.scheduleTransientBoardMessages();
+    }, this.networkQuality > 0 ? 120 : 60);
   }
 
   sendTyping(typing: boolean) {
