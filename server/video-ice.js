@@ -25,6 +25,18 @@ export function createVideoIceProvider({ env = process.env, fetchImpl = fetch, n
           });
           if (!response.ok) throw new Error('Relay provider unavailable');
           servers = validServers((await response.json()).iceServers);
+        } else if (env.METERED_TURN_DOMAIN && env.METERED_TURN_API_KEY) {
+          const domain = String(env.METERED_TURN_DOMAIN).trim().toLowerCase();
+          if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.metered\.live$/.test(domain)) {
+            throw new Error('Invalid Metered TURN domain');
+          }
+          const credentialsUrl = new URL(`https://${domain}/api/v1/turn/credentials`);
+          credentialsUrl.searchParams.set('apiKey', env.METERED_TURN_API_KEY);
+          const response = await fetchImpl(credentialsUrl.href, {
+            signal: AbortSignal.timeout(4000),
+          });
+          if (!response.ok) throw new Error('Relay provider unavailable');
+          servers = validServers(await response.json());
         } else if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
           const response = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(env.TWILIO_ACCOUNT_SID)}/Tokens.json`, {
             method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString('base64')}` }, body: new URLSearchParams({ Ttl: '3600' }), signal: AbortSignal.timeout(4000),

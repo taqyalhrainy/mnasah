@@ -11,6 +11,8 @@ Configure ONE provider in the Render backend Environment settings, then redeploy
 
 * Cloudflare Realtime TURN: `CLOUDFLARE_TURN_KEY_ID` and
   `CLOUDFLARE_TURN_API_TOKEN` from the account's TURN key.
+* Metered Open Relay: `METERED_TURN_DOMAIN` (the account's `*.metered.live`
+  hostname) and `METERED_TURN_API_KEY`. The REST API key stays backend-only.
 * An existing standard TURN provider: `TURN_URLS`, `TURN_USERNAME`,
   `TURN_CREDENTIAL`. Include UDP and TLS/TCP 443 endpoints supplied by that provider.
 * Existing Twilio TURN credentials remain supported through `TWILIO_ACCOUNT_SID`

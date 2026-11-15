@@ -47,3 +47,35 @@ test('relay-only diagnostic mode requires actual configured TURN credentials', a
   const configured = createVideoIceProvider({ env: { VIDEO_RELAY_ONLY: 'true', TURN_URL: relay.urls[0], TURN_USERNAME: relay.username, TURN_CREDENTIAL: relay.credential } });
   assert.equal((await configured()).ice_transport_policy, 'relay');
 });
+
+test('Metered credentials are fetched once on the backend without exposing its API key', async () => {
+  let calls = 0;
+  const provider = createVideoIceProvider({
+    env: { METERED_TURN_DOMAIN: 'emtidad.metered.live', METERED_TURN_API_KEY: 'private-api-key' },
+    fetchImpl: async (address, options) => {
+      calls++;
+      const url = new URL(address);
+      assert.equal(url.origin, 'https://emtidad.metered.live');
+      assert.equal(url.pathname, '/api/v1/turn/credentials');
+      assert.equal(url.searchParams.get('apiKey'), 'private-api-key');
+      assert.ok(options.signal instanceof AbortSignal);
+      return { ok: true, json: async () => [relay] };
+    },
+  });
+  const results = await Promise.all([provider(), provider(), provider()]);
+  assert.equal(calls, 1);
+  assert.ok(results.every(result => result.relay_available));
+  assert.ok(!JSON.stringify(results).includes('private-api-key'));
+});
+
+test('an invalid Metered domain cannot transmit the provider API key elsewhere', async () => {
+  for (const domain of ['example.org', 'emtidad.metered.live.example.org', 'https://emtidad.metered.live', 'emtidad.metered.live/path']) {
+    let fetched = false;
+    const provider = createVideoIceProvider({
+      env: { METERED_TURN_DOMAIN: domain, METERED_TURN_API_KEY: 'private-api-key' },
+      fetchImpl: async () => { fetched = true; throw new Error('Unexpected request'); },
+    });
+    assert.equal((await provider()).relay_available, false);
+    assert.equal(fetched, false);
+  }
+});
