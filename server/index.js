@@ -30,6 +30,7 @@ import { slotAvailability, bookingStarts } from '../shared/slot-availability.js'
 import { serveLessonFile } from './lesson-files.js';
 import { freeTrialStatus, claimFreeTrial, releaseFreeTrial, FREE_TRIAL_MINUTES } from './free-trial.js';
 import { createVideoIceProvider } from './video-ice.js';
+import { attachClassroomRelay } from './classroom-relay.js';
 const videoIce = createVideoIceProvider();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -519,6 +520,7 @@ io.use(async (socket, next) => {
     next();
   } catch { next(new Error('Unauthorized')); }
 });
+attachClassroomRelay(io, () => db);
 io.on('connection', socket => {
   socket.join(`chat:${socket.data.userId}`);
   // HTTP remains the authority for writes; sockets only signal clients to refresh.

@@ -319,6 +319,15 @@ for (const signal of ['close', 'error']) test(`data ${signal} clears a participa
   h.service.close();
 });
 
+test('media-state refresh never retransmits the entire board over an already-open data channel', async () => {
+  const h = await participant();
+  const opens = h.events.filter(row => row[0] === 'onDataOpen').length;
+  for (let i = 0; i < 4; i++) h.data.emit('data', { type: 'state-request' });
+  assert.equal(h.events.filter(row => row[0] === 'onDataOpen').length, opens);
+  assert.ok(h.data.sent.filter(row => row.type === 'audio-state').length >= 4);
+  h.service.close();
+});
+
 test('congested collaboration keeps the latest cursor and zoom while preserving every ink edit', async () => {
   const h = await participant(); h.data.sent.length = 0;
   h.data.dataChannel = { bufferedAmount: 64000 };

@@ -5,13 +5,13 @@ import { build } from 'esbuild';
 const built = await build({ entryPoints: ['src/services/adaptiveCallQuality.ts'], bundle: true, write: false, format: 'cjs', platform: 'node' });
 const create = new Function('module', 'exports', 'window', 'Date', `${built.outputFiles[0].text}; return module.exports;`);
 const settle = async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); };
-function setup({ screen = false, reject = false, expectsMedia, onStall } = {}) {
+function setup({ screen = false, reject = false, expectsMedia, expectsVideo, onStall } = {}) {
   let clock = 100000, polling;
   const changes = [], feedback = [];
   const window = { setInterval(fn) { polling = fn; return 1; }, clearInterval() { polling = undefined; } };
   const { AdaptiveCallQuality, speechSdp } = create({ exports: {} }, {}, window, class extends Date { static now() { return clock; } });
   function sender(kind) {
-    let params = { encodings: [{ active: true }] };
+    let params = { encodings: [{ active: true, ...(kind === 'audio' ? { adaptivePtime: false } : {}) }] };
     return {
       track: { kind, enabled: false, readyState: 'live' }, calls: [],
       getParameters: () => structuredClone(params),
@@ -24,6 +24,7 @@ function setup({ screen = false, reject = false, expectsMedia, onStall } = {}) {
   }
   const audio = sender('audio'), video = sender('video'), screenVideo = sender('video');
   let bandwidth = 800000, loss = 0, received = 1000, lost = 200, concealed = 0, samples = 480000, rtt = .03;
+  let frames = 100, frozen = false;
   const connection = {
     getSenders: () => [audio, video],
     getStats: async () => new Map([
@@ -32,15 +33,25 @@ function setup({ screen = false, reject = false, expectsMedia, onStall } = {}) {
       ['unused', { id: 'unused', type: 'candidate-pair', state: 'succeeded', nominated: true, availableOutgoingBitrate: 1 }],
       ['remote', { id: 'remote', type: 'remote-inbound-rtp', fractionLost: loss }],
       ['audio', { id: 'audio', type: 'inbound-rtp', kind: 'audio', packetsReceived: received, packetsLost: lost, concealedSamples: concealed, totalSamplesReceived: samples }],
+      ['video', { id: 'video', type: 'inbound-rtp', kind: 'video', framesDecoded: frames, packetsReceived: received, packetsLost: 0 }],
     ]),
   };
-  const quality = new AdaptiveCallQuality({ connection, screen: () => screen ? { getSenders: () => [screenVideo] } : undefined, expectsMedia, onStall, onReceiveQuality: level => feedback.push(level), onChange: level => changes.push(level) });
+  const quality = new AdaptiveCallQuality({ connection, screen: () => screen ? { getSenders: () => [screenVideo] } : undefined, expectsMedia, expectsVideo, onStall, onReceiveQuality: level => feedback.push(level), onChange: level => changes.push(level) });
   return { quality, speechSdp, changes, feedback, audio, video, screenVideo, connection,
-    set(values) { ({ bandwidth = bandwidth, loss = loss, received = received, lost = lost, concealed = concealed, samples = samples, rtt = rtt } = values); },
-    async tick(count = 1) { for (let i = 0; i < count; i++) { clock += 2000; received += 100; samples += 96000; polling?.(); await settle(); } },
+    set(values) { ({ bandwidth = bandwidth, loss = loss, received = received, lost = lost, concealed = concealed, samples = samples, rtt = rtt, frozen = frozen } = values); },
+    async tick(count = 1) { for (let i = 0; i < count; i++) { clock += 2000; received += 100; samples += 96000; if (!frozen) frames += 40; polling?.(); await settle(); } },
     hasTimer: () => !!polling,
   };
 }
+
+test('frozen video requests a smaller moving stream even while voice and packet reception remain healthy', async () => {
+  const h = setup({ expectsVideo: () => true }); h.quality.start(); await settle();
+  h.set({ frozen: true }); await h.tick(3);
+  assert.equal(h.feedback.at(-1), 3); assert.equal(h.video.getParameters().encodings[0].maxBitrate, 28000);
+  assert.equal(h.video.getParameters().encodings[0].active, true); assert.equal(h.audio.getParameters().encodings[0].maxBitrate, 20000);
+  h.set({ frozen: false }); await h.tick(8); assert.equal(h.feedback.at(-1), 2);
+  h.quality.stop();
+});
 
 test('speech has priority, bounded bitrate and mono SDP with FEC; video/media sections remain intact', async () => {
   const h = setup(); h.quality.start(); await settle();
@@ -62,6 +73,8 @@ test('bandwidth loss preserves low-rate video and voice, then recovers gradually
   assert.equal(h.video.getParameters().encodings[0].maxBitrate, 70000);
   assert.equal(h.screenVideo.getParameters().encodings[0].maxBitrate, 120000);
   h.set({ bandwidth: 60000 }); await h.tick();
+  assert.equal(h.audio.getParameters().encodings[0].adaptivePtime, true, 'reduce packet overhead on a narrow link');
+  assert.equal(h.audio.getParameters().encodings[0].maxBitrate, 20000);
   assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.video.getParameters().encodings[0].maxFramerate, 4);
   assert.equal(h.screenVideo.getParameters().encodings[0].active, true);
@@ -155,7 +168,7 @@ test('only persistent severe AUDIO damage suspends video, and three good audio s
   await h.tick(2); assert.equal(h.video.getParameters().encodings[0].active, true);
   await h.tick(); assert.equal(h.video.getParameters().encodings[0].active, false);
   assert.equal(h.audio.getParameters().encodings[0].active, true);
-  assert.equal(h.audio.getParameters().encodings[0].maxBitrate, 24000);
+  assert.equal(h.audio.getParameters().encodings[0].maxBitrate, 20000);
   h.set({ loss: 0 }); await h.tick(3);
   assert.equal(h.video.getParameters().encodings[0].active, true);
   assert.equal(h.audio.track.enabled, false);

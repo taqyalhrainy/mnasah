@@ -1,0 +1,54 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { io as socketClient } from 'socket.io-client';
+import { startPlatformServer } from '../server/index.js';
+import { memoryMongo } from './helpers/memory-mongo.mjs';
+
+test('classroom backup authorizes membership, waits for recipient ACK and retries after reconnect', { timeout: 20000 }, async t => {
+  const users = ['teacher', 'student', 'outsider'].map(id => ({ id, name: id, role: id === 'teacher' ? 'teachers' : 'students', status: 'active' }));
+  const database = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(user.id).digest('hex'), expires: Date.now() + 3600000 })), slots: [{ id: 'slot', teacher_id: 'teacher' }], bookings: [{ id: 'booking', slot_id: 'slot', student_id: 'student', status: 'confirmed' }] });
+  const { io, httpServer } = await startPlatformServer({ database, port: 0 });
+  const base = `http://127.0.0.1:${httpServer.address().port}`, sockets = [];
+  t.after(async () => { for (const socket of sockets) socket.disconnect(); await new Promise(resolve => io.close(resolve)); httpServer.close(); });
+  async function connect(id) {
+    const user = users.find(user => user.id === id);
+    const socket = socketClient(base, { auth: { portal: user.role }, extraHeaders: { cookie: `mansah_session_${user.role}=${id}` }, transports: ['websocket'], reconnection: false });
+    sockets.push(socket);
+    await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
+    return socket;
+  }
+  const emit = (socket, event, value) => socket.timeout(5000).emitWithAck(event, value);
+  const teacher = await connect('teacher'), student = await connect('student'), outsider = await connect('outsider');
+  const op = { kind: 'stroke', relayId: 'stroke-1', stroke: { id: 'ink', points: [{ x: 1, y: 2 }], size: 4, color: '#111' } };
+  const batch = operations => ({ bookingId: 'booking', operations });
+  assert.equal((await emit(outsider, 'classroom:join', { bookingId: 'booking' })).accepted, false);
+  assert.equal((await emit(outsider, 'classroom:operations', batch([op]))).delivered, false);
+  assert.equal((await emit(teacher, 'classroom:join', { bookingId: 'booking' })).accepted, true);
+  assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, false, 'does not ACK an absent recipient');
+  const ready = new Promise(resolve => teacher.on('classroom:ready', event => { if (event.ready) resolve(event); }));
+  assert.equal((await emit(student, 'classroom:join', { bookingId: 'booking' })).accepted, true);
+  await ready;
+  const received = [], outsiderReceived = [];
+  outsider.on('classroom:operations', event => outsiderReceived.push(event));
+  const receive = (event, ack) => { received.push(event); ack({ received: true }); };
+  student.on('classroom:operations', receive);
+  assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, true);
+  assert.deepEqual(received[0].operations, [op]);
+  assert.equal(outsiderReceived.length, 0);
+  assert.equal((await emit(student, 'classroom:operations', batch([{ kind: 'document', relayId: 'forged', document: null }]))).rejected, true);
+  assert.equal((await emit(student, 'classroom:operations', batch([{ kind: 'sync', relayId: 'forged-sync', document: null, strokes: [] }]))).rejected, true);
+  assert.equal((await emit(teacher, 'classroom:operations', batch([{ kind: 'invalid', relayId: 'bad' }]))).rejected, true);
+  assert.equal((await emit(teacher, 'classroom:operations', batch([{ ...op, payload: 'x'.repeat(513 * 1024) }]))).rejected, true);
+  student.off('classroom:operations', receive);
+  assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, false, 'server acceptance alone is insufficient');
+  const away = new Promise(resolve => teacher.on('classroom:ready', event => { if (!event.ready) resolve(event); }));
+  student.disconnect(); await away;
+  assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, false);
+  const returning = await connect('student');
+  returning.on('classroom:operations', receive);
+  await emit(returning, 'classroom:join', { bookingId: 'booking' });
+  assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, true, 'same operation can be replayed after recipient returns');
+  await database.collection('bookings').updateOne({ id: 'booking' }, { $set: { status: 'cancelled' } });
+  assert.equal((await emit(returning, 'classroom:join', { bookingId: 'booking' })).accepted, false);
+});

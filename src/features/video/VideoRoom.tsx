@@ -11,6 +11,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { BringToFront, Camera, CameraOff, SwitchCamera, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileUp, Grid2X2, Hand, Highlighter, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users, X } from 'lucide-react';
 import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
 import { apiMediaUrl, requestFile } from '../../services/platformApi';
+import { ClassroomRelay, type ClassroomOperation } from '../../services/classroomRelay';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
 const MAX_WHITEBOARD_ZOOM = 5;
@@ -187,7 +188,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     youtubeRef.current = session; setYoutubeSession(session);
     if (session && session.videoId !== previous?.videoId) { setStageMode('youtube'); setFocusedParticipant(null); }
     if (!session && stageModeRef.current === 'youtube') setStageMode('video');
-    if (broadcast) connectionRef.current?.sendWhiteboard({ kind: 'youtube', session });
+    if (broadcast) sendWhiteboard({ kind: 'youtube', session });
   };
   const [chatDraft, setChatDraft] = useState('');
   const [chatSending, setChatSending] = useState(false);
@@ -230,6 +231,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   useEffect(() => setImageOptionsOpen(false), [selectedWhiteboardItem]);
   const [whiteboardDocument, setWhiteboardDocument] = useState<WhiteboardDocument | null>(null);
   const [whiteboardDocumentBusy, setWhiteboardDocumentBusy] = useState(false);
+  const [boardImageUploads, setBoardImageUploads] = useState(0);
   const [sharedDocument, setSharedDocument] = useState<SharedDocument | null>(null);
   const [documentTool, setDocumentTool] = useState<'pen' | 'highlight' | 'pan' | 'pointer'>('pen');
   const [documentColor, setDocumentColor] = useState('#facc15');
@@ -301,6 +303,21 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<VideoConnection | null>(null);
+  const classroomRelayRef = useRef<ClassroomRelay | null>(null);
+  const receiveClassroomRef = useRef<(message: unknown) => void>(() => undefined);
+  const requestClassroomSyncRef = useRef<() => void>(() => undefined);
+  const seenClassroomMessagesRef = useRef(new Set<string>());
+  const classroomSourceRef = useRef(crypto.randomUUID());
+  const classroomOrderRef = useRef(0);
+  const classroomVersionsRef = useRef(new Map<string, number>());
+  const completedRemoteStrokesRef = useRef(new Set<string>());
+  const deletedRemoteStrokesRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!lessonId || !isConnected) return;
+    const relay = new ClassroomRelay(lessonId, `${role}s`, message => receiveClassroomRef.current(message), () => requestClassroomSyncRef.current());
+    classroomRelayRef.current = relay;
+    return () => { relay.close(); if (classroomRelayRef.current === relay) classroomRelayRef.current = null; };
+  }, [lessonId, role, isConnected]);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const callGenerationRef = useRef(0);
   const joiningRef = useRef(false);
@@ -759,7 +776,14 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           if (typing) remoteTypingTimerRef.current = window.setTimeout(() => setRemoteTyping(false), 1800);
         },
         onRemoteSpeaking: setRemoteSpeaking,
-        onDataOpen: () => { if (role === 'student' && youtubeRef.current) sendWhiteboard({ kind: 'youtube', session: youtubeRef.current }); role === 'student' ? sendWhiteboard({ kind: 'sync-request' }) : sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current }); },
+        onDataOpen: () => {
+          // One authoritative snapshot per data reconnect. Media flag refreshes
+          // must not upload every board image again over the working channel.
+          if (role === 'student') {
+            if (youtubeRef.current) sendWhiteboard({ kind: 'youtube', session: youtubeRef.current });
+            sendWhiteboard({ kind: 'sync-request' });
+          }
+        },
         onLocalPeerId: (peerId) => {
           if (presenceJoinRetryRef.current !== null) window.clearTimeout(presenceJoinRetryRef.current);
           presenceJoinRetryRef.current = null;
@@ -1094,19 +1118,15 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
-    setWhiteboardStrokes((current) => {
-      const value = typeof next === 'function' ? next(current) : next;
-      whiteboardStrokesRef.current = value;
-      return value;
-    });
+    const value = typeof next === 'function' ? next(whiteboardStrokesRef.current) : next;
+    whiteboardStrokesRef.current = value;
+    setWhiteboardStrokes(value);
   };
 
   const setSyncedWhiteboardItems = (next: WhiteboardItem[] | ((current: WhiteboardItem[]) => WhiteboardItem[])) => {
-    setWhiteboardItems((current) => {
-      const value = typeof next === 'function' ? next(current) : next;
-      whiteboardItemsRef.current = value;
-      return value;
-    });
+    const value = typeof next === 'function' ? next(whiteboardItemsRef.current) : next;
+    whiteboardItemsRef.current = value;
+    setWhiteboardItems(value);
   };
 
   const upsertWhiteboardItem = (item: WhiteboardItem, broadcast = false) => {
@@ -1127,6 +1147,21 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
+    const metadata = message as WhiteboardMessage & { relayId?: string; relaySource?: string; relayOrder?: number };
+    const relayId = metadata.relayId;
+    if (relayId) {
+      const seen = seenClassroomMessagesRef.current;
+      if (seen.has(relayId)) return;
+      seen.add(relayId);
+      if (seen.size > 10000) seen.delete(seen.values().next().value!);
+    }
+    const resource = message.kind === 'item-upsert' ? `item:${message.item.id}` : message.kind === 'item-delete' ? `item:${message.id}` : ['document', 'document-view', 'document-annotations', 'mode', 'board-session', 'youtube'].includes(message.kind) ? message.kind : null;
+    if (resource && typeof metadata.relaySource === 'string' && Number.isSafeInteger(metadata.relayOrder)) {
+      const key = `${metadata.relaySource}:${resource}`, versions = classroomVersionsRef.current;
+      if ((versions.get(key) || 0) >= metadata.relayOrder!) return;
+      versions.set(key, metadata.relayOrder!);
+      if (versions.size > 5000) versions.delete(versions.keys().next().value!);
+    }
     if (message.kind === 'document-view') { applyRemoteDocumentView(message.view); return; }
     if (message.kind === 'youtube') { if (message.session === null && role === 'teacher') return; if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
     if (message.kind === 'sync-request') {
@@ -1142,13 +1177,17 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (message.kind === 'clear') {
+      for (const stroke of whiteboardStrokesRef.current) deletedRemoteStrokesRef.current.add(stroke.id);
       setSyncedWhiteboardStrokes([]);
       setSyncedWhiteboardItems([]);
       setSelectedWhiteboardItem(null);
       setEditingWhiteboardText(null);
       return;
     }
-    if (message.kind === 'erase') return setSyncedWhiteboardStrokes((current) => current.filter((stroke) => !message.ids.includes(stroke.id)));
+    if (message.kind === 'erase') {
+      for (const id of message.ids) deletedRemoteStrokesRef.current.add(id);
+      return setSyncedWhiteboardStrokes((current) => current.filter((stroke) => !message.ids.includes(stroke.id)));
+    }
     if (message.kind === 'item-delete') return deleteWhiteboardItem(message.id, false);
     if (message.kind === 'item-upsert') {
       upsertWhiteboardItem(message.item);
@@ -1204,6 +1243,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (message.kind === 'stroke-start') {
+      if (completedRemoteStrokesRef.current.has(message.stroke.id) || deletedRemoteStrokesRef.current.has(message.stroke.id)) return;
       return setSyncedWhiteboardStrokes((current) => {
         const existingIndex = current.findIndex((stroke) => stroke.id === message.stroke.id);
         if (existingIndex < 0) return [...current, message.stroke];
@@ -1213,6 +1253,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       });
     }
     if (message.kind === 'stroke-points') {
+      if (completedRemoteStrokesRef.current.has(message.id) || deletedRemoteStrokesRef.current.has(message.id)) return;
       if (!message.points.length) return;
       return setSyncedWhiteboardStrokes((current) => {
         const existingIndex = current.findIndex((stroke) => stroke.id === message.id);
@@ -1223,6 +1264,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         return next;
       });
     }
+    if (deletedRemoteStrokesRef.current.has(message.stroke.id)) return;
+    completedRemoteStrokesRef.current.add(message.stroke.id);
+    if (completedRemoteStrokesRef.current.size > 10000) completedRemoteStrokesRef.current.delete(completedRemoteStrokesRef.current.values().next().value!);
     setSyncedWhiteboardStrokes((current) => {
       const existingIndex = current.findIndex((stroke) => stroke.id === message.stroke.id);
       const next = existingIndex < 0 ? [...current, message.stroke] : current.map((stroke, index) => index === existingIndex ? message.stroke : stroke);
@@ -1232,8 +1276,13 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const sendWhiteboard = (message: WhiteboardMessage) => {
-    connectionRef.current?.sendWhiteboard(message.kind === 'sync' ? { ...message, ...(youtubeRef.current ? { youtube: youtubeRef.current } : {}), ...(role === 'teacher' ? { documentView: sharedDocumentView() || undefined } : {}) } : message);
+    const wire = { ...(message.kind === 'sync' ? { ...message, ...(youtubeRef.current ? { youtube: youtubeRef.current } : {}), ...(role === 'teacher' ? { documentView: sharedDocumentView() || undefined } : {}) } : message), relayId: crypto.randomUUID(), relaySource: classroomSourceRef.current, relayOrder: ++classroomOrderRef.current };
+    // Queued edits must reach the teacher before requesting its next snapshot.
+    if (message.kind !== 'sync-request' || !classroomRelayRef.current?.available) connectionRef.current?.sendWhiteboard(wire);
+    if (!['pointer', 'stroke-start', 'stroke-points', 'document-preload'].includes(message.kind)) classroomRelayRef.current?.send(wire as ClassroomOperation);
   };
+  receiveClassroomRef.current = handleWhiteboardMessage;
+  requestClassroomSyncRef.current = () => { if (role === 'student') sendWhiteboard({ kind: 'sync-request' }); };
   function sharedDocumentView(): SharedDocumentView | null {
     const doc = sharedDocumentRef.current, size = documentSizeRef.current, view = documentViewRef.current;
     return doc ? { documentId: doc.id || doc.name, page: doc.page, zoom: view.zoom, x: view.x / Math.max(1, size.width), y: view.y / Math.max(1, size.height) } : null;
@@ -1398,6 +1447,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (!file.type.startsWith('image/')) throw new Error(t('اختر ملف صورة صالحاً.'));
     if (file.size > 12 * 1024 * 1024) throw new Error(t('الصورة أكبر من 12 ميغابايت.'));
     const objectUrl = URL.createObjectURL(file);
+    setBoardImageUploads(count => count + 1);
     try {
       const image = await new Promise<HTMLImageElement>((resolve, reject) => {
         const element = new Image();
@@ -1412,9 +1462,20 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       const context = canvas.getContext('2d');
       if (!context) throw new Error(t('تعذر تجهيز الصورة للوح.'));
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      addRasterToWhiteboard(canvas.toDataURL('image/webp', 0.92), canvas.width, canvas.height);
+      let src = canvas.toDataURL('image/webp', 0.82);
+      const connection = connectionRef.current;
+      if (lessonId) {
+        try {
+          const blob = await (await fetch(src)).blob();
+          const uploaded = await requestFile<{ url: string }>(`${role}s/bookings/${lessonId}/files`, new File([blob], 'whiteboard.webp', { type: 'image/webp' }), { scope: 'whiteboard' });
+          src = `${uploaded.url}?preview=1`;
+        } catch { /* Direct collaboration remains a fallback if storage is unavailable. */ }
+        if (connectionRef.current !== connection) return;
+      }
+      addRasterToWhiteboard(src, canvas.width, canvas.height);
     } finally {
       URL.revokeObjectURL(objectUrl);
+      setBoardImageUploads(count => Math.max(0, count - 1));
     }
   };
 
@@ -1629,7 +1690,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         const result = await requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, new File([blob], `page-${page}.webp`, { type: blob.type }), {}, upload.signal, 'high');
         return `${result.url}?preview=1`;
       },
-      onReady: (src, page) => { if (documentSessionRef.current === session) sendWhiteboard({ kind: 'document-preload', id: session, page, src }); },
+      // URLs can be warmed cheaply. Sending inline bitmaps speculatively would
+      // transfer every neighbouring page twice ahead of the visible page.
+      onReady: (src, page) => { if (documentSessionRef.current === session && !src.startsWith('data:')) sendWhiteboard({ kind: 'document-preload', id: session, page, src }); },
     });
     await previous?.destroy?.();
     setDocumentAnnotations([]); documentAnnotationsRef.current = [];
@@ -1715,7 +1778,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     const { x, y, width, height } = svg.viewBox.baseVal;
     setBoardExporting(true);
     try {
-      const blob = await whiteboardPng({ view: { x, y, width, height }, items: whiteboardItemsRef.current.map(item => ({ ...item })), strokes: [...whiteboardStrokesRef.current, ...(activeStroke ? [activeStroke] : [])] });
+      const blob = await whiteboardPng({ view: { x, y, width, height }, items: whiteboardItemsRef.current.map(item => item.type === 'image' ? { ...item, src: lessonFileUrl(item.src) } : { ...item }), strokes: [...whiteboardStrokesRef.current, ...(activeStroke ? [activeStroke] : [])] });
       const file = new File([blob], `emtidad-board-${new Date().toISOString().slice(0, 10)}.png`, { type: 'image/png' });
       const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
       const mobileShare = navigator.maxTouchPoints > 0 && !!navigator.canShare?.({ files: [file] });
@@ -2024,7 +2087,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       <g key={item.id} data-whiteboard-item-id={item.id} {...commonProps} onDoubleClick={() => beginWhiteboardTextEdit(item)}>
         {item.type === 'image' ? (
           <foreignObject x={item.x} y={item.y} width={item.width} height={item.height} opacity={item.opacity ?? 1}>
-            <img className="whiteboard-board-image" draggable={false} src={item.src} alt="" style={{ objectFit: item.fit || 'contain', borderRadius: item.borderRadius || 0 }} />
+            <img className="whiteboard-board-image" draggable={false} src={lessonFileUrl(item.src)} alt="" style={{ objectFit: item.fit || 'contain', borderRadius: item.borderRadius || 0 }} />
           </foreignObject>
         ) : (
           <foreignObject x={item.x} y={item.y} width={item.width} height={item.height}>
@@ -2057,7 +2120,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('draw'); }} onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={t('الرسم بالقلم')}><Pencil size={17} /></button>
         <button data-whiteboard-tool="pan" className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('pan'); }} onClick={() => setWhiteboardTool('pan')} aria-label={t("تحريك اللوح")} title={t("تحريك اللوح")}><Hand size={17} /></button>
         <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('text'); }} onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
-        <button data-whiteboard-tool="image" className="tool-mode" type="button" onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}><ImagePlus size={17} /></button>
+        <button data-whiteboard-tool="image" className="tool-mode" type="button" disabled={boardImageUploads > 0} aria-busy={boardImageUploads > 0} onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}>{boardImageUploads > 0 ? <RefreshCw size={17} className="spin" /> : <ImagePlus size={17} />}</button>
         <input ref={whiteboardImageInputRef} className="whiteboard-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleWhiteboardImageChange} />
         <button className="tool-mode" type="button" onClick={undoWhiteboardAction} aria-label={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")} title={role === 'student' ? t('تراجع عن آخر إضافة لك') : t("تراجع خطوة")}><Undo2 size={17} /></button>
         <button className="tool-mode" type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { stopWhiteboardZoomEvent(event); zoomWhiteboard(1.2); }} aria-label={t("تكبير")}>+</button>
@@ -2304,7 +2367,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           {renderTile('remote')}{renderTile('local')}{renderScreenTile('local')}{renderScreenTile('remote')}
           {sharedDocument && <button type="button" className="shared-document-tile" onClick={() => { setStageMode('document'); setFocusedParticipant(null); }} aria-label={t('تكبير الملف المشترك')}><img src={lessonFileUrl(sharedDocument.src)} alt="" /></button>}
           {youtubeSession && <button type="button" className="shared-document-tile shared-youtube-tile" onClick={() => { setStageMode('youtube'); setFocusedParticipant(null); }} aria-label={t('عرض فيديو يوتيوب')}>▶ YouTube</button>}
-          {boardOpen && <button type="button" className="shared-document-tile shared-whiteboard-tile" onClick={() => { setStageMode('whiteboard'); setFocusedParticipant(null); }} aria-label={t('العودة إلى البورد المشترك')}><svg viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`}><rect x={whiteboardViewport.x} y={whiteboardViewport.y} width={viewWidth} height={viewHeight} fill="#fff" />{whiteboardStrokes.map(stroke => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}{whiteboardItems.map(item => item.type === 'image' ? <image key={item.id} href={item.src} x={item.x} y={item.y} width={item.width} height={item.height} /> : <text key={item.id} x={item.x + item.width} y={item.y + item.fontSize} textAnchor="end" fontSize={item.fontSize} fill={item.color}>{item.text}</text>)}</svg></button>}
+          {boardOpen && <button type="button" className="shared-document-tile shared-whiteboard-tile" onClick={() => { setStageMode('whiteboard'); setFocusedParticipant(null); }} aria-label={t('العودة إلى البورد المشترك')}><svg viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`}><rect x={whiteboardViewport.x} y={whiteboardViewport.y} width={viewWidth} height={viewHeight} fill="#fff" />{whiteboardStrokes.map(stroke => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}{whiteboardItems.map(item => item.type === 'image' ? <image key={item.id} href={lessonFileUrl(item.src)} x={item.x} y={item.y} width={item.width} height={item.height} /> : <text key={item.id} x={item.x + item.width} y={item.y + item.fontSize} textAnchor="end" fontSize={item.fontSize} fill={item.color}>{item.text}</text>)}</svg></button>}
         </div>
         {youtubeSession && <div className="youtube-stage" hidden={stageMode !== 'youtube'}><SharedYoutube session={youtubeSession} canClose={role === 'teacher'} onChange={state => updateYoutube(state, true)} onClose={() => updateYoutube(null, true)} /></div>}
         {stageMode === 'whiteboard' && <div className="whiteboard-stage"><aside className="whiteboard-side-rail">{renderWhiteboardTools()}</aside>{renderWhiteboard()}</div>}

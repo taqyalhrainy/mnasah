@@ -2,13 +2,16 @@ import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import { startPlatformServer } from '../server/index.js';
 import { memoryMongo } from './helpers/memory-mongo.mjs';
 
 const start = Date.now() + 60000;
 const users = [ { id: 'teacher', role: 'teachers', name: 'Teacher', status: 'active' }, { id: 'student', role: 'students', name: 'Student', status: 'active' } ];
 const db = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(user.id).digest('hex'), expires: Date.now() + 3600000 })), slots: [{ id: 'slot', teacher_id: 'teacher', start, minutes: 60, subject: 'رياضيات', price: 1000 }], bookings: [{ id: 'booking', slot_id: 'slot', teacher_id: 'teacher', student_id: 'student', status: 'confirmed', start, minutes: 60, subject: 'رياضيات', paid: 1, room: `entry-${Date.now()}` }] });
-const { httpServer, io } = await startPlatformServer({ database: db, port: 0 });
+const files = new Map();
+const attachmentStore = { async write(id, name, source) { const chunks = []; for await (const chunk of source) chunks.push(Buffer.from(chunk)); files.set(id, Buffer.concat(chunks)); }, read: id => Readable.from([files.get(id)]), async remove(id) { files.delete(id); } };
+const { httpServer, io } = await startPlatformServer({ database: db, attachmentStore, port: 0 });
 const base = `http://127.0.0.1:${httpServer.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 try {

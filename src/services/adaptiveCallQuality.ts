@@ -50,6 +50,8 @@ export class AdaptiveCallQuality {
   private lastMediaPackets = -1;
   private lastExpectedMedia: 'audio' | 'video' | null = null;
   private stalledSamples = 0;
+  private lastDecodedVideo = -1;
+  private frozenVideoSamples = 0;
 
   constructor(private readonly options: {
     connection: RTCPeerConnection;
@@ -57,6 +59,7 @@ export class AdaptiveCallQuality {
     onReceiveQuality: (level: QualityLevel, protectAudio: boolean) => void;
     onChange?: (level: QualityLevel, videoSuspended: boolean) => void;
     expectsMedia?: () => 'audio' | 'video' | null;
+    expectsVideo?: () => boolean;
     onStall?: () => void;
   }) {}
 
@@ -130,6 +133,17 @@ export class AdaptiveCallQuality {
           }
         }
         const expected = this.options.expectsMedia?.() || null;
+        if (this.options.expectsVideo?.() && report) {
+          const videoRows = rows.filter(row => row.type === 'inbound-rtp' && (row.kind || row.mediaType) === 'video');
+          // Audio can remain healthy while every large video keyframe is lost.
+          // Detect actual decoding progress, not just arriving RTP fragments.
+          if (!videoRows.length || videoRows.some(row => typeof row.framesDecoded === 'number')) {
+            const decoded = videoRows.reduce((sum, row) => sum + (row.framesDecoded || 0), 0);
+            this.frozenVideoSamples = decoded === this.lastDecodedVideo ? this.frozenVideoSamples + 1 : 0;
+            this.lastDecodedVideo = decoded;
+            if (this.frozenVideoSamples >= 3) { receive = 3; measured = true; }
+          }
+        } else { this.lastDecodedVideo = -1; this.frozenVideoSamples = 0; }
         if (expected !== this.lastExpectedMedia) { this.stalledSamples = 0; this.lastMediaPackets = -1; this.lastExpectedMedia = expected; }
         const media = expected ? rows.filter(row => row.type === 'inbound-rtp' && (row.kind || row.mediaType) === expected) : [];
         if (expected && report) {
@@ -182,10 +196,12 @@ export class AdaptiveCallQuality {
       const audio = sender.track.kind === 'audio';
       const params = sender.getParameters();
       if (!params.encodings?.length) continue; // Negotiation may still be in flight.
-      const rate = audio ? (this.videoSuspended ? 24000 : 32000) : screen ? profile.screen : profile.video * (sharing ? .5 : 1);
+      const rate = audio ? (this.level === 3 ? 20000 : this.level === 2 || this.videoSuspended ? 24000 : 32000) : screen ? profile.screen : profile.video * (sharing ? .5 : 1);
       let changed = false;
       for (const encoding of params.encodings) {
-        const desired = audio ? { maxBitrate: rate, priority: 'high', networkPriority: 'high' }
+        // Longer adaptive audio packets reduce RTP/UDP overhead on narrow
+        // links. Opt in only when the browser advertises this extension.
+        const desired = audio ? { maxBitrate: rate, priority: 'high', networkPriority: 'high', ...('adaptivePtime' in encoding ? { adaptivePtime: this.level > 0 } : {}) }
           : { maxBitrate: rate, active: !this.videoSuspended, maxFramerate: screen ? Math.min(10, profile.fps) : profile.fps, scaleResolutionDownBy: screen ? Math.min(2, profile.scale) : profile.scale, priority: 'low', networkPriority: 'low' };
         for (const [key, value] of Object.entries(desired)) {
           const settings = encoding as unknown as Record<string, unknown>;

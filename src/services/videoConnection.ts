@@ -848,6 +848,7 @@ export class VideoConnection {
             this.sendVideoState();
           },
           expectsMedia: () => this.remoteAudioExpected ? 'audio' : this.remoteVideoExpected ? 'video' : null,
+          expectsVideo: () => this.remoteVideoExpected && document.visibilityState !== 'hidden',
           onStall: () => this.repairMediaPath(),
         });
         this.quality.start();
@@ -1052,7 +1053,6 @@ export class VideoConnection {
       }
       if (message && typeof message === 'object' && (message as { type?: string }).type === 'state-request') {
         this.sendCurrentState();
-        this.callbacks.onDataOpen?.();
         return;
       }
       if (message && typeof message === 'object' && (message as { type?: string }).type === 'profile') {
