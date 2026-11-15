@@ -17,7 +17,7 @@ test('Cloudflare master token stays server-side and concurrent requests share ca
   let calls = 0;
   const provider = createVideoIceProvider({ env: { CLOUDFLARE_TURN_KEY_ID: 'key-id', CLOUDFLARE_TURN_API_TOKEN: 'master-secret' }, fetchImpl: async (url, options) => {
     calls++; assert.match(url, /\/key-id\/credentials\/generate-ice-servers$/); assert.equal(options.headers.Authorization, 'Bearer master-secret');
-    assert.deepEqual(JSON.parse(options.body), { ttl: 3600 }); assert.ok(options.signal instanceof AbortSignal);
+    assert.deepEqual(JSON.parse(options.body), { ttl: 14400 }); assert.ok(options.signal instanceof AbortSignal);
     return { ok: true, json: async () => ({ iceServers: relay }) };
   } });
   const results = await Promise.all(Array.from({ length: 25 }, () => provider()));

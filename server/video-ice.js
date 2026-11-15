@@ -21,7 +21,8 @@ export function createVideoIceProvider({ env = process.env, fetchImpl = fetch, n
         let servers;
         if (env.CLOUDFLARE_TURN_KEY_ID && env.CLOUDFLARE_TURN_API_TOKEN) {
           const response = await fetchImpl(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.CLOUDFLARE_TURN_KEY_ID)}/credentials/generate-ice-servers`, {
-            method: 'POST', headers: { Authorization: `Bearer ${env.CLOUDFLARE_TURN_API_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ttl: 3600 }), signal: AbortSignal.timeout(4000),
+            // Cover early entry, a two-hour lesson, and its closing grace period.
+            method: 'POST', headers: { Authorization: `Bearer ${env.CLOUDFLARE_TURN_API_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ttl: 14400 }), signal: AbortSignal.timeout(4000),
           });
           if (!response.ok) throw new Error('Relay provider unavailable');
           servers = validServers((await response.json()).iceServers);
