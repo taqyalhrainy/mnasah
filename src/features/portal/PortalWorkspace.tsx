@@ -70,9 +70,9 @@ const legacyTeacherSubjects = (value = '') => [...new Set(value.split(' | ').map
 const slotSubjects = (slot: Slot) => slot.subjects?.filter(Boolean).length
   ? [...new Set(slot.subjects.filter(Boolean))]
   : slot.subject === 'كل المواد المختارة' && slot.teacher_subjects ? legacyTeacherSubjects(slot.teacher_subjects) : [slot.subject].filter(Boolean);
-const slotOfferings = (slot: Slot): SlotOffering[] => slot.offerings?.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).length
+const slotOfferings = (slot: Slot): SlotOffering[] => (slot.offerings?.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).length
   ? [...new Map(slot.offerings.filter(item => [30, 45, 60, 90, 120].includes(item.minutes) && Number.isInteger(item.price)).map(item => [item.minutes, item])).values()].sort((left, right) => left.minutes - right.minutes)
-  : [{ minutes: slot.minutes, price: slot.price }];
+  : [{ minutes: slot.minutes, price: slot.price }]).filter(offering => bookingStarts(slot, offering.minutes).length > 0);
 const availableBookingStarts = (slot: Slot, minutes: number) => bookingStarts(slot, minutes);
 const slotBookableOnDay = (slot: Slot, value: number, freeTrial = false) => (freeTrial && slot.teacher_free_trial_enabled ? [{ minutes: 30, price: 0 }, ...slotOfferings(slot)] : slotOfferings(slot)).some(offering => availableBookingStarts(slot, offering.minutes).some(start => localDayKey(start) === localDayKey(value)));
 const teachingChoiceLabel = (choice: TeachingChoice, category?: Category) => [t(choice.categoryName), catalogText(choice.subject), ...(category?.levels.length ? [choice.levels.length === category.levels.length ? t('كل المستويات') : choice.levels.map(catalogText).join('، ')] : [])].join(' › ');
@@ -577,7 +577,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     setBookingError('');
     const availableSubjects = purchase ? slotSubjects(slot).filter(subject => purchase.subjects.includes(subject)) : slotSubjects(slot);
     const freeTrial = !purchase && trialAvailable && slot.teacher_free_trial_enabled === true;
-    const offerings = freeTrial ? [{ minutes: 30, price: 0 }] : purchase ? slotOfferings(slot).filter(offering => offering.minutes === purchase.minutes) : slotOfferings(slot);
+    const offerings = (freeTrial ? [{ minutes: 30, price: 0 }] : purchase ? slotOfferings(slot).filter(offering => offering.minutes === purchase.minutes) : slotOfferings(slot)).filter(offering => availableBookingStarts(slot, offering.minutes).some(start => (!purchase || start + offering.minutes * 60000 <= purchase.expires_at) && (!selectedDay || localDayKey(start) === localDayKey(selectedDay))));
     const filteredSubject = studentSubject && availableSubjects.find(subject => fuzzyMatch(subject, studentSubject));
     const subject = filteredSubject || (availableSubjects.length === 1 ? availableSubjects[0] : '');
     const minutes = offerings.length === 1 ? offerings[0].minutes : 0;
@@ -710,7 +710,7 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
   </section>;
   const bookingDialog = bookingSlot && (() => {
     const availableSubjects = bookingPackage ? slotSubjects(bookingSlot).filter(subject => bookingPackage.subjects.includes(subject)) : slotSubjects(bookingSlot);
-    const offerings = bookingFreeTrial ? [{ minutes: 30, price: 0 }] : bookingPackage ? slotOfferings(bookingSlot).filter(offering => offering.minutes === bookingPackage.minutes) : slotOfferings(bookingSlot);
+    const offerings = (bookingFreeTrial ? [{ minutes: 30, price: 0 }] : bookingPackage ? slotOfferings(bookingSlot).filter(offering => offering.minutes === bookingPackage.minutes) : slotOfferings(bookingSlot)).filter(offering => availableBookingStarts(bookingSlot, offering.minutes).some(start => (!bookingPackage || start + offering.minutes * 60000 <= bookingPackage.expires_at) && (!bookingDay || localDayKey(start) === localDayKey(bookingDay))));
     const selectedOffering = offerings.find(item => item.minutes === bookingMinutes);
     const startOptions = selectedOffering ? availableBookingStarts(bookingSlot, selectedOffering.minutes).filter(start => (!bookingPackage || start + selectedOffering.minutes * 60000 <= bookingPackage.expires_at) && (!bookingDay || localDayKey(start) === localDayKey(bookingDay))) : [];
     const subjectAlreadyFiltered = Boolean(studentSubject && availableSubjects.some(subject => fuzzyMatch(subject, studentSubject)));
@@ -880,11 +880,14 @@ function StudentWeekStrip({ slots, selectedDay, onDay, trialAvailable = false }:
 function TutorList({ slots, busy, bookSlot, compact = false, onProfile, trialAvailable = false }: { trialAvailable?: boolean; slots: Slot[]; busy: boolean; bookSlot: (slot: Slot) => void; compact?: boolean; onProfile?: (teacherId: string) => void }) {
   usePreferences();
   if (!slots.length) return <Empty text="لا توجد مواعيد مناسبة حالياً." />;
-  return <div className={compact ? 'tutor-strip' : 'tutor-market-list'}>{slots.map(slot => <article className="tutor-card" key={slot.id}>
+  return <div className={compact ? 'tutor-strip' : 'tutor-market-list'}>{slots.map(slot => {
+    const offerings = slotOfferings(slot);
+    const displayedOfferings = offerings.length ? offerings : trialAvailable && slot.teacher_free_trial_enabled ? [{ minutes: 30, price: 0 }] : [];
+    return <article className="tutor-card" key={slot.id}>
     <button type="button" className="tutor-photo" onClick={() => onProfile?.(slot.teacher_id)} aria-label={t('فتح ملف الأستاذ')}>{slot.teacher_name?.slice(0, 1) || 'أ'}</button>
-    <div className="tutor-info">{trialAvailable && <FreeTrialBadge free={slot.teacher_free_trial_enabled === true} />}<div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><TutorRating rating={slot.teacher_rating} count={slot.teacher_rating_count} /><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{slotOfferings(slot).map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)} – {timeOnly(slot.available_until || slot.start + slot.minutes * 60000)}</time></div>
-    <div className="tutor-actions"><b>{slotOfferings(slot).length > 1 ? <span className="variable-lesson-price">{t("السعر حسب طول الحصة")}</span> : money(slotOfferings(slot)[0].price)}<small>{slotOfferings(slot).length > 1 ? t("اختر المدة لترى السعر") : t("سعر الحصة")}</small></b><button className="primary-button" disabled={busy} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
-  </article>)}</div>;
+    <div className="tutor-info">{trialAvailable && <FreeTrialBadge free={slot.teacher_free_trial_enabled === true} />}<div><strong>{slot.teacher_name || t("أستاذ منصّة")}</strong><BadgeCheck className="verified-icon" size={17} aria-label={t("أستاذ منصّة")} /></div><TutorRating rating={slot.teacher_rating} count={slot.teacher_rating_count} /><p>{slotSubjects(slot).map(catalogText).join('، ')}</p><small><Clock3 size={14} />{displayedOfferings.map(item => item.minutes).join(' / ')}{t(" دقيقة")}{slot.bio && <span> · {slot.bio}</span>}</small><time><CalendarPlus size={14} />{date(slot.start)} – {timeOnly(slot.available_until || slot.start + slot.minutes * 60000)}</time></div>
+    <div className="tutor-actions"><b>{displayedOfferings.length > 1 ? <span className="variable-lesson-price">{t("السعر حسب طول الحصة")}</span> : displayedOfferings[0] ? money(displayedOfferings[0].price) : t('لا توجد حصص متاحة')}<small>{displayedOfferings.length > 1 ? t("اختر المدة لترى السعر") : t("سعر الحصة")}</small></b><button className="primary-button" disabled={busy || !displayedOfferings.length} onClick={() => bookSlot(slot)}><CalendarPlus size={16} />{t("احجز الآن")}</button></div>
+  </article>; })}</div>;
 }
 
 function TutorRating({ rating, count = 0 }: { rating?: number | null; count?: number }) {

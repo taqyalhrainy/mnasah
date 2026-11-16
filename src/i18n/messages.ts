@@ -168,7 +168,7 @@ export const messages: Record<string, string> = {
   'وصلت بياناتك وصورتك وفيديو التحقق والمستندات إلى الأونر. سنفعّل الحساب بعد المراجعة.': 'Your details, photo, verification video and documents reached the owner. Your account will be activated after review.',
   'يجب أن يكون فيديو التحقق 5 ثوانٍ على الأقل.': 'The verification video must be at least 5 seconds long.',
   'مدد الحصة وأسعارها': 'Lesson durations and prices', 'اختر المدد التي تناسبك وحدد سعراً منفصلاً لكل واحدة.': 'Choose the durations that suit you and set a separate price for each.',
-  'اختر مدة حصة واحدة على الأقل.': 'Choose at least one lesson duration.', 'أدخل سعراً صحيحاً لكل مدة مختارة.': 'Enter a valid price for every selected duration.', 'الفترة المتاحة يجب أن تتسع لأطول مدة حصة اخترتها.': 'The availability window must fit your longest selected lesson.',
+  'اختر مدة حصة واحدة على الأقل.': 'Choose at least one lesson duration.', 'أدخل سعراً صحيحاً لكل مدة مختارة.': 'Enter a valid price for every selected duration.', 'الفترة المتاحة يجب أن تتسع لمدة الحصة التي اخترتها.': 'The availability window must fit your selected lesson duration.',
   'سعر {v0} دقيقة': '{v0}-minute price', 'د.أ': 'JOD', 'ابتداءً من': 'Starting from', 'السعر حسب طول الحصة': 'Price by lesson duration', 'اختر المدة لترى السعر': 'Choose a duration to see its price', 'سعر الحصة': 'Lesson price', 'أكمل اختيار حصتك': 'Complete your lesson choice',
   'أي مادة تريد أن تدرس؟': 'Which subject would you like to study?', 'اختر مدة الحصة التي تناسبك': 'Choose the lesson duration that suits you', 'الإجمالي': 'Total', 'تأكيد الحجز': 'Confirm booking',
   'تأكيد حجز حصة {v0} لمدة {v1} دقيقة بقيمة {v2}؟': 'Confirm a {v1}-minute {v0} lesson for {v2}?',

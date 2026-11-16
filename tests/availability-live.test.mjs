@@ -14,7 +14,7 @@ test('expired windows, real slot IDs, live updates, booking races and lesson fil
   const db = memoryMongo({ users, sessions: users.map(user => ({ user_id: user.id, token: crypto.createHash('sha256').update(token(user.id)).digest('hex'), expires: now + hour })), catalog: [{ id: 'math', kind: 'category', subjects: ['رياضيات'], levels: [] }], slots: [{ id: 'short', teacher_id: 'teacher', status: 'open', start: now - 60000, available_until: now + hour - 60000, minutes: 60, price: 1000 }], wallet_accounts: [{ user_id: 'student', balance: 5000 }, { user_id: 'other', balance: 5000 }] });
   const stored = new Map();
   const attachmentStore = { async write(id, name, source) { const chunks = []; for await (const chunk of source) chunks.push(Buffer.from(chunk)); stored.set(id, Buffer.concat(chunks)); }, read: id => Readable.from([stored.get(id)]), async remove(id) { stored.delete(id); } };
-  const { httpServer, io } = await startPlatformServer({ database: db, attachmentStore, port: 0 });
+  const { httpServer, io } = await startPlatformServer({ database: db, attachmentStore, port: Number(process.env.AVAILABILITY_TEST_PORT || 0) });
   const base = `http://127.0.0.1:${httpServer.address().port}`;
   const cookie = id => `mansah_session_${id === 'teacher' ? 'teachers' : 'students'}=${token(id)}`;
   const socket = socketClient(base, { auth: { portal: 'students' }, extraHeaders: { cookie: cookie('student') }, transports: ['websocket'], reconnection: false });
@@ -58,4 +58,16 @@ test('expired windows, real slot IDs, live updates, booking races and lesson fil
   const singleBooking = await call('student', `slots/${single.slot.id}`, { subject: 'رياضيات', minutes: 60, start: single.slot.start });
   await call('teacher', `bookings/${singleBooking.id}/cancel`, {});
   assert.equal((await call('other', 'slots')).slots.some(slot => slot.id === single.slot.id), false, 'a cancelled single lesson must not return to availability');
+  const shortStart = now + 8 * hour, shortEnd = shortStart + 45 * 60000;
+  const options = [{ minutes: 30, price: 500 }, { minutes: 60, price: 1000 }, { minutes: 90, price: 1500 }];
+  const shortWindow = await call('teacher', 'slots', { subjects: ['رياضيات'], start: shortStart, available_until: shortEnd, offerings: options });
+  assert.equal(shortWindow.slot.available_until, shortEnd, 'publishing several durations must never extend the teacher availability window');
+  assert.deepEqual(options.filter(option => bookingStarts(shortWindow.slot, option.minutes).length).map(option => option.minutes), [30]);
+  await call('student', `slots/${shortWindow.slot.id}`, { subject: 'رياضيات', minutes: 60, start: shortStart }, 400);
+  await call('student', `slots/${shortWindow.slot.id}`, { subject: 'رياضيات', minutes: 60 }, 400);
+  await call('student', `slots/${shortWindow.slot.id}`, { subject: 'رياضيات', minutes: 30, start: shortStart });
+  const tooShort = await call('teacher', 'slots', { subjects: ['رياضيات'], start: now + 10 * hour, available_until: now + 10 * hour + 45 * 60000, offerings: [options[1]] }, 400);
+  assert.match(tooShort.error, /الفترة المتاحة يجب أن تتسع لمدة الحصة/);
+  const exact = await call('teacher', 'slots', { subjects: ['رياضيات'], start: now + 11 * hour, available_until: now + 12 * hour, offerings: [options[1]] });
+  assert.equal(exact.slot.available_until, now + 12 * hour, 'a single duration that fits exactly remains publishable');
 });

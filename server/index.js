@@ -1451,10 +1451,11 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       assertCatalogSubjects(subjects, await catalogSubjectSet());
       const defaultOffering = offerings[0], maxMinutes = Math.max(...offerings.map(item => item.minutes));
       const suppliedUntil = Number(body.available_until || body.availableUntil || 0);
-      const hasAvailabilityWindow = Number.isSafeInteger(suppliedUntil) && suppliedUntil >= start + maxMinutes * 60000;
+      const hasAvailabilityWindow = body.available_until !== undefined || body.availableUntil !== undefined;
       const until = hasAvailabilityWindow ? suppliedUntil : start + maxMinutes * 60000;
       const now = Date.now();
-      if (!Number.isSafeInteger(start) || start > now + 31536000000 || start < now - 60000 || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(until) || until <= start || start > now + 31536000000 || start < now - 60000 || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
+      if (offerings.length === 1 && until - start < defaultOffering.minutes * 60000) fail(400, 'الفترة المتاحة يجب أن تتسع لمدة الحصة التي اخترتها.');
       const existing = await db.collection('slots').find({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until } }, { projection: { _id: 0 } }).toArray();
       const occupied = (await occupiedPackageRanges(user.id, '')).filter(range => range.start < until && range.end > start);
       if (occupied.length || existing.some(slot => Number(slot.available_until || slot.start + slot.minutes * 60000) > start && slotHasAvailability(slot))) fail(409, 'الموعد يتعارض مع موعد آخر.');
@@ -1493,7 +1494,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       if (isFreeTrial && !hasSelectedStart) fail(400, 'اختر وقت الحصة المجانية.');
       const selectedStart = Number(hasSelectedStart ? body.start : slot.start);
       const selectedEnd = selectedStart + selectedOffering.minutes * 60000;
-      if (!Number.isSafeInteger(selectedStart) || (hasSelectedStart && (selectedStart < Number(slot.start) || selectedEnd > Number(slot.available_until) || selectedStart <= Date.now()))) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي حددها الأستاذ.');
+      if (!Number.isSafeInteger(selectedStart) || selectedStart < Number(slot.start) || selectedEnd > Number(slot.available_until) || (hasSelectedStart && selectedStart <= Date.now())) fail(400, 'اختر وقتاً متاحاً داخل الفترة التي حددها الأستاذ.');
       const studentBookings = await enrichBookings(await db.collection('bookings').find({ student_id: user.id, status: 'confirmed' }, { projection: { _id: 0 } }).toArray());
       if (studentBookings.some(row => selectedStart < row.start + row.minutes * 60000 && selectedEnd > row.start)) fail(409, 'لديك حصة أخرى تتعارض مع هذا الوقت.');
       const packagePurchaseId = typeof body.package_purchase_id === 'string' ? field(body.package_purchase_id, 80) : '';

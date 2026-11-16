@@ -114,7 +114,7 @@ export function TeacherAvailabilityHub({ commissionExempt = false, subjects, slo
     if (offerings.some(item => !Number.isFinite(item.price) || item.price < 0 || item.price > 100000)) { setLocalError(t('أدخل سعراً صحيحاً لكل مدة مختارة.')); return; }
     const start = atTime(selectedDay, schedule.from), availableUntil = availabilityEnd(selectedDay, schedule.from, schedule.to);
     if (start < Date.now() - 60000) { setLocalError(t('كل المواعيد يجب أن تبدأ بعد الوقت الحالي.')); return; }
-    if (availableUntil - start < Math.max(...offerings.map(item => item.minutes)) * 60000) { setLocalError(t('الفترة المتاحة يجب أن تتسع لأطول مدة حصة اخترتها.')); return; }
+    if (offerings.length === 1 && availableUntil - start < offerings[0].minutes * 60000) { setLocalError(t('الفترة المتاحة يجب أن تتسع لمدة الحصة التي اخترتها.')); return; }
     if (activeSlots.some(slot => slot.status === 'open' && start < (slot.available_until || slot.start + slot.minutes * 60000) && availableUntil > slot.start) || activeBookings.some(booking => start < booking.start + booking.minutes * 60000 && availableUntil > booking.start)) { setLocalError(t('الموعد يتعارض مع موعد آخر.')); return; }
     const subject = 'كل المواد المختارة'; setLocalError('');
     const defaultOffering = offerings[0];
