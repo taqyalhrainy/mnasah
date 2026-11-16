@@ -1434,7 +1434,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const slots = user.role === 'teachers' ? await db.collection('slots').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ start: -1 }).limit(500).toArray() : undefined;
       return res.json({ bookings: owned, ...(slots ? { slots } : {}) });
     }
-    if (path === 'slots') {
+    const editSlotId = write && /^slots\/([^/]+)\/edit$/.exec(path)?.[1];
+    if (path === 'slots' || editSlotId) {
       if (!write) {
         if (user.role === 'teachers') return res.json({ slots: await db.collection('slots').find({ teacher_id: user.id }, { projection: { _id: 0 } }).sort({ start: -1 }).limit(500).toArray() });
         const slots = await db.collection('slots').find({ status: 'open', available_until: { $gt: Date.now() } }, { projection: { _id: 0 } }).sort({ start: 1 }).limit(500).toArray();
@@ -1447,6 +1448,8 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         return res.json({ slots: available.filter(slot => slotHasAvailability(slot) || slot.teacher_free_trial_enabled && bookingStarts(slot, FREE_TRIAL_MINUTES).length > 0) });
       }
       if (user.role !== 'teachers') fail(403, 'إضافة المواعيد متاحة للأساتذة فقط.');
+      const editing = editSlotId ? await db.collection('slots').findOne({ id: editSlotId, teacher_id: user.id, status: 'open' }) : null;
+      if (editSlotId && !editing) fail(404, 'الموعد غير موجود أو غير قابل للتعديل.');
       const start = Number(body.start), subjects = slotSubjects(body), offerings = slotOfferings(body);
       assertCatalogSubjects(subjects, await catalogSubjectSet());
       const defaultOffering = offerings[0], maxMinutes = Math.max(...offerings.map(item => item.minutes));
@@ -1454,11 +1457,23 @@ app.all('/api/:portal/*path', async (req, res, next) => {
       const hasAvailabilityWindow = body.available_until !== undefined || body.availableUntil !== undefined;
       const until = hasAvailabilityWindow ? suppliedUntil : start + maxMinutes * 60000;
       const now = Date.now();
-      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(until) || until <= start || start > now + 31536000000 || start < now - 60000 || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(until) || until <= start || start > now + 31536000000 || (start < now - 60000 && (!editing || start !== editing.start)) || until <= now) fail(400, 'تحقق من الموعد والفترة المتاحة.');
       if (offerings.length === 1 && until - start < defaultOffering.minutes * 60000) fail(400, 'الفترة المتاحة يجب أن تتسع لمدة الحصة التي اخترتها.');
       const existing = await db.collection('slots').find({ teacher_id: user.id, status: { $ne: 'cancelled' }, start: { $lt: until } }, { projection: { _id: 0 } }).toArray();
-      const occupied = (await occupiedPackageRanges(user.id, '')).filter(range => range.start < until && range.end > start);
-      if (occupied.length || existing.some(slot => Number(slot.available_until || slot.start + slot.minutes * 60000) > start && slotHasAvailability(slot))) fail(409, 'الموعد يتعارض مع موعد آخر.');
+      const ownBookings = editing ? await db.collection('bookings').find({ slot_id: editing.id, status: 'confirmed' }, { projection: { _id: 0, id: 1, start: 1, minutes: 1 } }).toArray() : [];
+      if (ownBookings.some(booking => (!booking.start && start !== editing.start) || Number(booking.start || editing.start) < start || Number(booking.start || editing.start) + Number(booking.minutes || editing.minutes) * 60000 > until)) fail(409, 'لا يمكن تقليص الفترة بما يؤثر على حصة محجوزة.');
+      const ownBookingIds = new Set(ownBookings.map(booking => booking.id));
+      const occupied = (await occupiedPackageRanges(user.id, '')).filter(range => !ownBookingIds.has(range.id) && range.start < until && range.end > start);
+      if (occupied.length || existing.some(slot => slot.id !== editSlotId && Number(slot.available_until || slot.start + slot.minutes * 60000) > start && slotHasAvailability(slot))) fail(409, 'الموعد يتعارض مع موعد آخر.');
+      if (editing) {
+        const changes = { start, available_until: until, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, updated: now };
+        // This atomic guard also protects a booking reserved while the editor was open.
+        const saved = await db.collection('slots').updateOne({ id: editing.id, teacher_id: user.id, status: 'open', $nor: [{ reservations: { $elemMatch: { start: { $lt: start } } } }, { reservations: { $elemMatch: { end: { $gt: until } } } }] }, { $set: changes });
+        if (!saved.matchedCount && !saved.modifiedCount) fail(409, 'تغيّر الموعد أثناء التعديل. حدّث الصفحة وحاول مجدداً.');
+        io.emit('availability:changed', { id: editing.id });
+        await audit(user.id, 'slot:update', editing.id);
+        return res.json({ ok: true, slot: { ...editing, ...changes } });
+      }
       const slotId = crypto.randomUUID();
       const slot = { id: slotId, teacher_id: user.id, start, minutes: defaultOffering.minutes, price: defaultOffering.price, subject: subjects.length === 1 ? subjects[0] : 'كل المواد المختارة', subjects, offerings, available_until: until, status: 'open', created: Date.now() };
       await db.collection('slots').insertOne(slot);

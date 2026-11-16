@@ -1,4 +1,4 @@
-const CACHE_NAME = 'imtidad-shell-v51';
+const CACHE_NAME = 'imtidad-shell-v52';
 const shellUrl = path => new URL(path, self.registration.scope).href;
 const INDEX_URL = shellUrl('index.html');
 const SHELL_FILES = ['', 'index.html', 'favicon.ico', 'images/emtidad-alelm-final-logo-48.png', 'images/emtidad-alelm-final-logo-192.png', 'manifest.webmanifest'].map(shellUrl);
@@ -61,7 +61,11 @@ self.addEventListener('fetch', (event) => {
       if (url.searchParams.has('__app_reload')) return network.catch(startingResponse);
       let cached;
       try { cached = await (await caches.open(CACHE_NAME)).match(INDEX_URL); } catch { /* Restricted storage. */ }
-      if (!cached) return network.catch(startingResponse);
+      if (!cached) {
+        let startupTimer;
+        try { return await Promise.race([network.catch(startingResponse), new Promise(resolve => { startupTimer = setTimeout(() => resolve(startingResponse()), 1800); })]); }
+        finally { clearTimeout(startupTimer); }
+      }
       let timer;
       try {
         return await Promise.race([network.catch(() => cached), new Promise(resolve => { timer = setTimeout(() => resolve(cached), 150); })]);

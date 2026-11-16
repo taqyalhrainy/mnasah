@@ -588,11 +588,11 @@ export function PortalWorkspace({ portal, user, view, onUser, onView, onRoomLive
     setBusy(true); setError(''); setSuccess('');
     try {
       for (const draft of drafts) {
-        const result = await request<{ slot: Slot }>('teachers/slots', { subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, offerings: draft.offerings });
+        const result = await request<{ slot: Slot }>(draft.id ? `teachers/slots/${draft.id}/edit` : 'teachers/slots', { subject: draft.subject, subjects: draft.subjects, start: draft.start, minutes: draft.minutes, available_until: draft.availableUntil, price: draft.price, offerings: draft.offerings });
         if (result.slot) setSlots(current => [...current.filter(slot => slot.id !== result.slot.id), result.slot]);
       }
       window.dispatchEvent(new Event('availability:changed'));
-      setSuccess(t('تم نشر مواعيدك وإضافتها إلى التقويم.'));
+      setSuccess(t(drafts.some(draft => draft.id) ? 'تم حفظ تعديلات الموعد.' : 'تم نشر مواعيدك وإضافتها إلى التقويم.'));
       return true;
     } catch (cause) {
       setError((cause as Error).message);

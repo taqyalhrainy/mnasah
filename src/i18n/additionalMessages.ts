@@ -716,5 +716,15 @@ Object.assign(additionalMessages, {
   "يجب الموافقة على الشروط وسياسة الخصوصية.": "You must accept the terms and privacy policy.",
   "تحقق من عدد سنوات الخبرة.": "Check the number of years of experience.",
   "يجب تأكيد صحة البيانات والموافقة على سياسة التدريس.": "You must confirm your information and accept the teaching policy.",
-  "اكتب رسالة أو اختر ملفاً أو GIF.": "Write a message or choose a file or GIF."
+  "اكتب رسالة أو اختر ملفاً أو GIF.": "Write a message or choose a file or GIF.",
+  "تعديل الفترة المتاحة": "Edit availability",
+  "تعديل الموعد": "Edit availability",
+  "الحجوزات المؤكدة وأسعارها لا تتغير": "Confirmed bookings and their prices remain unchanged",
+  "تم حفظ تعديلات الموعد.": "Availability changes saved.",
+  "الموعد غير موجود أو غير قابل للتعديل.": "This availability was not found or cannot be edited.",
+  "لا يمكن تقليص الفترة بما يؤثر على حصة محجوزة.": "You cannot shorten this window across a confirmed booking.",
+  "تغيّر الموعد أثناء التعديل. حدّث الصفحة وحاول مجدداً.": "This availability changed while you were editing. Refresh and try again.",
+  "فترة متاحة": "Available window",
+  "لا يمكن حذف فترة فيها حجز مؤكد.": "You cannot delete a window with a confirmed booking.",
+  "{v0} حجوزات مؤكدة": "{v0} confirmed bookings"
 });

@@ -50,6 +50,19 @@ test('a slow server falls back to cached HTML within a bounded delay', async () 
   assert.equal(await response.text(), 'instant shell');
 });
 
+test('an installed worker without cached HTML shows branded loading while the origin is waking', async () => {
+  const handlers = {}, origin = 'https://emtidad-alelm.onrender.com';
+  const self = { registration: { scope: origin + '/' }, location: { origin }, addEventListener: (name, handler) => { handlers[name] = handler; } };
+  vm.runInNewContext(readFileSync('public/service-worker.js', 'utf8'), {
+    self, URL, Request, Response, setTimeout: callback => setTimeout(callback, 5), clearTimeout,
+    fetch: () => new Promise(() => {}), caches: { open: async () => ({ match: async () => undefined }) },
+  });
+  let result;
+  handlers.fetch({ request: navigation(origin + '/teachers'), waitUntil: () => {}, respondWith: promise => { result = promise; } });
+  const response = await Promise.race([result, new Promise((_, reject) => setTimeout(() => reject(new Error('loading waited on a sleeping origin')), 100))]);
+  assert.match(await response.text(), /ثواني وبنكون معك/);
+});
+
 test('a hosting wake-up page with HTTP 200 never replaces the installed app', async () => {
   const handlers = {}, work = [];
   const origin = 'https://emtidad-alelm.onrender.com';

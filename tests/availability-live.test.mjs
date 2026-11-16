@@ -70,4 +70,14 @@ test('expired windows, real slot IDs, live updates, booking races and lesson fil
   assert.match(tooShort.error, /الفترة المتاحة يجب أن تتسع لمدة الحصة/);
   const exact = await call('teacher', 'slots', { subjects: ['رياضيات'], start: now + 11 * hour, available_until: now + 12 * hour, offerings: [options[1]] });
   assert.equal(exact.slot.available_until, now + 12 * hour, 'a single duration that fits exactly remains publishable');
+  const edited = await call('teacher', `slots/${exact.slot.id}/edit`, { subjects: ['رياضيات'], start: now + 11 * hour, available_until: now + 13 * hour, offerings: options });
+  assert.equal(edited.slot.id, exact.slot.id);
+  assert.equal(edited.slot.available_until, now + 13 * hour);
+  assert.deepEqual(edited.slot.offerings, options);
+  await call('other', `slots/${exact.slot.id}/edit`, { start: now + 11 * hour }, 403);
+  await call('teacher', `slots/${exact.slot.id}/edit`, { subjects: ['رياضيات'], start: shortStart, available_until: now + 13 * hour, offerings: options }, 409);
+  await call('teacher', `slots/${shortWindow.slot.id}/edit`, { subjects: ['رياضيات'], start: shortStart + 10 * 60000, available_until: shortEnd + 30 * 60000, offerings: options }, 409);
+  const retained = await call('teacher', `slots/${shortWindow.slot.id}/edit`, { subjects: ['رياضيات'], start: shortStart, available_until: shortEnd + 15 * 60000, offerings: options });
+  assert.equal(retained.slot.reservations.length, 1, 'editing never deletes a paid reservation');
+  assert.equal((await call('teacher', 'overview')).bookings.find(booking => booking.slot_id === shortWindow.slot.id).price, 500, 'existing booking prices do not change');
 });
