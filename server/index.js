@@ -1743,7 +1743,7 @@ app.use(express.static(path.join(root, 'dist/client'), {
   maxAge: '1y',
   immutable: true,
   setHeaders(res, filePath) {
-      if (filePath.endsWith('robots.txt') || filePath.endsWith('sitemap.xml') || /google[a-f0-9]+\.html$/.test(filePath)) {
+      if (filePath.endsWith('favicon.ico') || filePath.endsWith('emtidad-search-icon.png') || filePath.endsWith('robots.txt') || filePath.endsWith('sitemap.xml') || /google[a-f0-9]+\.html$/.test(filePath)) {
         res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       } else if (filePath.endsWith('index.html')) {
         res.setHeader('Cache-Control', 'no-store');
