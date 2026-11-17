@@ -1,7 +1,7 @@
 // A second, authenticated route for classroom edits. Media stays peer-to-peer;
 // a recipient acknowledgement lets its peer retain edits across reconnects.
-const kinds = new Set(['sync-request', 'stroke', 'clear', 'erase', 'item-upsert', 'item-delete', 'mode', 'board-session', 'document', 'document-view', 'document-annotations', 'youtube', 'sync']);
-const teacherOnly = new Set(['document', 'document-view']);
+const kinds = new Set(['sync-request', 'stroke', 'clear', 'erase', 'item-upsert', 'item-delete', 'mode', 'board-session', 'board-permissions', 'document', 'document-view', 'document-annotations', 'youtube', 'sync']);
+const teacherOnly = new Set(['document', 'document-view', 'board-permissions']);
 export function attachClassroomRelay(io, database) {
   const roomName = id => `classroom:${id}`;
   const announce = async id => {
@@ -16,7 +16,7 @@ export function attachClassroomRelay(io, database) {
     if (!booking || !slot || ['cancelled', 'refunded'].includes(booking.status)) return null;
     const teacher = slot.teacher_id, student = booking.student_id, user = socket.data.userId;
     if (![teacher, student].includes(user)) return null;
-    return { id, peer: user === teacher ? student : teacher, teacher: user === teacher, checked: Date.now() };
+    return { id, peer: user === teacher ? student : teacher, teacher: user === teacher, studentPenEnabled: booking.student_pen_enabled !== false, checked: Date.now() };
   }
   io.on('connection', socket => {
     let joined = null, joining = 0, inFlight = false, windowStart = 0, count = 0;
@@ -31,7 +31,7 @@ export function attachClassroomRelay(io, database) {
         if (previous) await socket.leave(roomName(previous));
         joined = next;
         await socket.join(roomName(next.id));
-        ack({ accepted: true });
+        ack({ accepted: true, studentPenEnabled: next.studentPenEnabled });
         if (previous && previous !== next.id) void announce(previous);
         void announce(next.id);
       } catch { ack({ accepted: false }); }
@@ -52,13 +52,28 @@ export function attachClassroomRelay(io, database) {
         const active = joined;
         const operations = payload.operations;
         if (!Array.isArray(operations) || !operations.length || operations.length > 32 || Buffer.byteLength(JSON.stringify(operations)) > 512 * 1024) return ack({ delivered: false, rejected: true });
-        if (operations.some(op => !op || !kinds.has(op.kind) || typeof op.relayId !== 'string' || op.relayId.length > 100 || !op.relayId.length || (teacherOnly.has(op.kind) && !joined.teacher) || (op.kind === 'youtube' && op.session === null && !joined.teacher) || (op.kind === 'sync' && !joined.teacher && ('document' in op || 'documentView' in op || op.youtube === null)))) return ack({ delivered: false, rejected: true });
+        const invalidOperation = operations.some(op =>
+          !op || !kinds.has(op.kind) || typeof op.relayId !== 'string' || op.relayId.length > 100 || !op.relayId.length ||
+          (teacherOnly.has(op.kind) && !active.teacher) ||
+          (op.kind === 'board-permissions' && typeof op.studentPenEnabled !== 'boolean') ||
+          (op.kind === 'youtube' && op.session === null && !active.teacher) ||
+          (op.kind === 'sync' && !active.teacher && ('document' in op || 'documentView' in op || 'studentPenEnabled' in op || op.youtube === null))
+        );
+        if (invalidOperation) return ack({ delivered: false, rejected: true });
         if (Date.now() - windowStart > 1000) { windowStart = Date.now(); count = 0; }
         count += operations.length;
         if (count > 160) return ack({ delivered: false });
+        if (!active.teacher && operations.some(op => ['stroke', 'sync', 'clear'].includes(op.kind))) {
+          const booking = await database().collection('bookings').findOne({ id: active.id });
+          if (!booking || booking.student_pen_enabled === false) return ack({ delivered: false, rejected: true });
+        }
+        const permissions = operations.filter(op => op.kind === 'board-permissions').at(-1);
+        if (permissions) {
+          await database().collection('bookings').updateOne({ id: active.id }, { $set: { student_pen_enabled: permissions.studentPenEnabled } });
+        }
         const peers = (await io.in(roomName(active.id)).fetchSockets()).filter(peer => peer.data.userId === active.peer).map(peer => peer.id);
         if (generation !== joining || !socket.connected) return ack({ delivered: false });
-        if (!peers.length) return ack({ delivered: false });
+        if (!peers.length) return ack({ delivered: operations.every(op => op.kind === 'board-permissions') });
         pending = true;
         io.to(peers).timeout(2500).emit('classroom:operations', { bookingId: active.id, operations }, (_error, responses) => {
           inFlight = false;

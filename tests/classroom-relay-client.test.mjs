@@ -9,10 +9,10 @@ const bundle = await build({ entryPoints: ['src/services/classroomRelay.ts'], bu
 } }] });
 const factory = new Function('module', 'exports', 'testSocket', 'window', `${bundle.outputFiles[0].text}; return module.exports.ClassroomRelay;`);
 class Socket extends EventEmitter {
-  connected = true; batches = []; accept = false;
+  connected = true; batches = []; accept = false; studentPenEnabled = false;
   timeout() { return this; }
   emit(event, payload, ack) {
-    if (event === 'classroom:join') { this.join = payload; ack(null, { accepted: true }); return this; }
+    if (event === 'classroom:join') { this.join = payload; ack(null, { accepted: true, studentPenEnabled: this.studentPenEnabled }); return this; }
     if (event === 'classroom:operations') { this.batches.push(payload); ack(null, { delivered: this.accept }); return this; }
     return super.emit(event, payload, ack);
   }
@@ -38,4 +38,20 @@ test('backup retains unacknowledged edits, replays in order, receives ACKs and c
   assert.deepEqual(received, [first]); assert.deepEqual(acknowledgement, { received: true });
   assert.equal(ready, 1);
   relay.close(); assert.equal(socket.connected, false);
+});
+
+test('backup restores the lesson pen permission on entry and reconnect', async () => {
+  const socket = new Socket(), Relay = factory({ exports: {} }, {}, socket, { location: { origin: 'http://localhost' } });
+  const permissions = [];
+  const relay = new Relay('booking', 'students', () => undefined, () => undefined, enabled => permissions.push(enabled));
+  await delay(20);
+  socket.emit('connect');
+  assert.deepEqual(permissions, [false]);
+  socket.studentPenEnabled = true;
+  socket.emit('connect');
+  assert.deepEqual(permissions, [false, true]);
+  relay.close();
+  socket.studentPenEnabled = false;
+  socket.emit('connect');
+  assert.deepEqual(permissions, [false, true]);
 });

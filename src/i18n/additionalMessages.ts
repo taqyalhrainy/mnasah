@@ -1,4 +1,7 @@
 export const additionalMessages: Record<string, string> = {
+  'السماح للطالب باستخدام القلم': 'Allow the student to use the pen',
+  'قلم الطالب': 'Student pen',
+  'أوقف المعلم قلم الطالب': 'The teacher has disabled the student pen',
   'النت ضعيف؛ أوقفنا إرسال الفيديو مؤقتًا للحفاظ على الصوت': 'Weak connection: video sending is paused temporarily to protect audio',
   'نخفّض جودة الفيديو للحفاظ على وضوح الصوت': 'Reducing video quality to keep audio clear',
   'صورة البورد': 'Whiteboard image',

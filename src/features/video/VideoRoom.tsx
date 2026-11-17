@@ -88,12 +88,13 @@ type WhiteboardMessage =
   | { kind: 'item-delete'; id: string }
   | { kind: 'mode'; mode: StageMode }
   | { kind: 'board-session'; open: boolean }
+  | { kind: 'board-permissions'; studentPenEnabled: boolean }
   | { kind: 'document'; document: SharedDocument | null }
   | { kind: 'document-preload'; id: string; page: number; src: string }
   | { kind: 'document-view'; view: SharedDocumentView }
   | { kind: 'document-annotations'; annotations: DocumentAnnotation[] }
   | { kind: 'youtube'; session: YoutubeSession | null }
-  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; document?: SharedDocument | null; documentView?: SharedDocumentView; annotations?: DocumentAnnotation[]; youtube?: YoutubeSession | null };
+  | { kind: 'sync'; strokes: WhiteboardStroke[]; items?: WhiteboardItem[]; mode?: StageMode; boardOpen?: boolean; studentPenEnabled?: boolean; document?: SharedDocument | null; documentView?: SharedDocumentView; annotations?: DocumentAnnotation[]; youtube?: YoutubeSession | null };
 type StageMode = 'video' | 'whiteboard' | 'document' | 'youtube';
 type WhiteboardTool = 'select' | 'draw' | 'pan' | 'text';
 type WhiteboardItemInteraction = { id: string; mode: 'move' | 'resize'; start: WhiteboardPoint; item: WhiteboardItem; moved: boolean };
@@ -212,6 +213,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardViewport, setWhiteboardViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [whiteboardAspect, setWhiteboardAspect] = useState(1.55);
   const [whiteboardTool, setWhiteboardTool] = useState<WhiteboardTool>('draw');
+  const [studentPenEnabled, setStudentPenEnabled] = useState(true);
+  const studentPenEnabledRef = useRef(true);
+  const canUseWhiteboardPen = role === 'teacher' || studentPenEnabled;
   const [selectedWhiteboardItem, setSelectedWhiteboardItem] = useState<string | null>(null);
   const [editingWhiteboardText, setEditingWhiteboardText] = useState<string | null>(null);
   const [mobileTextDraft, setMobileTextDraft] = useState('');
@@ -314,7 +318,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const deletedRemoteStrokesRef = useRef(new Set<string>());
   useEffect(() => {
     if (!lessonId || !isConnected) return;
-    const relay = new ClassroomRelay(lessonId, `${role}s`, message => receiveClassroomRef.current(message), () => requestClassroomSyncRef.current());
+    const relay = new ClassroomRelay(lessonId, `${role}s`, message => receiveClassroomRef.current(message), () => requestClassroomSyncRef.current(), applyStudentPenPermission);
     classroomRelayRef.current = relay;
     return () => { relay.close(); if (classroomRelayRef.current === relay) classroomRelayRef.current = null; };
   }, [lessonId, role, isConnected]);
@@ -1114,7 +1118,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const isWhiteboardMessage = (message: unknown): message is WhiteboardMessage => {
     if (!message || typeof message !== 'object') return false;
     const kind = (message as { kind?: unknown }).kind;
-    return kind === 'document-view' || kind === 'youtube' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
+    return kind === 'document-view' || kind === 'youtube' || kind === 'sync-request' || kind === 'pointer' || kind === 'clear' || kind === 'stroke-start' || kind === 'stroke-points' || kind === 'stroke' || kind === 'sync' || kind === 'mode' || kind === 'board-session' || kind === 'board-permissions' || kind === 'document' || kind === 'document-preload' || kind === 'document-annotations' || kind === 'erase' || kind === 'item-upsert' || kind === 'item-delete';
   };
 
   const setSyncedWhiteboardStrokes = (next: WhiteboardStroke[] | ((current: WhiteboardStroke[]) => WhiteboardStroke[])) => {
@@ -1145,8 +1149,34 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     if (broadcast) sendWhiteboard({ kind: 'item-delete', id });
   };
 
+  function applyStudentPenPermission(enabled: boolean) {
+    const wasEnabled = studentPenEnabledRef.current;
+    studentPenEnabledRef.current = enabled;
+    setStudentPenEnabled(enabled);
+    if (role !== 'student') return;
+    if (!enabled) {
+      activeStrokeRef.current = null;
+      liveStrokePointsRef.current = [];
+      if (liveStrokeTimerRef.current !== null) clearTimeout(liveStrokeTimerRef.current);
+      liveStrokeTimerRef.current = null;
+      if (activeStrokeFrameRef.current !== null) cancelAnimationFrame(activeStrokeFrameRef.current);
+      activeStrokeFrameRef.current = null;
+      setActiveStroke(null);
+      setWhiteboardTool(tool => tool === 'draw' ? 'pan' : tool);
+    } else if (!wasEnabled) setWhiteboardTool('draw');
+  }
+
+  const toggleStudentPen = () => {
+    if (role !== 'teacher') return;
+    const enabled = !studentPenEnabledRef.current;
+    applyStudentPenPermission(enabled);
+    sendWhiteboard({ kind: 'board-permissions', studentPenEnabled: enabled });
+    sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current });
+  };
+
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
+    if (role === 'teacher' && !studentPenEnabledRef.current && ['stroke-start', 'stroke-points', 'stroke', 'clear'].includes(message.kind)) return;
     const metadata = message as WhiteboardMessage & { relayId?: string; relaySource?: string; relayOrder?: number };
     const relayId = metadata.relayId;
     if (relayId) {
@@ -1155,7 +1185,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       seen.add(relayId);
       if (seen.size > 10000) seen.delete(seen.values().next().value!);
     }
-    const resource = message.kind === 'item-upsert' ? `item:${message.item.id}` : message.kind === 'item-delete' ? `item:${message.id}` : ['document', 'document-view', 'document-annotations', 'mode', 'board-session', 'youtube'].includes(message.kind) ? message.kind : null;
+    const resource = message.kind === 'sync' && typeof message.studentPenEnabled === 'boolean' ? 'board-permissions' : message.kind === 'item-upsert' ? `item:${message.item.id}` : message.kind === 'item-delete' ? `item:${message.id}` : ['document', 'document-view', 'document-annotations', 'mode', 'board-session', 'board-permissions', 'youtube'].includes(message.kind) ? message.kind : null;
     if (resource && typeof metadata.relaySource === 'string' && Number.isSafeInteger(metadata.relayOrder)) {
       const key = `${metadata.relaySource}:${resource}`, versions = classroomVersionsRef.current;
       if ((versions.get(key) || 0) >= metadata.relayOrder!) return;
@@ -1163,6 +1193,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       if (versions.size > 5000) versions.delete(versions.keys().next().value!);
     }
     if (message.kind === 'document-view') { applyRemoteDocumentView(message.view); return; }
+    if (message.kind === 'board-permissions') {
+      if (role === 'student' && typeof message.studentPenEnabled === 'boolean') applyStudentPenPermission(message.studentPenEnabled);
+      return;
+    }
     if (message.kind === 'youtube') { if (message.session === null && role === 'teacher') return; if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
     if (message.kind === 'sync-request') {
       if (role === 'teacher') sendWhiteboard({ kind: 'sync', strokes: whiteboardStrokesRef.current, items: whiteboardItemsRef.current, mode: stageModeRef.current, boardOpen: boardOpenRef.current, document: sharedDocumentRef.current, annotations: documentAnnotationsRef.current });
@@ -1226,6 +1260,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (message.kind === 'sync') {
+      if (role === 'student' && typeof message.studentPenEnabled === 'boolean') applyStudentPenPermission(message.studentPenEnabled);
       if ((message.youtube === null && role !== 'teacher') || validYoutubeSession(message.youtube)) updateYoutube(message.youtube);
       if (message.boardOpen !== undefined) updateBoardOpen(message.boardOpen);
       else if (message.mode === 'whiteboard') updateBoardOpen(true);
@@ -1237,8 +1272,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         documentAnnotationsRef.current = message.annotations;
       }
       const items = message.items || [];
-      ensureWhiteboardContentVisible(message.strokes, items);
-      setSyncedWhiteboardStrokes(message.strokes);
+      if (role !== 'teacher' || studentPenEnabledRef.current) {
+        ensureWhiteboardContentVisible(message.strokes, items);
+        setSyncedWhiteboardStrokes(message.strokes);
+      }
       setSyncedWhiteboardItems(items);
       return;
     }
@@ -1276,7 +1313,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
 
   const sendWhiteboard = (message: WhiteboardMessage) => {
-    const wire = { ...(message.kind === 'sync' ? { ...message, ...(youtubeRef.current ? { youtube: youtubeRef.current } : {}), ...(role === 'teacher' ? { documentView: sharedDocumentView() || undefined } : {}) } : message), relayId: crypto.randomUUID(), relaySource: classroomSourceRef.current, relayOrder: ++classroomOrderRef.current };
+    if (role === 'student' && !studentPenEnabledRef.current && ['stroke-start', 'stroke-points', 'stroke'].includes(message.kind)) return;
+    const wire = { ...(message.kind === 'sync' ? { ...message, ...(youtubeRef.current ? { youtube: youtubeRef.current } : {}), ...(role === 'teacher' ? { documentView: sharedDocumentView() || undefined, studentPenEnabled: studentPenEnabledRef.current } : {}) } : message), relayId: crypto.randomUUID(), relaySource: classroomSourceRef.current, relayOrder: ++classroomOrderRef.current };
     // Queued edits must reach the teacher before requesting its next snapshot.
     if (message.kind !== 'sync-request' || !classroomRelayRef.current?.available) connectionRef.current?.sendWhiteboard(wire);
     if (!['pointer', 'stroke-start', 'stroke-points', 'document-preload'].includes(message.kind)) classroomRelayRef.current?.send(wire as ClassroomOperation);
@@ -1827,6 +1865,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     longPressRef.current = { timer, x: event.clientX, y: event.clientY, point, item };
   };
   const startWhiteboardStroke = (event: PointerEvent<SVGSVGElement>) => {
+    if (role === 'student' && !studentPenEnabledRef.current && whiteboardTool === 'draw') return;
     if (event.pointerType !== 'touch') { whiteboardPointersRef.current.clear(); whiteboardPinchRef.current = null; }
     whiteboardPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -2117,7 +2156,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       <div className="whiteboard-tools" aria-label={t('أدوات اللوح')}>
         <span className="whiteboard-tool-heading">{t('أدوات اللوح')}</span>
         <button data-whiteboard-tool="select" className={whiteboardTool === 'select' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('select'); }} onClick={() => setWhiteboardTool('select')} aria-label={t('تحديد وتحريك العناصر')} title={t('تحديد وتحريك العناصر')}><MousePointer2 size={17} /></button>
-        <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('draw'); }} onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={t('الرسم بالقلم')}><Pencil size={17} /></button>
+        <button data-whiteboard-tool="draw" className={whiteboardTool === 'draw' ? 'selected tool-mode' : 'tool-mode'} disabled={!canUseWhiteboardPen} type="button" onPointerDown={event => { if (canUseWhiteboardPen && event.pointerType === 'touch') setWhiteboardTool('draw'); }} onClick={() => setWhiteboardTool('draw')} aria-label={t('الرسم بالقلم')} title={canUseWhiteboardPen ? t('الرسم بالقلم') : t('أوقف المعلم قلم الطالب')}><Pencil size={17} /></button>
         <button data-whiteboard-tool="pan" className={whiteboardTool === 'pan' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('pan'); }} onClick={() => setWhiteboardTool('pan')} aria-label={t("تحريك اللوح")} title={t("تحريك اللوح")}><Hand size={17} /></button>
         <button data-whiteboard-tool="text" className={whiteboardTool === 'text' ? 'selected tool-mode' : 'tool-mode'} type="button" onPointerDown={event => { if (event.pointerType === 'touch') setWhiteboardTool('text'); }} onClick={() => setWhiteboardTool('text')} aria-label={t('إضافة نص')} title={t('إضافة نص')}><TypeIcon size={17} /></button>
         <button data-whiteboard-tool="image" className="tool-mode" type="button" disabled={boardImageUploads > 0} aria-busy={boardImageUploads > 0} onClick={() => whiteboardImageInputRef.current?.click()} aria-label={t('إضافة صورة')} title={t('إضافة صورة')}>{boardImageUploads > 0 ? <RefreshCw size={17} className="spin" /> : <ImagePlus size={17} />}</button>
@@ -2132,6 +2171,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {selectedWhiteboardItem && <button className="whiteboard-delete-item" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardItem)} title={t('حذف العنصر')} aria-label={t('حذف العنصر')}><Trash2 size={17} /></button>}
         <button className="tool-mode" type="button" disabled={boardExporting} onClick={() => void downloadWhiteboard()} title={t('تنزيل اللوح')} aria-label={t('تنزيل اللوح')}>{boardExporting ? <RefreshCw size={17} /> : <Download size={17} />}</button>
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
+        {role === 'teacher' ? <button type="button" role="switch" aria-checked={studentPenEnabled} aria-label={t('السماح للطالب باستخدام القلم')} className="whiteboard-student-pen-toggle" onClick={toggleStudentPen}><Pencil size={16} /><span>{t('قلم الطالب')}</span><span className="student-pen-switch" aria-hidden="true" /></button> : !studentPenEnabled && <span className="whiteboard-pen-status" role="status">{t('أوقف المعلم قلم الطالب')}</span>}
       </div>
   );
 

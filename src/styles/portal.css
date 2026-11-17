@@ -2970,3 +2970,30 @@ html.call-active .support-whatsapp { display: none; }
   .call-experience .whiteboard-tools .whiteboard-color-picker { flex: 0 0 32px; width: 32px; height: 32px; }
   .call-experience.whiteboard-mode .stable-media-grid .participant-meta { font-size: 10px; padding: 4px 6px; max-width: calc(100% - 12px); }
 }
+
+.call-experience .whiteboard-tools .whiteboard-student-pen-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  width: 100%;
+  min-height: 36px;
+  height: auto;
+  padding: 8px;
+  border: 1px solid #ffffff26;
+  border-radius: 10px;
+  color: #f5f7fb;
+  background: #30343d;
+  font-size: 12px;
+}
+.whiteboard-student-pen-toggle > svg { flex-shrink: 0; }
+.student-pen-switch { position: relative; display: block; flex: 0 0 29px; width: 29px; height: 17px; border-radius: 20px; background: #656975; }
+.student-pen-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 11px; height: 11px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.whiteboard-student-pen-toggle[aria-checked="true"] .student-pen-switch { background: #f5cf49; }
+.whiteboard-student-pen-toggle[aria-checked="true"] .student-pen-switch::after { transform: translateX(12px); background: #252232; }
+.whiteboard-pen-status { grid-column: 1 / -1; padding: 5px; color: #f6d98b; font-size: 11px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .call-experience .whiteboard-tools .whiteboard-student-pen-toggle { flex: 0 0 auto; width: auto; min-width: 140px; min-height: 32px; padding: 5px 8px; }
+  .whiteboard-pen-status { flex: 1 0 100%; padding: 2px; }
+}

@@ -40,6 +40,15 @@ test('classroom backup authorizes membership, waits for recipient ACK and retrie
   assert.equal((await emit(student, 'classroom:operations', batch([{ kind: 'sync', relayId: 'forged-sync', document: null, strokes: [] }]))).rejected, true);
   assert.equal((await emit(teacher, 'classroom:operations', batch([{ kind: 'invalid', relayId: 'bad' }]))).rejected, true);
   assert.equal((await emit(teacher, 'classroom:operations', batch([{ ...op, payload: 'x'.repeat(513 * 1024) }]))).rejected, true);
+  teacher.on('classroom:operations', (_event, ack) => ack({ received: true }));
+  const penPermission = enabled => ({ kind: 'board-permissions', relayId: `pen-${enabled}`, studentPenEnabled: enabled });
+  assert.equal((await emit(teacher, 'classroom:operations', batch([penPermission(false)]))).delivered, true);
+  assert.equal((await database.collection('bookings').findOne({ id: 'booking' })).student_pen_enabled, false, 'permission belongs to the lesson and survives reconnects');
+  assert.equal((await emit(student, 'classroom:operations', batch([op]))).rejected, true, 'student cannot draw while the teacher has disabled the pen');
+  assert.equal((await emit(student, 'classroom:operations', batch([penPermission(true)]))).rejected, true, 'student cannot grant permission');
+  assert.equal((await emit(student, 'classroom:operations', batch([{ kind: 'sync', relayId: 'pen-forged-sync', strokes: [], studentPenEnabled: true }]))).rejected, true);
+  assert.equal((await emit(student, 'classroom:operations', batch([{ kind: 'sync', relayId: 'pen-snapshot', strokes: [op.stroke] }]))).rejected, true, 'a snapshot cannot bypass a disabled pen');
+  assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, true, 'the teacher can still draw');
   student.off('classroom:operations', receive);
   assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, false, 'server acceptance alone is insufficient');
   const away = new Promise(resolve => teacher.on('classroom:ready', event => { if (!event.ready) resolve(event); }));
@@ -47,8 +56,11 @@ test('classroom backup authorizes membership, waits for recipient ACK and retrie
   assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, false);
   const returning = await connect('student');
   returning.on('classroom:operations', receive);
-  await emit(returning, 'classroom:join', { bookingId: 'booking' });
+  const rejoined = await emit(returning, 'classroom:join', { bookingId: 'booking' });
+  assert.equal(rejoined.studentPenEnabled, false);
   assert.equal((await emit(teacher, 'classroom:operations', batch([op]))).delivered, true, 'same operation can be replayed after recipient returns');
+  assert.equal((await emit(teacher, 'classroom:operations', batch([penPermission(true)]))).delivered, true);
+  assert.equal((await emit(returning, 'classroom:operations', batch([op]))).delivered, true, 'the student can draw after permission is restored');
   await database.collection('bookings').updateOne({ id: 'booking' }, { $set: { status: 'cancelled' } });
   assert.equal((await emit(returning, 'classroom:join', { bookingId: 'booking' })).accepted, false);
 });

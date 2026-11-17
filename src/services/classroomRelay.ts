@@ -11,12 +11,14 @@ export class ClassroomRelay {
   private timer?: ReturnType<typeof setTimeout>;
   private reconnect?: ReturnType<typeof setTimeout>;
   get available() { return this.ready && !!this.socket?.connected; }
-  constructor(private bookingId: string, portal: 'teachers' | 'students', private receive: (message: unknown) => void, private onReady: () => void) {
+  constructor(private bookingId: string, portal: 'teachers' | 'students', private receive: (message: unknown) => void, private onReady: () => void, private onBoardPermissions?: (enabled: boolean) => void) {
     void import('socket.io-client').then(({ io }) => {
       if (this.closed) return;
       this.socket = io(import.meta.env.VITE_API_URL || window.location.origin, { withCredentials: true, auth: { portal }, transports: ['websocket', 'polling'], tryAllTransports: true, forceNew: true });
       this.socket.on('connect', () => {
-        this.socket?.timeout(5000).emit('classroom:join', { bookingId }, () => undefined);
+        this.socket?.timeout(5000).emit('classroom:join', { bookingId }, (error: Error | null, result?: { accepted?: boolean; studentPenEnabled?: boolean }) => {
+          if (!this.closed && !error && result?.accepted && typeof result.studentPenEnabled === 'boolean') this.onBoardPermissions?.(result.studentPenEnabled);
+        });
       });
       this.socket.on('classroom:ready', (state: { bookingId: string; ready: boolean }) => {
         if (state.bookingId !== bookingId) return;
