@@ -17,6 +17,7 @@ const RegistrationFlow = lazyWithRetry(() => import('../features/auth/Registrati
 const loadWorkspace = () => import('../features/portal/PortalWorkspace');
 const PortalWorkspace = lazyWithRetry(() => loadWorkspace().then(module => ({ default: module.PortalWorkspace })));
 const VideoTestPage = lazyWithRetry(() => import('../features/video/VideoTestPage').then(module => ({ default: module.VideoTestPage })));
+const GroupCallPage = lazyWithRetry(() => import('../features/video/GroupCallPage').then(module => ({ default: module.GroupCallPage })));
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 type AdminNotificationCounts = Record<string, number>;
 const portalNotificationViews: Record<Portal, string[]> = { admin: ['bookings', 'reports', 'users', 'topups', 'audit', 'payments', 'catalog', 'profile'], teachers: ['home', 'rooms', 'messages', 'available', 'earnings', 'profile'], students: ['home', 'rooms', 'messages', 'tutors', 'wallet', 'profile'] };
@@ -49,6 +50,7 @@ function routePath() {
 export function App() {
   usePreferences();
   if (routePath() === '/video-test') return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><VideoTestPage /></Suspense>;
+  if (/^\/call(?:\/[a-f0-9]{48})?\/?$/.test(routePath())) return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><GroupCallPage /></Suspense>;
   if (routePath() === '/admin' || (['emtidad-alelm.onrender.com', 'mnasah.onrender.com'].includes(location.hostname) && routePath().startsWith('/owner'))) return <main className="loading-page" dir={direction()}><div className="wake-card"><ShieldAlert size={38} /><h1>{t('هذا الرابط غير متاح')}</h1><p>{t('بوابة الإدارة منفصلة ولا يمكن فتحها من رابط بوابات الطلاب والأساتذة.')}</p></div></main>;
   return <Suspense fallback={<WakeLoading slow={false} attempt={0} />}><PortalApp /></Suspense>;
 }
@@ -89,9 +91,23 @@ function PortalApp() {
   const [adminNotificationsByView, setAdminNotificationsByView] = useState<AdminNotificationCounts>({});
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [iosGuideOpen, setIosGuideOpen] = useState(false);
-  const [notificationPromptDismissed, setNotificationPromptDismissed] = useState(false);
-  const deviceNotifications = useDeviceNotifications(portal, user?.id);
-  useEffect(() => { setNotificationPromptDismissed(false); }, [user?.id]);
+  const deviceNotifications = useDeviceNotifications(portal, user?.status === 'active' ? user.id : undefined);
+  const requireNotifications = user?.status === 'active' && deviceNotifications.supported && deviceNotifications.needsPermission;
+  const [lessonEntry, setLessonEntry] = useState<{ bookingId: string; role: string; name: string; subject: string } | null>(null);
+  useEffect(() => {
+    setLessonEntry(null);
+    const receive = (event: Event) => {
+      const notice = (event as CustomEvent).detail;
+      if (notice && typeof notice.bookingId === 'string' && typeof notice.name === 'string' && typeof notice.subject === 'string' && ['teacher', 'student'].includes(notice.role)) { setBookingAlert(null); setLessonEntry(notice); }
+    };
+    window.addEventListener('booking:joined', receive);
+    return () => window.removeEventListener('booking:joined', receive);
+  }, [user?.id]);
+  useEffect(() => {
+    if (!lessonEntry) return;
+    const timer = window.setTimeout(() => setLessonEntry(null), 10000);
+    return () => clearTimeout(timer);
+  }, [lessonEntry]);
   useEffect(() => {
     const openNotification = (event: MessageEvent) => {
       if (event.data?.type !== 'platform-notification' || !portalNotificationViews[portal].includes(event.data.view)) return;
@@ -241,7 +257,7 @@ function PortalApp() {
       {portal === 'admin' && <div className="topbar-actions"><time className="topbar-date"><CalendarDays size={17} />{new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' })}</time>
         <PreferenceControls />
         <button className="icon-button quick-action" onClick={openQuickAction} title={t("إدارة الحسابات")}><Users size={19} /></button>
-        <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown owner-account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button className="account-reminders device-notification-toggle" type="button" disabled={deviceNotifications.busy} aria-pressed={deviceNotifications.enabled} onClick={() => void deviceNotifications.toggle()}>{deviceNotifications.enabled ? <Bell size={17} /> : <BellOff size={17} />}<span><strong>{t(deviceNotifications.busy ? 'جارٍ تجهيز التنبيهات…' : deviceNotifications.enabled ? 'إيقاف التنبيهات' : 'تفعيل التنبيهات')}</strong><small>{t(deviceNotifications.enabled ? 'مفعّلة على هذا الجهاز' : 'تنبيهات الهاتف حتى عند إغلاق التطبيق')}</small></span></button>{deviceNotifications.enabled && <button type="button" disabled={deviceNotifications.busy} onClick={() => void deviceNotifications.test()}><Bell size={16} />{t('\u0625\u0631\u0633\u0627\u0644 \u0625\u0634\u0639\u0627\u0631 \u062a\u062c\u0631\u064a\u0628\u064a')}</button>}{deviceNotifications.hint && <small className="account-reminder-hint" role="status">{t(deviceNotifications.hint)}</small>}<button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setIosGuideOpen(true); }}><Smartphone size={16} />{t('تثبيت على iPhone')}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>
+        <details className="account-menu"><summary>{accountAvatar}<span className="account-name">{user.name}</span><ChevronDown size={15} /></summary><div className="account-dropdown owner-account-dropdown"><button onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView('profile'); }}><Settings size={16} />{t("حسابي")}</button><button className="account-reminders device-notification-toggle" type="button" disabled={deviceNotifications.busy} aria-pressed={deviceNotifications.enabled} onClick={() => void deviceNotifications.toggle()}>{deviceNotifications.enabled ? <Bell size={17} /> : <BellOff size={17} />}<span><strong>{t(deviceNotifications.busy ? 'جارٍ تجهيز التنبيهات…' : deviceNotifications.enabled ? 'التنبيهات مفعّلة' : 'تفعيل التنبيهات')}</strong><small>{t(deviceNotifications.enabled ? 'مفعّلة على هذا الجهاز' : 'تنبيهات الهاتف حتى عند إغلاق التطبيق')}</small></span></button>{deviceNotifications.enabled && <button type="button" disabled={deviceNotifications.busy} onClick={() => void deviceNotifications.test()}><Bell size={16} />{t('\u0625\u0631\u0633\u0627\u0644 \u0625\u0634\u0639\u0627\u0631 \u062a\u062c\u0631\u064a\u0628\u064a')}</button>}{deviceNotifications.hint && <small className="account-reminder-hint" role="status">{t(deviceNotifications.hint)}</small>}<button type="button" onClick={() => void installAndroidApp()}><Download size={16} />{t("تثبيت تطبيق أندرويد")}</button><button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setIosGuideOpen(true); }}><Smartphone size={16} />{t('تثبيت على iPhone')}</button><button onClick={logout}><LogOut size={16} />{t("تسجيل الخروج")}</button></div></details>
       </div>}</header>}
       <div className={`workspace-content ${portal !== 'admin' && view === 'home' ? 'home-workspace-content' : ''}`} id="main-content" tabIndex={-1}>
       {portal === 'teachers' && view === 'profile' && <div className="teacher-profile-rating-summary"><Star fill="currentColor" /><span><small>{t('تقييمك على المنصة')}</small><strong>{user.teacher_rating_count && user.teacher_rating !== null && user.teacher_rating !== undefined ? `${user.teacher_rating.toFixed(1)} / 5` : t('لم تُقيّم بعد')}</strong>{Boolean(user.teacher_rating_count) && <em>{t('{v0} تقييم', { v0: user.teacher_rating_count || 0 })}</em>}</span></div>}
@@ -250,9 +266,17 @@ function PortalApp() {
       {portal !== 'admin' && user.status === 'active' && <div hidden={view !== 'messages'}><Suspense fallback={<p role="status">{t("جارٍ تجهيز الرسائل…")}</p>}><DirectMessages key={user.id} portal={portal} user={user} chat={chat} active={view === 'messages'} /></Suspense></div>}
       </div></section>
     {iosGuideOpen && <IosInstallGuide onClose={() => setIosGuideOpen(false)} />}
-    {deviceNotifications.consentOpen && <div className="notification-help-backdrop" onClick={event => { if (event.target === event.currentTarget) deviceNotifications.declineConsent(); }}><dialog open className="notification-help notification-consent" aria-modal="true" aria-labelledby="notification-consent-title" onKeyDown={event => { if (event.key === 'Escape') deviceNotifications.declineConsent(); }}><BellRing size={30} /><h2 id="notification-consent-title">{t('تفعيل إشعارات الجهاز')}</h2><p>{t('هل ترغب باستقبال تنبيهات الرسائل والحصص والحجوزات؟')}</p><p>{t('عند المتابعة سيطلب جهازك الإذن. ويمكنك اختيار ليس الآن وتفعيلها لاحقاً.')}</p><button type="button" autoFocus className="primary-button" disabled={deviceNotifications.busy} onClick={deviceNotifications.acceptConsent}>{t('السماح بالإشعارات')}</button><button type="button" className="secondary-button" onClick={deviceNotifications.declineConsent}>{t('ليس الآن')}</button></dialog></div>}
-    {deviceNotifications.permissionHelpOpen && <NotificationPermissionHelp busy={deviceNotifications.busy} hint={deviceNotifications.hint} onCheck={() => void deviceNotifications.recheck()} onClose={deviceNotifications.closePermissionHelp} />}
-    {user.status === 'active' && (deviceNotifications.isAndroid || deviceNotifications.isDesktop) && deviceNotifications.supported && deviceNotifications.checked && deviceNotifications.needsPermission && !notificationPromptDismissed && <aside className="device-notification-prompt" role="dialog" aria-label={t('تفعيل إشعارات الجهاز')}><span><BellRing size={22} /></span><div><strong>{t(deviceNotifications.isDesktop ? 'فعّل إشعارات امتداد العلم على اللابتوب' : 'فعّل إشعارات امتداد العلم')}</strong><p>{t(deviceNotifications.permission === 'denied' ? (deviceNotifications.isDesktop ? 'الإشعارات محظورة من إعدادات المتصفح. اسمح بها لهذا الموقع من علامة القفل بجانب الرابط، ثم حاول مرة أخرى.' : 'الإشعارات مرفوضة من إعدادات الهاتف. فعّلها من إعدادات Chrome أو التطبيق ثم ارجع وحاول.') : (deviceNotifications.isDesktop ? 'اسمح بالإشعارات لتظهر على اللابتوب حتى لو كنت تتصفح موقعًا آخر أو كانت المنصة في الخلفية.' : 'اسمح بالإشعارات لتصلك الرسائل والحجوزات على الهاتف حتى عند إغلاق التطبيق.'))}</p>{deviceNotifications.hint && <small>{t(deviceNotifications.hint)}</small>}<button type="button" className="primary-button" disabled={deviceNotifications.busy} onClick={() => void deviceNotifications.toggle()}>{t(deviceNotifications.permission === 'denied' ? 'تحقق مرة أخرى' : 'السماح بالإشعارات')}</button></div><button type="button" className="notification-prompt-close" aria-label={t('ليس الآن')} onClick={() => setNotificationPromptDismissed(true)}><X size={18} /></button></aside>}
+    {(requireNotifications || deviceNotifications.consentOpen && !deviceNotifications.enabled) && deviceNotifications.permission !== 'denied' && <div className="notification-help-backdrop">
+      <dialog open className="notification-help notification-consent" aria-modal="true" aria-labelledby="notification-consent-title" onCancel={event => event.preventDefault()} onKeyDown={event => { if (event.key === 'Escape') event.preventDefault(); }}>
+        <BellRing size={30} /><h2 id="notification-consent-title">{t('تفعيل إشعارات الجهاز')}</h2>
+        <p>{t('فعّل الإشعارات لتعرف فور دخول الطرف الآخر للحصة وتصلك الرسائل والحجوزات.')}</p>
+        {deviceNotifications.hint && <p role="status">{t(deviceNotifications.hint)}</p>}
+        <button type="button" autoFocus className="primary-button" disabled={deviceNotifications.busy} onClick={deviceNotifications.acceptConsent}>{t(deviceNotifications.busy ? 'جارٍ تجهيز التنبيهات…' : 'السماح بالإشعارات')}</button>
+      </dialog>
+    </div>}
+    {(deviceNotifications.permissionHelpOpen || requireNotifications && deviceNotifications.permission === 'denied') && !deviceNotifications.enabled && <NotificationPermissionHelp busy={deviceNotifications.busy} hint={deviceNotifications.hint} onCheck={() => void deviceNotifications.recheck()} />}
+    {user.status === 'active' && deviceNotifications.checked && !deviceNotifications.supported && <aside className="device-notification-prompt" role="status"><BellRing size={22} /><div><strong>{t('تفعيل إشعارات الجهاز')}</strong><p>{t('افتح التطبيق من أيقونته على الشاشة الرئيسية. تنبيهات الآيفون تحتاج iOS 16.4 أو أحدث.')}</p></div></aside>}
+    {lessonEntry && <button className="booking-created-toast lesson-entry-toast" type="button" onClick={() => { setView('rooms'); setLessonEntry(null); }}><BellRing size={23} /><span><strong>{t(lessonEntry.role === 'teacher' ? 'الأستاذ دخل الحصة' : 'الطالب دخل الحصة')}</strong><small>{t('{v0} دخل حصة {v1}', { v0: lessonEntry.name, v1: lessonEntry.subject })}</small></span></button>}
     {bookingAlert && <button className="booking-created-toast" type="button" onClick={() => { setView('rooms'); setBookingAlert(null); }}><Bell size={21} /><span><strong>{t(bookingAlert.audience === 'teacher' ? 'حجز جديد' : 'تم تأكيد حجزك')}</strong><small>{bookingAlert.audience === 'teacher' ? t('حجز طالب حصة جديدة معك. افتح الحصص المحجوزة للتفاصيل.') : t('تم حجز الحصة بنجاح وأضيفت إلى حصصك المحجوزة.')}</small>{(bookingAlert.audience === 'teacher' ? bookingAlert.student_phone : bookingAlert.teacher_phone) && <b dir="ltr">{bookingAlert.audience === 'teacher' ? bookingAlert.student_phone : bookingAlert.teacher_phone}</b>}</span></button>}
     {portal !== 'admin' && supportWhatsapp && <a className="support-whatsapp" href={`https://wa.me/${whatsappHrefNumber(supportWhatsapp)}?text=${encodeURIComponent(t('مرحباً، أحتاج مساعدة في منصة امتداد العلم'))}`} target="_blank" rel="noreferrer" aria-label={t('التواصل مع الدعم عبر واتساب')}><span><small>{t('الدعم الفني')}</small><strong dir="ltr">{supportWhatsapp}</strong></span></a>}
   </main>;

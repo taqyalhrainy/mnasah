@@ -88,6 +88,22 @@ test('booking presence persists before private realtime events and safely clears
     return { response, event: teacher };
   }
   const persisted = () => store.collection('bookings').findOne({ id: 'booking' });
+  await t.test('entry alerts go only to the counterpart, once per real entry rather than every heartbeat', async () => {
+    const alerts = new Map([...sockets.keys()].map(id => [id, []]));
+    for (const [id, socket] of sockets) socket.on('booking:joined', notice => alerts.get(id).push(notice));
+    await call('teacher', { active: true, peerId: 'entry-teacher', joining: true });
+    await call('teacher', { active: true, peerId: 'entry-teacher', joining: false });
+    await call('teacher', { active: true, peerId: 'entry-teacher', joining: true });
+    await call('student', { active: true, peerId: 'entry-student', joining: true });
+    await delay(30);
+    assert.equal(alerts.get('student').length, 1);
+    assert.equal(alerts.get('student')[0].role, 'teacher');
+    assert.equal(alerts.get('teacher').length, 1);
+    assert.equal(alerts.get('teacher')[0].role, 'student');
+    assert.equal(alerts.get('other').length + alerts.get('other-teacher').length, 0);
+    await store.collection('bookings').updateOne({ id: 'booking' }, { $unset: { teacher_peer_id: '', teacher_present_until: '', teacher_joined_at: '', student_peer_id: '', student_present_until: '', student_joined_at: '' } });
+    for (const events of received.values()) events.length = 0;
+  });
   function pauseNextPresenceWrite() {
     let entered, release;
     const started = new Promise(resolve => { entered = resolve; });

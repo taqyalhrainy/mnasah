@@ -3,7 +3,7 @@ import { request } from './platformApi';
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
 import { AdaptiveCallQuality, speechSdp, type QualityLevel } from './adaptiveCallQuality';
 
-type PeerCallbacks = {
+export type PeerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
   onRemoteVideoSource: (source: VideoSource) => void;
   onRemoteVideoEnabled?: (enabled: boolean) => void;
@@ -28,6 +28,7 @@ type PeerCallbacks = {
 
 export type VideoRole = 'teacher' | 'student';
 export type VideoSource = 'camera' | 'screen';
+export type VideoConnectionHandle = Pick<VideoConnection, 'start' | 'close' | 'toggleAudio' | 'repairAudio' | 'toggleVideo' | 'getCameraFacing' | 'switchCamera' | 'repairVideo' | 'startScreenShare' | 'stopScreenShare' | 'reconnectSignaling' | 'resumeAfterBackground' | 'sendWhiteboard' | 'sendTyping' | 'sendSpeaking' | 'sendProfile'>;
 
 const turnUrls = String(import.meta.env.VITE_TURN_URLS || import.meta.env.VITE_TURN_URL || '').split(',').map(value => value.trim()).filter(Boolean);
 const turnUsername = String(import.meta.env.VITE_TURN_USERNAME || '').trim();

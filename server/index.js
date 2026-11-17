@@ -31,6 +31,7 @@ import { serveLessonFile } from './lesson-files.js';
 import { freeTrialStatus, claimFreeTrial, releaseFreeTrial, FREE_TRIAL_MINUTES } from './free-trial.js';
 import { createVideoIceProvider } from './video-ice.js';
 import { attachClassroomRelay } from './classroom-relay.js';
+import { createGroupCalls } from './group-calls.js';
 const videoIce = createVideoIceProvider();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -151,6 +152,9 @@ app.get('/api/public/config', (_req, res) => res.json({
 let db;
 let client;
 let attachmentBytes;
+const groupCalls = createGroupCalls({ io, database: () => db, connect, videoIce, attachmentStore: () => attachmentBytes, isAllowed: () => portalMode() !== 'owner', originAllowed: req => validChatOrigin(req.headers.origin, req) });
+app.use('/call', (_req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); res.setHeader('Referrer-Policy', 'no-referrer'); next(); });
+app.use(groupCalls.serve);
 let topupProofBytes;
 async function connect() {
   if (db) return db;
@@ -512,6 +516,7 @@ async function getUser(req, role) {
 io.use(async (socket, next) => {
   try {
     if (!validChatOrigin(socket.handshake.headers.origin, socket.request)) return next(new Error('Unauthorized'));
+    if (socket.handshake.auth?.groupToken) return next(await groupCalls.authorizeSocket(socket) ? undefined : new Error('Unauthorized'));
     const portal = socket.handshake.auth?.portal;
     if (!['students', 'teachers'].includes(portal)) return next(new Error('Unauthorized'));
     const user = await getUser(socket.request, portal);
@@ -522,6 +527,7 @@ io.use(async (socket, next) => {
 });
 attachClassroomRelay(io, () => db);
 io.on('connection', socket => {
+  if (socket.data.groupMember) return;
   socket.join(`chat:${socket.data.userId}`);
   // HTTP remains the authority for writes; sockets only signal clients to refresh.
   const expiry = setTimeout(() => socket.disconnect(true), 3600000);
@@ -1584,6 +1590,7 @@ app.all('/api/:portal/*path', async (req, res, next) => {
         let presence = row;
         if (write) {
           if (!validChatOrigin(req.headers.origin, req)) fail(403, 'مصدر الطلب غير صالح.');
+          const isTeacher = user.role === 'teachers';
           const key = user.role === 'teachers' ? 'teacher_present_until' : 'student_present_until';
           const peerKey = user.role === 'teachers' ? 'teacher_peer_id' : 'student_peer_id';
           const joinedKey = user.role === 'teachers' ? 'teacher_joined_at' : 'student_joined_at';
@@ -1619,7 +1626,19 @@ app.all('/api/:portal/*path', async (req, res, next) => {
           presence = await db.collection('bookings').findOne({ id }, { projection: { _id: 0 } });
           if (!presence) fail(404, 'الحصة غير موجودة.');
           if (!leaving && presence.status !== 'confirmed') fail(403, 'الحضور المباشر متاح فقط لطرفي الحصة المؤكدة.');
-          if (changed.modifiedCount) io.to(`chat:${row.teacher_id}`).to(`chat:${row.student_id}`).emit('booking:presence', bookingPresence(presence));
+          if (changed.modifiedCount) {
+            io.to(`chat:${row.teacher_id}`).to(`chat:${row.student_id}`).emit('booking:presence', bookingPresence(presence));
+            if (!leaving && body.joining === true && (row[peerKey] !== peerId || Number(row[key] || 0) <= now)) {
+              const noticeKey = isTeacher ? 'teacher_entry_notice_at' : 'student_entry_notice_at';
+              const claimed = await db.collection('bookings').updateOne({ id, [peerKey]: peerId, $or: [{ [noticeKey]: { $exists: false } }, { [noticeKey]: { $lte: now - 15000 } }] }, { $set: { [noticeKey]: now } });
+              if (claimed.modifiedCount) {
+                const target = isTeacher ? row.student_id : row.teacher_id;
+                const notice = { bookingId: id, role: isTeacher ? 'teacher' : 'student', name: user.name, subject: row.subject, joinedAt: now };
+                io.to(`chat:${target}`).emit('booking:joined', notice);
+                void sendDevicePush(target, { title: isTeacher ? 'الأستاذ دخل الحصة' : 'الطالب دخل الحصة', body: `${user.name} دخل حصة ${row.subject}`, tag: `entry-${id}-${notice.role}`, url: `${isTeacher ? 'students' : 'teachers'}?view=rooms&lesson=${encodeURIComponent(id)}` });
+              }
+            }
+          }
         }
         const snapshot = bookingPresence(presence);
         return res.json({

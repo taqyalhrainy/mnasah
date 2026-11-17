@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { devicePushEnabled, ensureDevicePush, removeDevicePush, testDevicePush } from './pushNotifications';
+import { devicePushEnabled, ensureDevicePush, testDevicePush } from './pushNotifications';
 import type { Portal } from './platformApi';
 const notificationError = (error: unknown) => {
   const message = (error as Error)?.message || '';
@@ -71,10 +71,6 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
       if ('Notification' in window && Notification.permission === 'default') { setHint(''); setConsentOpen(true); return; }
       return enable();
     }
-    setBusy(true); setHint(''); ++syncVersion.current;
-    try { await removeDevicePush(portal); setEnabled(false); setHint('تم إيقاف تنبيهات هذا الجهاز.'); }
-    catch (error) { setHint(notificationError(error)); }
-    finally { setBusy(false); }
   }
   async function test() {
     if (!enabled || busy) return;
@@ -83,5 +79,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, closePermissionHelp: () => setPermissionHelpOpen(false), consentOpen, acceptConsent: () => { setConsentOpen(false); void enable(); }, declineConsent: () => { setConsentOpen(false); setHint('يمكنك تفعيل التنبيهات لاحقاً من قائمة حسابك.'); }, needsPermission: checked && !enabled && permission !== 'granted', toggle, recheck: enable, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, consentOpen, acceptConsent: () => { void enable(); }, needsPermission: checked && !enabled, toggle, recheck: enable, test };
 }

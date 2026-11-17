@@ -19,6 +19,7 @@ export function attachClassroomRelay(io, database) {
     return { id, peer: user === teacher ? student : teacher, teacher: user === teacher, studentPenEnabled: booking.student_pen_enabled !== false, checked: Date.now() };
   }
   io.on('connection', socket => {
+    if (!socket.data.userId) return;
     let joined = null, joining = 0, inFlight = false, windowStart = 0, count = 0;
     socket.on('classroom:join', async (payload, ack) => {
       if (typeof ack !== 'function') return;

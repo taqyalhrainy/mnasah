@@ -4,16 +4,20 @@ import { attachmentHeaders } from '../shared/chat-attachments.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const uploads = new Map();
-export async function serveLessonFile(req, res, { db, user, path, bytes = gridAttachmentBytes(db) }) {
+export async function serveLessonFile(req, res, { db, user, path, bytes = gridAttachmentBytes(db), access, collection = 'lesson_files', urlPrefix }) {
   const match = /^bookings\/([^/]+)\/files(?:\/([^/]+))?$/.exec(path);
   if (!match) return false;
   const [, bookingId, fileId] = match;
-  const booking = await db.collection('bookings').findOne({ id: bookingId });
-  const slot = booking && await db.collection('slots').findOne({ id: booking.slot_id });
-  if (!booking || !slot || ![slot.teacher_id, booking.student_id].includes(user.id)) fail(404, 'الملف غير موجود.');
+  let canUpload = access?.canUpload;
+  if (!access) {
+    const booking = await db.collection('bookings').findOne({ id: bookingId });
+    const slot = booking && await db.collection('slots').findOne({ id: booking.slot_id });
+    if (!booking || !slot || ![slot.teacher_id, booking.student_id].includes(user.id)) fail(404, 'الملف غير موجود.');
+    canUpload = user.id === slot.teacher_id;
+  }
   res.setHeader('Cache-Control', 'private, no-store');
   if (fileId && req.method === 'GET') {
-    const file = await db.collection('lesson_files').findOne({ id: fileId, booking_id: bookingId, ready: true });
+    const file = await db.collection(collection).findOne({ id: fileId, booking_id: bookingId, ready: true });
     if (!file) fail(404, 'الملف غير موجود.');
     const preview = req.query.preview === '1' && /^(?:image\/(?:png|jpeg|webp|gif|svg\+xml)|application\/pdf)$/.test(file.content_type);
     res.set(attachmentHeaders({ ...file, preview_type: file.content_type }, preview));
@@ -24,7 +28,7 @@ export async function serveLessonFile(req, res, { db, user, path, bytes = gridAt
   }
   const boardImage = req.query.scope === 'whiteboard';
   const contentType = String(req.query.type || 'application/octet-stream').slice(0, 100);
-  if (fileId || req.method !== 'POST' || (user.id !== slot.teacher_id && !boardImage)) fail(403, 'رفع ملفات الحصة متاح للأستاذ فقط.');
+  if (fileId || req.method !== 'POST' || (!canUpload && !boardImage)) fail(403, 'رفع ملفات الحصة متاح للأستاذ فقط.');
   if (boardImage && !['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) fail(415, 'اختر ملف صورة صالحاً.');
   if (req.headers['content-type']?.split(';')[0] !== 'application/octet-stream') fail(415, 'ارفع الملف بصيغته الأصلية.');
   const size = Number(req.query.size);
@@ -34,7 +38,7 @@ export async function serveLessonFile(req, res, { db, user, path, bytes = gridAt
   uploads.set(user.id, (uploads.get(user.id) || 0) + 1);
   const file = { id: crypto.randomUUID(), booking_id: bookingId, uploaded_by: user.id, name: String(req.query.name || 'file').replace(/[\r\n]/g, '').slice(0, 250), size, content_type: contentType, ready: false, created: Date.now() };
   try {
-    await db.collection('lesson_files').insertOne(file);
+    await db.collection(collection).insertOne(file);
     let total = 0;
     async function* source() {
       const head = []; let headSize = 0, checked = !boardImage;
@@ -54,11 +58,11 @@ export async function serveLessonFile(req, res, { db, user, path, bytes = gridAt
       if (total !== size) fail(400, 'لم يكتمل رفع الملف. حاول مرة أخرى.');
     }
     await bytes.write(file.id, file.name, source());
-    await db.collection('lesson_files').updateOne({ id: file.id }, { $set: { ready: true } });
-    res.json({ url: `/api/teachers/bookings/${bookingId}/files/${file.id}`, name: file.name, size });
+    await db.collection(collection).updateOne({ id: file.id }, { $set: { ready: true } });
+    res.json({ url: `${urlPrefix || `/api/teachers/bookings/${bookingId}/files`}/${file.id}`, name: file.name, size });
   } catch (error) {
     await bytes.remove(file.id).catch(() => undefined);
-    await db.collection('lesson_files').deleteOne({ id: file.id }); throw error;
+    await db.collection(collection).deleteOne({ id: file.id }); throw error;
   } finally { const remaining = (uploads.get(user.id) || 1) - 1; if (remaining) uploads.set(user.id, remaining); else uploads.delete(user.id); }
   return true;
 }

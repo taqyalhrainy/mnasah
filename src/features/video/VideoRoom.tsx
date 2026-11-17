@@ -9,9 +9,12 @@ import type { CSSProperties, FormEvent, MouseEvent, PointerEvent, WheelEvent } f
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { BringToFront, Camera, CameraOff, SwitchCamera, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileUp, Grid2X2, Hand, Highlighter, ImagePlus, Maximize2, Menu, MessageSquare, Mic, MicOff, MoreHorizontal, MousePointer2, Pencil, PhoneOff, PictureInPicture2, RefreshCw, ScreenShare, ScreenShareOff, SendToBack, Trash2, Type as TypeIcon, Undo2, Users, X } from 'lucide-react';
-import { VideoConnection, VideoRole, VideoSource } from '../../services/videoConnection';
+import { VideoConnection, VideoRole, VideoSource, type VideoConnectionHandle, type PeerCallbacks } from '../../services/videoConnection';
 import { apiMediaUrl, requestFile } from '../../services/platformApi';
 import { ClassroomRelay, type ClassroomOperation } from '../../services/classroomRelay';
+import { GroupVideoConnection, type GroupParticipant } from '../../services/groupVideoConnection';
+import { uploadGroupFile, type GroupSession, type GroupMessage } from '../../services/groupCallApi';
+import { GroupParticipantTile } from './GroupParticipantTile';
 
 const MIN_WHITEBOARD_ZOOM = 0.005;
 const MAX_WHITEBOARD_ZOOM = 5;
@@ -122,6 +125,8 @@ type VideoRoomProps = {
   avatarUrl?: string;
   scheduledEnd?: number;
   onGraceExpired?: () => Promise<void> | void;
+  groupSession?: GroupSession;
+  onGroupMessage?: (message: GroupMessage) => void;
 };
 
 const WhiteboardStrokePath = memo(function WhiteboardStrokePath({ stroke }: { stroke: WhiteboardStroke }) {
@@ -137,7 +142,7 @@ function callMediaPreference(room: string, role: VideoRole) {
   catch { return {}; }
 }
 
-export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, initialRemotePeerId, remotePresent, onLeave, navigationItems = [], onNavigate, compact = false, onExpand, currentUserId, lessonId, displayName, avatarUrl, scheduledEnd, onGraceExpired }: VideoRoomProps) {
+export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize, messages = [], onSendMessage, onPresenceChange, getRemotePeerId, initialRemotePeerId, remotePresent, onLeave, navigationItems = [], onNavigate, compact = false, onExpand, currentUserId, lessonId, displayName, avatarUrl, scheduledEnd, onGraceExpired, groupSession, onGroupMessage }: VideoRoomProps) {
   usePreferences();
   const [mediaError, setMediaError] = useState('');
   const mediaErrorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -214,6 +219,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const [whiteboardAspect, setWhiteboardAspect] = useState(1.55);
   const [whiteboardTool, setWhiteboardTool] = useState<WhiteboardTool>('draw');
   const [studentPenEnabled, setStudentPenEnabled] = useState(true);
+  const [groupParticipants, setGroupParticipants] = useState<GroupParticipant[]>([]);
   const studentPenEnabledRef = useRef(true);
   const canUseWhiteboardPen = role === 'teacher' || studentPenEnabled;
   const [selectedWhiteboardItem, setSelectedWhiteboardItem] = useState<string | null>(null);
@@ -306,7 +312,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const whiteboardFileInputRef = useRef<HTMLInputElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const connectionRef = useRef<VideoConnection | null>(null);
+  const connectionRef = useRef<VideoConnectionHandle | null>(null);
   const classroomRelayRef = useRef<ClassroomRelay | null>(null);
   const receiveClassroomRef = useRef<(message: unknown) => void>(() => undefined);
   const requestClassroomSyncRef = useRef<() => void>(() => undefined);
@@ -370,6 +376,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const localName = displayName || (role === 'teacher' ? t("الأستاذ") : t("الطالب"));
   const remoteName = remoteProfile?.name || (role === 'teacher' ? t("الطالب") : t("الأستاذ"));
   const lessonFileUrl = (url: string) => url.startsWith('/api/') ? apiMediaUrl(url.replace(/^\/api\/(?:teachers|students)\//, `/api/${role === 'teacher' ? 'teachers' : 'students'}/`)) : url;
+
+  const uploadClassroomFile = (file: File, params: Record<string, string>, signal?: AbortSignal, priority: 'auto' | 'high' | 'low' = 'auto') => groupSession ? uploadGroupFile(groupSession, file, params, signal) : requestFile<{ url: string }>(`${role}s/bookings/${lessonId}/files`, file, params, signal, priority);
 
   const playCallSound = useCallback((kind: 'join' | 'leave' | 'mute' | 'unmute') => {
     try {
@@ -745,7 +753,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       setHasRemoteStream(false);
       setFocusedParticipant(null);
       localPeerIdRef.current = null;
-      const connection = new VideoConnection(roomId.trim(), role, {
+      const callbacks: PeerCallbacks = {
         onRemoteStream: (stream) => {
           remoteStreamRef.current = stream;
           if (remoteVideoRef.current) {
@@ -833,7 +841,8 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         },
         onStatus: setStatus,
         onConnectionQuality: (level, videoSuspended = false) => { connectionQualityRef.current = level; setConnectionQuality(level); setConnectionVideoSuspended(videoSuspended); },
-      });
+      };
+      const connection = groupSession ? new GroupVideoConnection(groupSession, callbacks, setGroupParticipants, message => onGroupMessage?.(message)) : new VideoConnection(roomId.trim(), role, callbacks);
       connectionRef.current = connection;
       connection.sendProfile({ name: localName, avatar: avatarUrl });
       const localStream = await connection.start({ video: videoEnabled });
@@ -967,10 +976,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const sendChatMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const body = chatDraft.trim();
-    if (!body || !onSendMessage || chatSending) return;
+    if (!body || (!onSendMessage && !groupSession) || chatSending) return;
     updateLocalTyping(false);
     setChatSending(true);
-    try { await onSendMessage(body); setChatDraft(''); }
+    try { if (groupSession) await (connectionRef.current as GroupVideoConnection).sendMessage(body); else await onSendMessage!(body); setChatDraft(''); }
     finally { setChatSending(false); }
   };
 
@@ -1176,7 +1185,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
 
   const handleWhiteboardMessage = (message: unknown) => {
     if (!isWhiteboardMessage(message)) return;
-    if (role === 'teacher' && !studentPenEnabledRef.current && ['stroke-start', 'stroke-points', 'stroke', 'clear'].includes(message.kind)) return;
+    if (!groupSession && role === 'teacher' && !studentPenEnabledRef.current && ['stroke-start', 'stroke-points', 'stroke', 'clear'].includes(message.kind)) return;
     const metadata = message as WhiteboardMessage & { relayId?: string; relaySource?: string; relayOrder?: number };
     const relayId = metadata.relayId;
     if (relayId) {
@@ -1194,7 +1203,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     }
     if (message.kind === 'document-view') { applyRemoteDocumentView(message.view); return; }
     if (message.kind === 'board-permissions') {
-      if (role === 'student' && typeof message.studentPenEnabled === 'boolean') applyStudentPenPermission(message.studentPenEnabled);
+      if ((role === 'student' || groupSession) && typeof message.studentPenEnabled === 'boolean') applyStudentPenPermission(message.studentPenEnabled);
       return;
     }
     if (message.kind === 'youtube') { if (message.session === null && role === 'teacher') return; if (message.session === null || validYoutubeSession(message.session)) updateYoutube(message.session); return; }
@@ -1260,7 +1269,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       return;
     }
     if (message.kind === 'sync') {
-      if (role === 'student' && typeof message.studentPenEnabled === 'boolean') applyStudentPenPermission(message.studentPenEnabled);
+      if ((role === 'student' || groupSession) && typeof message.studentPenEnabled === 'boolean') applyStudentPenPermission(message.studentPenEnabled);
       if ((message.youtube === null && role !== 'teacher') || validYoutubeSession(message.youtube)) updateYoutube(message.youtube);
       if (message.boardOpen !== undefined) updateBoardOpen(message.boardOpen);
       else if (message.mode === 'whiteboard') updateBoardOpen(true);
@@ -1272,7 +1281,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         documentAnnotationsRef.current = message.annotations;
       }
       const items = message.items || [];
-      if (role !== 'teacher' || studentPenEnabledRef.current) {
+      if (groupSession || role !== 'teacher' || studentPenEnabledRef.current) {
         ensureWhiteboardContentVisible(message.strokes, items);
         setSyncedWhiteboardStrokes(message.strokes);
       }
@@ -1334,8 +1343,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     documentViewRef.current = next; setDocumentView(next);
   }
 
-  const createWhiteboardId = (kind: string) => `${Date.now()}-${role}-${kind}-${Math.random().toString(36).slice(2)}`;
-  const isOwnedWhiteboardId = (id: string) => role === 'teacher' || id.includes(`-${role}-`);
+  const boardActor = groupSession ? `${role}-${groupSession.id}` : role;
+  const createWhiteboardId = (kind: string) => `${Date.now()}-${boardActor}-${kind}-${Math.random().toString(36).slice(2)}`;
+  const isOwnedWhiteboardId = (id: string) => role === 'teacher' || id.includes(`-${boardActor}-`);
 
   const whiteboardPoint = (event: PointerEvent<SVGSVGElement> | WheelEvent<SVGSVGElement>) => {
     const svg = event.currentTarget;
@@ -1502,10 +1512,10 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       let src = canvas.toDataURL('image/webp', 0.82);
       const connection = connectionRef.current;
-      if (lessonId) {
+      if (lessonId || groupSession) {
         try {
           const blob = await (await fetch(src)).blob();
-          const uploaded = await requestFile<{ url: string }>(`${role}s/bookings/${lessonId}/files`, new File([blob], 'whiteboard.webp', { type: 'image/webp' }), { scope: 'whiteboard' });
+          const uploaded = await uploadClassroomFile(new File([blob], 'whiteboard.webp', { type: 'image/webp' }), { scope: 'whiteboard' });
           src = `${uploaded.url}?preview=1`;
         } catch { /* Direct collaboration remains a fallback if storage is unavailable. */ }
         if (connectionRef.current !== connection) return;
@@ -1638,12 +1648,12 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
     originalUploadRef.current?.abort();
     const upload = new AbortController(); originalUploadRef.current = upload;
     const session = crypto.randomUUID(); documentSessionRef.current = session;
-    sharedFileUrlRef.current = lessonId ? '' : URL.createObjectURL(file);
+    sharedFileUrlRef.current = lessonId || groupSession ? '' : URL.createObjectURL(file);
     // The preview and the original travel independently: hundreds of pages do
     // not make the first page wait for the full original to reach the server.
     const uploadOriginal = () => {
-      if (!lessonId || upload.signal.aborted) return;
-      void requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, file, {}, upload.signal, 'low').then(result => {
+      if (!(lessonId || groupSession) || upload.signal.aborted) return;
+      void uploadClassroomFile(file, {}, upload.signal, 'low').then(result => {
         if (upload.signal.aborted || documentSessionRef.current !== session) return;
         sharedFileUrlRef.current = result.url;
         const current = sharedDocumentRef.current;
@@ -1723,9 +1733,9 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       },
       render: async page => { const src = await currentSource.render(page); return src.startsWith('data:image/svg+xml') ? rasterizeSlide(src) : src; },
       publish: async (src, page) => {
-        if (!lessonId || !src.startsWith('data:')) return src;
+        if (!(lessonId || groupSession) || !src.startsWith('data:')) return src;
         const blob = await (await fetch(src)).blob();
-        const result = await requestFile<{ url: string }>(`teachers/bookings/${lessonId}/files`, new File([blob], `page-${page}.webp`, { type: blob.type }), {}, upload.signal, 'high');
+        const result = await uploadClassroomFile(new File([blob], `page-${page}.webp`, { type: blob.type }), {}, upload.signal, 'high');
         return `${result.url}?preview=1`;
       },
       // URLs can be warmed cheaply. Sending inline bitmaps speculatively would
@@ -2171,7 +2181,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
         {selectedWhiteboardItem && <button className="whiteboard-delete-item" type="button" onClick={() => deleteWhiteboardItem(selectedWhiteboardItem)} title={t('حذف العنصر')} aria-label={t('حذف العنصر')}><Trash2 size={17} /></button>}
         <button className="tool-mode" type="button" disabled={boardExporting} onClick={() => void downloadWhiteboard()} title={t('تنزيل اللوح')} aria-label={t('تنزيل اللوح')}>{boardExporting ? <RefreshCw size={17} /> : <Download size={17} />}</button>
         {role === 'teacher' && <button className="whiteboard-clear" type="button" onClick={clearWhiteboard} title={t("مسح اللوح")}><Trash2 size={17} /></button>}
-        {role === 'teacher' ? <button type="button" role="switch" aria-checked={studentPenEnabled} aria-label={t('السماح للطالب باستخدام القلم')} className="whiteboard-student-pen-toggle" onClick={toggleStudentPen}><Pencil size={16} /><span>{t('قلم الطالب')}</span><span className="student-pen-switch" aria-hidden="true" /></button> : !studentPenEnabled && <span className="whiteboard-pen-status" role="status">{t('أوقف المعلم قلم الطالب')}</span>}
+        {role === 'teacher' ? <button type="button" role="switch" aria-checked={studentPenEnabled} aria-label={t('السماح للطالب باستخدام القلم')} className="whiteboard-student-pen-toggle" onClick={toggleStudentPen}><Pencil size={16} /><span>{t(groupSession ? 'قلم المشاركين' : 'قلم الطالب')}</span><span className="student-pen-switch" aria-hidden="true" /></button> : !studentPenEnabled && <span className="whiteboard-pen-status" role="status">{t('أوقف المعلم قلم الطالب')}</span>}
       </div>
   );
 
@@ -2313,7 +2323,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   const undoDocumentAnnotation = () => {
     let index = -1;
     for (let itemIndex = documentAnnotationsRef.current.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      if (role === 'teacher' || documentAnnotationsRef.current[itemIndex].id.includes(`-${role}-`)) { index = itemIndex; break; }
+      if (isOwnedWhiteboardId(documentAnnotationsRef.current[itemIndex].id)) { index = itemIndex; break; }
     }
     if (index < 0) return;
     publishDocumentAnnotations(documentAnnotationsRef.current.filter((_, itemIndex) => itemIndex !== index), true);
@@ -2383,7 +2393,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
   };
   const isWindowsDevice = /Windows/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
   return (
-    <section className={`video-room call-experience ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'youtube' ? 'youtube-mode' : stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
+    <section className={`video-room call-experience ${groupSession ? 'group-call-room' : ''} ${compact ? 'compact-call' : ''} ${focusedParticipant ? 'focus-mode' : 'grid-mode'} ${sidePanel === 'participants' ? 'panel-open' : ''} ${sidePanel === 'chat' ? 'chat-open' : ''} ${stageMode === 'youtube' ? 'youtube-mode' : stageMode === 'whiteboard' ? 'whiteboard-mode' : stageMode === 'document' ? 'document-mode' : 'video-mode'}`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="remote-call-audio" />
       {youtubeLinkOpen && <YoutubeLinkDialog onClose={() => setYoutubeLinkOpen(false)} onShare={videoId => { updateYoutube({ videoId, time: 0, playing: true, updatedAt: Date.now() }, true); setYoutubeLinkOpen(false); }} />}
       {mobileWhiteboard && editingWhiteboardText && <dialog className="mobile-whiteboard-text-dialog" aria-label={t('إضافة أو تعديل النص')} ref={node => { mobileTextDialogRef.current = node; if (node && !node.open) { node.showModal(); node.querySelector('textarea')?.focus(); } }} onPointerDownCapture={() => { ignoreEditorOpeningClickRef.current = false; }} onClickCapture={event => { if (ignoreEditorOpeningClickRef.current) { ignoreEditorOpeningClickRef.current = false; event.preventDefault(); event.stopPropagation(); } }} onCancel={event => { event.preventDefault(); cancelMobileTextEdit(); }}><form onSubmit={event => { event.preventDefault(); saveMobileTextEdit(); }}><h2>{t('إضافة أو تعديل النص')}</h2><textarea className="mobile-whiteboard-text-input" autoFocus dir="auto" aria-label={t('نص البورد')} value={mobileTextDraft} onChange={event => setMobileTextDraft(event.target.value)} placeholder={t('اكتب هنا')} /><div><button type="button" onClick={cancelMobileTextEdit}>{t('إلغاء')}</button><button type="submit" disabled={!mobileTextDraft.trim()}>{t('حفظ النص')}</button></div></form></dialog>}
@@ -2404,7 +2414,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
       {mediaError && <p className="call-media-error" role="alert">{mediaError}</p>}
       <div className="call-stage">
         <div className={`video-grid stable-media-grid ${focusedParticipant ? 'has-focus' : ''} ${focusedParticipant ? `${focusedParticipant}-focused` : ''} ${sharedDocument ? 'with-document' : ''} ${!sharedDocument && !boardOpen && !localScreenStream && !remoteScreenStream ? 'camera-only' : ''}`} aria-label={t("المشاركون")}>
-          {renderTile('remote')}{renderTile('local')}{renderScreenTile('local')}{renderScreenTile('remote')}
+          {renderTile('remote')}{renderTile('local')}{groupParticipants.filter(peer => !peer.primary).map(peer => <GroupParticipantTile key={peer.id} participant={peer} onSelect={() => { (connectionRef.current as GroupVideoConnection).selectParticipant(peer.id); setStageMode('video'); setFocusedParticipant('remote'); }} />)}{renderScreenTile('local')}{renderScreenTile('remote')}
           {sharedDocument && <button type="button" className="shared-document-tile" onClick={() => { setStageMode('document'); setFocusedParticipant(null); }} aria-label={t('تكبير الملف المشترك')}><img src={lessonFileUrl(sharedDocument.src)} alt="" /></button>}
           {youtubeSession && <button type="button" className="shared-document-tile shared-youtube-tile" onClick={() => { setStageMode('youtube'); setFocusedParticipant(null); }} aria-label={t('عرض فيديو يوتيوب')}>▶ YouTube</button>}
           {boardOpen && <button type="button" className="shared-document-tile shared-whiteboard-tile" onClick={() => { setStageMode('whiteboard'); setFocusedParticipant(null); }} aria-label={t('العودة إلى البورد المشترك')}><svg viewBox={`${whiteboardViewport.x} ${whiteboardViewport.y} ${viewWidth} ${viewHeight}`}><rect x={whiteboardViewport.x} y={whiteboardViewport.y} width={viewWidth} height={viewHeight} fill="#fff" />{whiteboardStrokes.map(stroke => <WhiteboardStrokePath key={stroke.id} stroke={stroke} />)}{whiteboardItems.map(item => item.type === 'image' ? <image key={item.id} href={lessonFileUrl(item.src)} x={item.x} y={item.y} width={item.width} height={item.height} /> : <text key={item.id} x={item.x + item.width} y={item.y + item.fontSize} textAnchor="end" fontSize={item.fontSize} fill={item.color}>{item.text}</text>)}</svg></button>}
@@ -2423,7 +2433,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
             </div>
           </section>
         </div>}
-        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}{!audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span><span>{hasRemoteStream || reportedRemotePresent ? remoteName : reportedRemotePresent === null ? t('جارٍ التحقق من حضور الطرف الآخر') : t("{v0} بانتظار الدخول", { v0: remoteName })}{hasRemoteStream && !remoteAudioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span></div></aside>}
+        {sidePanel === 'participants' && <aside className="call-side-panel" aria-label={t("المشاركون")}><div className="panel-title"><strong>{t("المشاركون")}</strong><button type="button" onClick={() => setSidePanel(null)} aria-label={t("إغلاق")}>×</button></div><div className="participant-list"><span>{localName}{t(" - أنت")}{!audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span><span>{hasRemoteStream || reportedRemotePresent ? remoteName : reportedRemotePresent === null ? t('جارٍ التحقق من حضور الطرف الآخر') : t("{v0} بانتظار الدخول", { v0: remoteName })}{hasRemoteStream && !remoteAudioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span>{groupParticipants.filter(peer => !peer.primary).map(peer => <span key={peer.id}>{peer.name}{!peer.audioEnabled && <MicOff size={14} aria-label={t('المايك مغلق')} />}</span>)}</div></aside>}
       </div>
 
       <div className="call-toolbar" aria-label={t("أدوات المكالمة")}>
@@ -2452,7 +2462,7 @@ export function VideoRoom({ assignedRole: role, assignedRoom: roomId, authorize,
           {remoteTyping && <div className="call-typing-indicator" role="status" aria-label={t("{v0} يكتب", { v0: remoteName })}><span /><span /><span /></div>}
           <div ref={chatEndRef} />
         </div>
-        <form className="call-chat-compose" onSubmit={sendChatMessage}><input aria-label={t("رسالة جديدة")} value={chatDraft} onChange={event => { setChatDraft(event.target.value); updateLocalTyping(Boolean(event.target.value.trim())); }} onBlur={() => updateLocalTyping(false)} placeholder={t("اكتب رسالة…")} maxLength={2000} disabled={!onSendMessage || chatSending} /><button type="submit" disabled={!chatDraft.trim() || !onSendMessage || chatSending} aria-label={t("إرسال الرسالة")}><MessageSquare size={18} /></button></form>
+        <form className="call-chat-compose" onSubmit={sendChatMessage}><input aria-label={t("رسالة جديدة")} value={chatDraft} onChange={event => { setChatDraft(event.target.value); updateLocalTyping(Boolean(event.target.value.trim())); }} onBlur={() => updateLocalTyping(false)} placeholder={t("اكتب رسالة…")} maxLength={2000} disabled={(!onSendMessage && !groupSession) || chatSending} /><button type="submit" disabled={!chatDraft.trim() || (!onSendMessage && !groupSession) || chatSending} aria-label={t("إرسال الرسالة")}><MessageSquare size={18} /></button></form>
       </aside>}
     </section>
   );
