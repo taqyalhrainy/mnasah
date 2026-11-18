@@ -266,7 +266,7 @@ function PortalApp() {
       {portal !== 'admin' && user.status === 'active' && <div hidden={view !== 'messages'}><Suspense fallback={<p role="status">{t("جارٍ تجهيز الرسائل…")}</p>}><DirectMessages key={user.id} portal={portal} user={user} chat={chat} active={view === 'messages'} /></Suspense></div>}
       </div></section>
     {iosGuideOpen && <IosInstallGuide onClose={() => setIosGuideOpen(false)} />}
-    {(requireNotifications || deviceNotifications.consentOpen && !deviceNotifications.enabled) && deviceNotifications.permission !== 'denied' && <div className="notification-help-backdrop">
+    {(requireNotifications || deviceNotifications.consentOpen) && deviceNotifications.permission === 'default' && <div className="notification-help-backdrop">
       <dialog open className="notification-help notification-consent" aria-modal="true" aria-labelledby="notification-consent-title" onCancel={event => event.preventDefault()} onKeyDown={event => { if (event.key === 'Escape') event.preventDefault(); }}>
         <BellRing size={30} /><h2 id="notification-consent-title">{t('تفعيل إشعارات الجهاز')}</h2>
         <p>{t('فعّل الإشعارات لتعرف فور دخول الطرف الآخر للحصة وتصلك الرسائل والحجوزات.')}</p>

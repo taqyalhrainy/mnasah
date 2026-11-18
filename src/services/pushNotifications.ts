@@ -6,11 +6,23 @@ const decodeVapidKey = (value: string) => {
   return Uint8Array.from(raw, character => character.charCodeAt(0));
 };
 
-export async function ensureDevicePush(portal: Portal, askPermission = false) {
+const pendingRegistrations = new Map<Portal, Promise<boolean>>();
+
+export async function ensureDevicePush(portal: Portal, askPermission = false, onPermission?: (permission: NotificationPermission) => void) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return false;
   let permission = Notification.permission;
   if (permission === 'default' && askPermission) permission = await Notification.requestPermission();
+  onPermission?.(permission);
   if (permission !== 'granted') return false;
+  const pending = pendingRegistrations.get(portal);
+  if (pending) return pending;
+  const registration = registerDevicePush(portal);
+  pendingRegistrations.set(portal, registration);
+  try { return await registration; }
+  finally { if (pendingRegistrations.get(portal) === registration) pendingRegistrations.delete(portal); }
+}
+
+async function registerDevicePush(portal: Portal) {
   const config = await request<{ vapidPublicKey?: string }>('public/config');
   if (!config.vapidPublicKey) throw new Error('تعذر تفعيل تنبيهات الهاتف مؤقتًا. أعد المحاولة.');
   const registration = await readyPushWorker();

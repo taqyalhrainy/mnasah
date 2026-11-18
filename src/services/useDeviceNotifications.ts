@@ -33,7 +33,14 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
         if (!value && 'Notification' in window && Notification.permission === 'granted') value = await ensureDevicePush(portal);
         if (alive && version === syncVersion.current) { setEnabled(value); setChecked(true); }
       } catch { /* Keep the last known state; an offline device has not revoked permission. */ }
-      finally { if (alive && version === syncVersion.current) { setChecked(true); if (currentPermission !== 'granted') setEnabled(false); } }
+      finally {
+        if (alive && version === syncVersion.current) {
+          const latestPermission = 'Notification' in window ? Notification.permission : 'unsupported';
+          setPermission(latestPermission); setChecked(true);
+          if (latestPermission !== 'default') setConsentOpen(false);
+          if (latestPermission !== 'granted') setEnabled(false);
+        }
+      }
     };
     const visible = () => { if (document.visibilityState === 'visible') sync(); };
     let permissionStatus: PermissionStatus | undefined;
@@ -41,8 +48,8 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
       if (!alive) return;
       permissionStatus = status; status.addEventListener('change', sync);
     }).catch(() => undefined);
-    sync(); document.addEventListener('visibilitychange', visible); window.addEventListener('focus', sync);
-    return () => { alive = false; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', sync); permissionStatus?.removeEventListener('change', sync); };
+    sync(); document.addEventListener('visibilitychange', visible); window.addEventListener('focus', sync); window.addEventListener('online', sync);
+    return () => { alive = false; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', sync); window.removeEventListener('online', sync); permissionStatus?.removeEventListener('change', sync); };
   }, [portal, userId]);
   async function enable(showPermissionHelp = false) {
     if (!userId || busy) return;
@@ -55,7 +62,10 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
         return;
       }
       // Keep the OS permission request in the original button's user activation.
-      const ready = await ensureDevicePush(portal, true);
+      const ready = await ensureDevicePush(portal, true, grantedPermission => {
+        setPermission(grantedPermission);
+        if (grantedPermission !== 'default') { setConsentOpen(false); setPermissionHelpOpen(false); }
+      });
       setPermission('Notification' in window ? Notification.permission : 'unsupported');
       setEnabled(ready);
       if (ready) { setPermissionHelpOpen(false); setHint('تم تفعيل التنبيهات على هذا الجهاز، حتى عند إغلاق التطبيق.'); }
@@ -79,5 +89,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, consentOpen, acceptConsent: () => { void enable(); }, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && !enabled, toggle, recheck: () => enable(true), test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, consentOpen, acceptConsent: () => { void enable(); }, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && permission === 'default', toggle, recheck: () => enable(true), test };
 }
