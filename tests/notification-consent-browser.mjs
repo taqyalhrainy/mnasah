@@ -11,8 +11,8 @@ try {
   for (const result of ['granted', 'denied']) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     await context.addInitScript(({ result, publicKey }) => {
-      const state = window.__push = { permission: 'default', calls: 0, subscribed: false, gesture: false };
-      Object.defineProperty(window, 'Notification', { configurable: true, value: { get permission() { return state.permission; }, requestPermission() { state.calls++; state.gesture = navigator.userActivation.isActive; state.permission = result; return Promise.resolve(result); } } });
+      const state = window.__push = { permission: localStorage.getItem('test-notification-permission') || 'default', calls: 0, subscribed: false, gesture: false };
+      Object.defineProperty(window, 'Notification', { configurable: true, value: { get permission() { return state.permission; }, requestPermission() { state.calls++; state.gesture = navigator.userActivation.isActive; state.permission = result; localStorage.setItem('test-notification-permission', result); return Promise.resolve(result); } } });
       Object.defineProperty(window, 'PushManager', { configurable: true, value: function() {} });
       const bytes = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
       const subscription = { endpoint: 'https://web.push.apple.com/test-owner-phone', options: { applicationServerKey: bytes.buffer }, toJSON: () => ({ endpoint: subscription.endpoint, keys: { p256dh: publicKey, auth: 'AAAAAAAAAAAAAAAAAAAAAA' } }) };
@@ -42,17 +42,30 @@ try {
     assert.equal(await page.evaluate(() => window.__push.gesture), true);
     if (result === 'granted') {
       await dialog.waitFor({ state: 'detached' }); assert.equal(registered, true);
+      await page.evaluate(() => { window.__push.permission = 'denied'; window.dispatchEvent(new Event('focus')); });
+      await page.locator('details.account-menu > summary').click();
+      await page.waitForFunction(() => document.querySelector('.device-notification-toggle')?.getAttribute('aria-pressed') === 'false');
+      assert.equal(await dialog.count(), 0, 'revoking permission must not lock the user out');
     } else {
+      await dialog.waitFor({ state: 'detached' });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.locator('details.account-menu > summary').click();
+      await page.locator('.device-notification-toggle').waitFor();
+      assert.equal(await dialog.count(), 0, 'previously blocked devices can use the site after reopening');
+      assert.equal(await page.evaluate(() => window.__push.calls), 0, 'do not automatically retry native permission after a block');
+      await page.locator('.device-notification-toggle').click();
       await dialog.getByRole('button', { name: 'تحقق مرة أخرى', exact: true }).waitFor();
-      assert.equal(await page.locator('.notification-help').count(), 1, 'only the blocked-permission help remains');
-      await page.keyboard.press('Escape'); assert.equal(await dialog.isVisible(), true);
       await dialog.getByRole('button', { name: 'تحقق مرة أخرى', exact: true }).tap();
-      assert.equal(await page.evaluate(() => window.__push.calls), 1, 'do not pretend the browser can reprompt a denied permission');
+      assert.equal(await page.evaluate(() => window.__push.calls), 0, 'manual help does not repeat a blocked native prompt');
+      await dialog.getByRole('button', { name: 'إغلاق', exact: true }).tap();
+      await dialog.waitFor({ state: 'detached' });
+      if (!await page.locator('.device-notification-toggle').isVisible()) await page.locator('details.account-menu > summary').click();
+      await page.locator('.device-notification-toggle').click();
       await page.evaluate(() => { window.__push.permission = 'granted'; });
       await dialog.getByRole('button', { name: 'تحقق مرة أخرى', exact: true }).tap();
       await dialog.waitFor({ state: 'detached' }); assert.equal(registered, true);
     }
     assert.deepEqual(errors, []); await context.close();
   }
-  console.log('Mandatory notification consent persists; grant enables push; denied devices receive persistent settings help and recover after permission changes.');
+  console.log('First consent stays required; native denial/revocation never blocks the site, including after reload; manual permission help is dismissible and can recover.');
 } finally { await browser.close(); await new Promise(resolve => io.close(() => httpServer.close(resolve))); }

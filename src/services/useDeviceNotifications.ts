@@ -21,7 +21,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
   const isDesktop = !isAndroid && !isIos;
   useEffect(() => {
     let alive = true;
-    setEnabled(false); setHint(''); setChecked(false); setConsentOpen(false);
+    setEnabled(false); setHint(''); setChecked(false); setConsentOpen(false); setPermissionHelpOpen(false);
     if (!userId) return;
     const sync = async () => {
       const version = ++syncVersion.current;
@@ -44,13 +44,13 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     sync(); document.addEventListener('visibilitychange', visible); window.addEventListener('focus', sync);
     return () => { alive = false; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', sync); permissionStatus?.removeEventListener('change', sync); };
   }, [portal, userId]);
-  async function enable() {
+  async function enable(showPermissionHelp = false) {
     if (!userId || busy) return;
     setBusy(true); setHint('');
     ++syncVersion.current;
     try {
       if ('Notification' in window && Notification.permission === 'denied') {
-        setPermission('denied'); setEnabled(false); setPermissionHelpOpen(true);
+        setPermission('denied'); setEnabled(false); setConsentOpen(false); setPermissionHelpOpen(showPermissionHelp);
         setHint('الإذن ما زال محظوراً. غيّره إلى سماح من إعدادات الجهاز أو المتصفح، ثم اضغط تحقق مرة أخرى.');
         return;
       }
@@ -59,7 +59,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
       setPermission('Notification' in window ? Notification.permission : 'unsupported');
       setEnabled(ready);
       if (ready) { setPermissionHelpOpen(false); setHint('تم تفعيل التنبيهات على هذا الجهاز، حتى عند إغلاق التطبيق.'); }
-      else if ('Notification' in window && Notification.permission === 'denied') { setPermissionHelpOpen(true); setHint('إذن التنبيهات مرفوض. فعّله من إعدادات التنبيهات في الهاتف، ثم حاول مجددًا.'); }
+      else if ('Notification' in window && Notification.permission === 'denied') { setConsentOpen(false); setPermissionHelpOpen(showPermissionHelp); setHint('إذن التنبيهات مرفوض. فعّله من إعدادات التنبيهات في الهاتف، ثم حاول مجددًا.'); }
       else if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) setHint('افتح التطبيق من أيقونته على الشاشة الرئيسية. تنبيهات الآيفون تحتاج iOS 16.4 أو أحدث.');
       else setHint('لم تُفعّل تنبيهات الجهاز. وافق على الإذن، أو افتح التطبيق المثبّت من Chrome وحاول مجددًا.');
     } catch (error) { setPermission('Notification' in window ? Notification.permission : 'unsupported'); setEnabled(false); setHint(notificationError(error)); }
@@ -69,7 +69,7 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     if (!userId || busy) return;
     if (!enabled) {
       if ('Notification' in window && Notification.permission === 'default') { setHint(''); setConsentOpen(true); return; }
-      return enable();
+      return enable(true);
     }
   }
   async function test() {
@@ -79,5 +79,5 @@ export function useDeviceNotifications(portal: Portal, userId?: string) {
     catch (error) { setHint(notificationError(error)); }
     finally { setBusy(false); }
   }
-  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, consentOpen, acceptConsent: () => { void enable(); }, needsPermission: checked && !enabled, toggle, recheck: enable, test };
+  return { enabled, busy, hint, checked, permission, supported, isAndroid, isDesktop, permissionHelpOpen, consentOpen, acceptConsent: () => { void enable(); }, closePermissionHelp: () => setPermissionHelpOpen(false), needsPermission: checked && !enabled, toggle, recheck: () => enable(true), test };
 }

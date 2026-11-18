@@ -1,11 +1,12 @@
-import { BellRing } from 'lucide-react';
+import { BellRing, X } from 'lucide-react';
 import { t } from '../i18n/preferences';
 
-export function NotificationPermissionHelp({ busy, hint, onCheck }: { busy: boolean; hint: string; onCheck: () => void }) {
+export function NotificationPermissionHelp({ busy, hint, onCheck, onClose }: { busy: boolean; hint: string; onCheck: () => void; onClose: () => void }) {
   const android = /Android/i.test(navigator.userAgent);
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  return <div className="notification-help-backdrop">
-    <dialog open className="notification-help" aria-modal="true" aria-labelledby="notification-help-title" onKeyDown={event => { if (event.key === 'Escape') event.preventDefault(); }} onCancel={event => event.preventDefault()}>
+  return <div className="notification-help-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <dialog open className="notification-help" aria-modal="true" aria-labelledby="notification-help-title" onKeyDown={event => { if (event.key === 'Escape') onClose(); }} onCancel={event => { event.preventDefault(); onClose(); }}>
+      <button type="button" className="icon-button" aria-label={t('إغلاق')} onClick={onClose}><X size={18} /></button>
       <BellRing size={30} /><h2 id="notification-help-title">{t('السماح بالإشعارات مجدداً')}</h2>
       <p>{t('تم حظر الإذن سابقاً. المتصفح يحتاج تغيير الإذن من إعداداته قبل أن يستطيع الموقع طلبه مجدداً.')}</p>
       <code dir="ltr">{location.hostname}</code>
